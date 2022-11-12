@@ -49,11 +49,15 @@ impl FileMetadata {
 			Err(FileMetadataError::IncorrectExtension)
 		}
 	}
+
+	pub(crate) fn get_file_metadata_toml(&self) -> &FileMetadataTOML {
+		&self.values
+	}
 }
 
 /// Represents the data found in a `.toml` metadata file.
 #[derive(Debug, Deserialize, Serialize)]
-struct FileMetadataTOML {
+pub(crate) struct FileMetadataTOML {
 	/// String key/value pairs from the `values` table.
-	values: HashMap<String, Value>,
+	pub(crate) values: HashMap<String, Value>,
 }
