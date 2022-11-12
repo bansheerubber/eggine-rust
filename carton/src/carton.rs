@@ -5,6 +5,7 @@ use crate::stream::Stream;
 use crate::StringTable;
 use crate::stream::writing::write_u8;
 use crate::stream::writing::write_char;
+use crate::translation_layer::FileEncoder;
 
 /// Representation of a carton file.
 #[derive(Debug)]
@@ -48,6 +49,22 @@ impl EncodeMut for Carton {
 		write_char('O', vector);
 		write_char('N', vector);
 		write_u8(self.version, vector);
+
+		let mut positions = Vec::new();
+		for file in self.file_table.get_files() {
+			let mut encoder = FileEncoder {
+				file,
+				position: 0,
+				string_table: &mut self.string_table,
+			};
+
+			encoder.encode_mut(vector);
+			positions.push((String::from(file.get_file_name()), encoder.position));
+		}
+
+		for (file_name, position) in positions {
+			self.file_table.update_position(&file_name, position);
+		}
 
 		self.string_table.encode(vector);
 	}

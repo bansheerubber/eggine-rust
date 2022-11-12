@@ -8,5 +8,7 @@ fn main() {
 	carton.string_table.insert("test4");
 	carton.string_table.insert("test5");
 
+	carton.add_file("scratch/test/file.txt");
+
 	carton.to_file("scratch/test.carton");
 }

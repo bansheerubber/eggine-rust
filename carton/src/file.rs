@@ -71,6 +71,10 @@ impl File {
 		})
 	}
 
+	pub fn get_compression(&self) -> &Compression {
+		&self.compression
+	}
+
 	pub fn get_file_name(&self) -> &str {
 		&self.file_name
 	}

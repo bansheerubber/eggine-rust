@@ -20,6 +20,10 @@ impl FileTable {
 	pub fn update_position(&mut self, file_name: &str, position: u64) {
 		self.positions.insert(String::from(file_name), position);
 	}
+
+	pub fn get_files(&self) -> &Vec<File> {
+		&self.files
+	}
 }
 
 impl Encode for FileTable {
