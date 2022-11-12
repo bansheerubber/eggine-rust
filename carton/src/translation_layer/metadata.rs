@@ -8,8 +8,8 @@ use crate::stream::writing::write_vlq;
 /// Encodes a `FileMetadata` object
 #[derive(Debug)]
 pub(crate) struct FileMetadataEncoder<'a> {
-	carton: Arc<Mutex<Carton>>,
-	metadata: &'a FileMetadata,
+	pub(crate) carton: Arc<Mutex<Carton>>,
+	pub(crate) metadata: &'a FileMetadata,
 }
 
 impl Encode for FileMetadataEncoder<'_> {

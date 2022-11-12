@@ -75,6 +75,10 @@ impl File {
 		&self.file_name
 	}
 
+	pub fn get_metadata(&self) -> &Option<FileMetadata> {
+		&self.metadata
+	}
+
 	pub fn get_size(&self) -> u64 {
 		self.size
 	}
