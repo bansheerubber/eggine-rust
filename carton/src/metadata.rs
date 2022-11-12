@@ -29,7 +29,7 @@ impl FileMetadata {
 	///
 	/// If parsing fails, the `FileMetadataError` structure can be interrogated to determine the `toml::de::Error` that
 	/// was returned.
-	pub fn read_file(file_name: &str) -> Result<FileMetadata, FileMetadataError> {
+	pub fn from_file(file_name: &str) -> Result<FileMetadata, FileMetadataError> {
 		let length = file_name.len();
 		if &file_name[length - 5..] == ".toml" {
 			let Ok(contents) = std::fs::read_to_string(file_name) else {

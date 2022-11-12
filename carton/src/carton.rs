@@ -3,7 +3,6 @@ use crate::stream::Stream;
 use crate::StringTable;
 use crate::stream::writing::write_byte;
 use crate::stream::writing::write_char;
-use crate::stream::writing::write_vlq;
 
 /// Representation of a carton file.
 #[derive(Debug)]
