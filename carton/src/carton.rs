@@ -66,6 +66,7 @@ impl EncodeMut for Carton {
 			self.file_table.update_position(&file_name, position);
 		}
 
+		self.file_table.encode(vector);
 		self.string_table.encode(vector);
 	}
 }

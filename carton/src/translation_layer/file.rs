@@ -32,10 +32,8 @@ impl EncodeMut for FileEncoder<'_> {
 		self.file.get_compression().encode(vector);
 
 		write_u64(self.file.get_size(), vector);
-		println!("{}", self.file.get_size());
 		write_string(self.file.get_file_name(), vector);
 
-		let mut file = fs::File::open(self.file.get_file_name()).unwrap();
-		file.read_to_end(vector).unwrap();
+		fs::File::open(self.file.get_file_name()).unwrap().read_to_end(vector).unwrap();
 	}
 }
