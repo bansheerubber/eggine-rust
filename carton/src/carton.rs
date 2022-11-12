@@ -1,7 +1,7 @@
 use crate::stream::Encode;
 use crate::stream::Stream;
 use crate::StringTable;
-use crate::stream::writing::write_byte;
+use crate::stream::writing::write_u8;
 use crate::stream::writing::write_char;
 
 /// Representation of a carton file.
@@ -38,7 +38,7 @@ impl Encode for Carton {
 		write_char('T', vector);
 		write_char('O', vector);
 		write_char('N', vector);
-		write_byte(self.version, vector);
+		write_u8(self.version, vector);
 
 		self.string_table.encode(vector);
 	}

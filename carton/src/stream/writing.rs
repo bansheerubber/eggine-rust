@@ -1,4 +1,4 @@
-pub fn write_byte(byte: u8, vector: &mut Vec<u8>) {
+pub fn write_u8(byte: u8, vector: &mut Vec<u8>) {
 	vector.push(byte);
 }
 
@@ -10,7 +10,7 @@ pub fn write_char(byte: char, vector: &mut Vec<u8>) {
 pub fn write_u16(number: u16, vector: &mut Vec<u8>) {
 	let mut shift = number;
 	for _ in 0..2 {
-		write_byte((shift & 0xFF) as u8, vector);
+		write_u8((shift & 0xFF) as u8, vector);
 		shift >>= 8;
 	}
 }
@@ -19,7 +19,7 @@ pub fn write_u16(number: u16, vector: &mut Vec<u8>) {
 pub fn write_u32(number: u32, vector: &mut Vec<u8>) {
 	let mut shift = number;
 	for _ in 0..4 {
-		write_byte((shift & 0xFF) as u8, vector);
+		write_u8((shift & 0xFF) as u8, vector);
 		shift >>= 8;
 	}
 }
@@ -28,7 +28,7 @@ pub fn write_u32(number: u32, vector: &mut Vec<u8>) {
 pub fn write_u64(number: u64, vector: &mut Vec<u8>) {
 	let mut shift = number;
 	for _ in 0..8 {
-		write_byte((shift & 0xFF) as u8, vector);
+		write_u8((shift & 0xFF) as u8, vector);
 		shift >>= 8;
 	}
 }
