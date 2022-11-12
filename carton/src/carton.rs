@@ -1,6 +1,6 @@
 use crate::file::File;
 use crate::file_table::FileTable;
-use crate::stream::Encode;
+use crate::stream::{ Encode, EncodeMut, };
 use crate::stream::Stream;
 use crate::StringTable;
 use crate::stream::writing::write_u8;
@@ -26,10 +26,9 @@ impl Default for Carton {
 
 impl Carton {
 	/// Write the carton to a file.
-	pub fn to_file(&self, file_name: &str) {
+	pub fn to_file(&mut self, file_name: &str) {
 		let mut stream = Stream::default();
-		stream.encode(self);
-
+		stream.encode_mut(self);
 		stream.to_file(file_name);
 	}
 
@@ -39,8 +38,8 @@ impl Carton {
 	}
 }
 
-impl Encode for Carton {
-	fn encode(&self, vector: &mut Vec<u8>) {
+impl EncodeMut for Carton {
+	fn encode_mut(&mut self, vector: &mut Vec<u8>) {
 		// write magic number and the version
 		write_char('C', vector);
 		write_char('A', vector);

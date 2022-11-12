@@ -1,26 +1,22 @@
-use std::sync::{ Arc, Mutex };
-
-use crate::Carton;
+use crate::StringTable;
 use crate::metadata::FileMetadata;
-use crate::stream::Encode;
+use crate::stream::EncodeMut;
 use crate::stream::writing::write_vlq;
 
 /// Encodes a `FileMetadata` object
 #[derive(Debug)]
 pub(crate) struct FileMetadataEncoder<'a> {
-	pub(crate) carton: Arc<Mutex<Carton>>,
 	pub(crate) metadata: &'a FileMetadata,
+	pub(crate) string_table: &'a mut StringTable,
 }
 
-impl Encode for FileMetadataEncoder<'_> {
-	fn encode(&self, vector: &mut Vec<u8>) {
-		let mut carton = self.carton.lock().unwrap();
-
+impl EncodeMut for FileMetadataEncoder<'_> {
+	fn encode_mut(&mut self, vector: &mut Vec<u8>) {
 		for (key, value) in self.metadata.get_file_metadata_toml().values.iter() {
-			let id = if let Some(id) = carton.string_table.get(&key) {
+			let id = if let Some(id) = self.string_table.get(&key) {
 				id
 			} else {
-				carton.string_table.insert(&key)
+				self.string_table.insert(&key)
 			};
 
 			// write the key's string ID
@@ -28,10 +24,10 @@ impl Encode for FileMetadataEncoder<'_> {
 
 			match value {
 				toml::Value::String(value) => {
-					let id = if let Some(id) = carton.string_table.get(&value) {
+					let id = if let Some(id) = self.string_table.get(&value) {
 						id
 					} else {
-						carton.string_table.insert(&value)
+						self.string_table.insert(&value)
 					};
 
 					// write the value's string ID
