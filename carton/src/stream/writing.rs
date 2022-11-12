@@ -35,8 +35,8 @@ pub fn write_u64(number: u64, vector: &mut Vec<u8>) {
 
 /// Writes a variable length quantity integer. The 16th bit in a 2 byte pair represents if the number has another two
 /// bits. 1 if there are, 0 if there aren't.
-pub fn write_vlq(id: u64, vector: &mut Vec<u8>) {
-	let mut shift = id;
+pub fn write_vlq(number: u64, vector: &mut Vec<u8>) {
+	let mut shift = number;
 	for _ in 0..4 {
 		let number = if shift >> 15 != 0 {
 			(shift as u16 & 0x7FFF) | 0x8000

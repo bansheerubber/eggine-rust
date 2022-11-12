@@ -1,3 +1,4 @@
+pub mod reading;
 pub mod writing;
 
 /// Byte stream for reading/writing data formats into a file, over the network, etc. Streams do not describe the data
