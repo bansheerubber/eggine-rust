@@ -70,4 +70,12 @@ impl File {
 			size: std::fs::metadata(file_name).unwrap().len(),
 		})
 	}
+
+	pub fn get_file_name(&self) -> &str {
+		&self.file_name
+	}
+
+	pub fn get_size(&self) -> u64 {
+		self.size
+	}
 }
