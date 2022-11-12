@@ -3,8 +3,7 @@ use crate::file_table::FileTable;
 use crate::stream::{ Encode, EncodeMut, };
 use crate::stream::Stream;
 use crate::StringTable;
-use crate::stream::writing::write_u8;
-use crate::stream::writing::write_char;
+use crate::stream::writing::{ write_char, write_u8, write_u64, };
 use crate::translation_layer::FileEncoder;
 
 /// Representation of a carton file.
@@ -50,6 +49,10 @@ impl EncodeMut for Carton {
 		write_char('N', vector);
 		write_u8(self.version, vector);
 
+		// reserve spot for file table position
+		let file_table_pointer = vector.len();
+		write_u64(0, vector);
+
 		let mut positions = Vec::new();
 		for file in self.file_table.get_files() {
 			let mut encoder = FileEncoder {
@@ -66,7 +69,15 @@ impl EncodeMut for Carton {
 			self.file_table.update_position(&file_name, position);
 		}
 
+		let file_table_position = vector.len() as u64;
 		self.file_table.encode(vector);
 		self.string_table.encode(vector);
+
+		// write file table position at the top of the file
+		let mut position_vector = Vec::new();
+		write_u64(file_table_position, &mut position_vector);
+		for i in 0..4 {
+			vector[i + file_table_pointer] = position_vector[i];
+		}
 	}
 }
