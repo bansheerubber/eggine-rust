@@ -46,7 +46,7 @@ pub fn read_vlq(vector: &[u8]) -> (u64, StreamPositionDelta) {
 	let mut number = 0;
 	let mut read = 0;
 	loop {
-		let (bytes, _) = read_u16(&vector[..read]);
+		let (bytes, _) = read_u16(&vector[read..]);
 		number |= (bytes as u64 & 0x7FFF) << (read / 2 * 15);
 		read += 2;
 
