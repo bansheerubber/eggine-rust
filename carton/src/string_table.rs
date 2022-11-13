@@ -33,6 +33,11 @@ impl StringTable {
 			None
 		}
 	}
+
+	/// Get a string by ID from the string table
+	pub fn get_from_index(&self, index: u64) -> Option<&String> {
+		self.sorted_mapping.get(&index)
+	}
 }
 
 impl Encode for StringTable {

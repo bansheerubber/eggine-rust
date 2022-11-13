@@ -46,6 +46,14 @@ impl FileMetadata {
 		}
 	}
 
+	/// Create a metadata object from a pre-existing `toml::Value`
+	pub fn from_toml_value(file_name: &str, value: toml::Value) -> FileMetadata {
+		FileMetadata {
+			file_name: String::from(file_name),
+			value,
+		}
+	}
+
 	pub(crate) fn get_file_metadata_toml(&self) -> &toml::Value {
 		&self.value
 	}
