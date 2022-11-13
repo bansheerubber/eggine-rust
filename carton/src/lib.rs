@@ -6,6 +6,6 @@ pub mod stream;
 pub(crate) mod string_table;
 pub(crate) mod translation_layer;
 
-pub use carton::Carton;
+pub use self::carton::Carton;
 pub(crate) use file_table::FileTable;
 pub use string_table::StringTable;

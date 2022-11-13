@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::StringTable;
 use crate::metadata::FileMetadata;
 use crate::stream::EncodeMut;
@@ -154,10 +152,4 @@ impl EncodeMut for FileMetadataEncoder<'_> {
 		// TODO root should always be a table? 7 is always written first?
 		encode_value(self.metadata.get_file_metadata_toml(), vector, self.string_table);
 	}
-}
-
-/// Intermediate representation of a `FileMetadata` object.
-#[derive(Debug)]
-pub(crate) struct FileMetadataDecoder {
-
 }

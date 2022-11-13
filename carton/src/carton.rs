@@ -1,7 +1,7 @@
 use walkdir::WalkDir;
 
 use crate::file::File;
-use crate::file_table::FileTable;
+use crate::FileTable;
 use crate::stream::{ Decode, Encode, EncodeMut, Stream, };
 use crate::stream::reading::{ read_char, read_u8, read_u64, };
 use crate::stream::writing::{ write_char, write_u8, write_u64, };
