@@ -6,6 +6,7 @@ use crate::stream::{ Decode, Encode, EncodeMut, Stream, };
 use crate::stream::reading::{ read_char, read_u8, read_u64, };
 use crate::stream::writing::{ write_char, write_u8, write_u64, };
 use crate::StringTable;
+use crate::translation_layer::metadata::decode_value;
 use crate::translation_layer::{ FileDecoder, FileEncoder, };
 
 const CARTON_VERSION: u8 = 2;
@@ -157,13 +158,32 @@ impl Decode for Carton {
 
 		// load metadata and files from carton
 		let mut files = Vec::new();
-		for (name,  position) in carton.file_table.get_metadata_positions() {
-			let (file, _) = FileDecoder::decode(&vector[(*position as usize)..]);
-			files.push(file);
+		for (file_name, position) in carton.file_table.get_metadata_positions() {
+			let mut vector = &vector[(*position as usize)..];
+
+			let (check_value, _) = read_u8(vector);
+			let metadata = if check_value == 7 {
+				let (metadata, new_position) = decode_value(vector, &mut carton.string_table);
+				vector = new_position;
+				Some(metadata)
+			} else {
+				None
+			};
+
+			let (file, _) = FileDecoder::decode(vector);
+
+			if &file.file_name != file_name {
+				panic!("unexpected file name");
+			}
+
+			files.push((file, *position, metadata));
 		}
 
 		// finish off loading the file table
-		println!("{:?}", files);
+		for (file, position, metadata) in files {
+			carton.file_table.update_position(&file.file_name, position, position + file.file_offset);
+			carton.file_table.add_from_intermediate(File::from_intermediate(file, metadata));
+		}
 
 		return (carton, vector);
 	}

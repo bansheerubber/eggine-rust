@@ -27,6 +27,11 @@ impl FileTable {
 		self.files.push(file);
 	}
 
+	/// Adds a standalone file from the intermediate decode.
+	pub(crate) fn add_from_intermediate(&mut self, file: File) {
+		self.files.push(file);
+	}
+
 	/// Add a file's metadata position into the table during the decode process.
 	pub(crate) fn add_position_from_decode(&mut self, file_name: String, metadata_position: u64) {
 		self.metadata_positions.insert(file_name.clone(), metadata_position);
