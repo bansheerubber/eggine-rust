@@ -21,27 +21,27 @@ pub fn read_u16(vector: &[u8]) -> (u16, &[u8]) {
 }
 
 /// Reads 4 bytes in little-endian format
-pub fn read_u32(vector: &[u8]) -> (u16, &[u8]) {
+pub fn read_u32(vector: &[u8]) -> (u32, &[u8]) {
 	let mut vector = vector;
 	let mut number = 0;
 	for i in 0..4 {
 		let (byte, new_position) = read_u8(vector);
 		vector = new_position;
 
-		number |= (byte as u16) << (i * 8);
+		number |= (byte as u32) << (i * 8);
 	}
 	return (number, vector);
 }
 
 /// Reads 8 bytes in little-endian format
-pub fn read_u64(vector: &[u8]) -> (u16, &[u8]) {
+pub fn read_u64(vector: &[u8]) -> (u64, &[u8]) {
 	let mut vector = vector;
 	let mut number = 0;
 	for i in 0..8 {
 		let (byte, new_position) = read_u8(vector);
 		vector = new_position;
 
-		number |= (byte as u16) << (i * 8);
+		number |= (byte as u64) << (i * 8);
 	}
 	return (number, vector);
 }
