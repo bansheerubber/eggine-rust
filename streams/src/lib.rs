@@ -12,11 +12,11 @@ pub use read_stream::StreamPosition;
 pub use read_stream::StreamPositionDelta;
 pub use write_stream::WriteStream;
 
+/// Test the `u8` encoding reference implementation of read/write streams.
 #[cfg(test)]
 mod tests {
-	use super::u8_io::reading::{ read_char, read_string, read_u8, read_u16, read_u32, read_u64, read_vlq, };
-
 	use super::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
+	use super::u8_io::reading::{ read_char, read_string, read_u8, read_u16, read_u32, read_u64, read_vlq, };
 	use super::u8_io::U8ReadStream;
 	use super::u8_io::U8WriteStream;
 	use super::u8_io::writing::{ write_char, write_string, write_u8, write_u16, write_u32, write_u64, write_vlq, };
@@ -135,10 +135,11 @@ mod tests {
 	}
 
 	impl ReadStream<u8> for TestReadStream {
-    type Error = TestStreamError;
+    type DecodedType = TestObject<'static>;
+		type Error = TestStreamError;
 		type Import = Vec<u8>;
 
-    fn decode<T: Decode<u8, Self>>(&mut self) -> T {
+    fn decode(&mut self) -> Self::DecodedType {
 			TestObject::decode(self).0
     }
 
@@ -341,12 +342,21 @@ mod tests {
 
 	#[test]
 	fn can_decode() {
-		let mut stream = TestWriteStream::default();
-		assert!(!stream.can_export());
-		stream.encode(&TEST_OBJECT);
-		assert!(stream.can_export());
+		let mut stream = TestReadStream::default();
+		assert!(!stream.can_decode());
+		stream.import(vec![0, 1, 2, 3]).expect("Could not import TestReadStream");
+		assert!(stream.can_decode());
+	}
 
+	#[test]
+	fn has_equality() {
+		let mut stream = TestWriteStream::default();
+		stream.encode(&TEST_OBJECT);
 		let exported = stream.export().expect("Could not export TestWriteStream");
-		assert!(exported.len() > 0);
+
+		let mut stream = TestReadStream::default();
+		stream.import(exported).expect("Could not import TestReadStream");
+		let test_object = stream.decode();
+		assert!(test_object == TEST_OBJECT);
 	}
 }
