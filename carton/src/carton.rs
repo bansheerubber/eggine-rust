@@ -1,10 +1,12 @@
 use crate::file::File;
 use crate::file_table::FileTable;
-use crate::stream::{ Encode, EncodeMut, };
-use crate::stream::Stream;
-use crate::StringTable;
+use crate::stream::{ Decode, Encode, EncodeMut, Stream, };
+use crate::stream::reading::{ read_char, read_u8, read_u64, };
 use crate::stream::writing::{ write_char, write_u8, write_u64, };
+use crate::StringTable;
 use crate::translation_layer::FileEncoder;
+
+const CARTON_VERSION: u8 = 2;
 
 /// Representation of a carton file.
 #[derive(Debug)]
@@ -19,7 +21,7 @@ impl Default for Carton {
 		Carton {
 			file_table: FileTable::default(),
 			string_table: StringTable::default(),
-			version: 2,
+			version: CARTON_VERSION,
 		}
 	}
 }
@@ -79,5 +81,33 @@ impl EncodeMut for Carton {
 		for i in 0..4 {
 			vector[i + file_table_pointer] = position_vector[i];
 		}
+	}
+}
+
+impl Decode for Carton {
+	fn decode(vector: &[u8]) -> (Self, &[u8]) {
+		let mut magic_number_pointer = vector;
+		let carton = Carton::default();
+
+		let mut magic = String::new();
+		for _ in 0..6 {
+			let (character, new_position) = read_char(magic_number_pointer);
+			magic_number_pointer = new_position;
+			magic.push(character);
+		}
+
+		if magic != "CARTON" {
+			panic!("Invalid magic number");
+		}
+
+		let (version, new_position) = read_u8(magic_number_pointer);
+		magic_number_pointer = new_position;
+		if version != CARTON_VERSION {
+			panic!("Invalid version");
+		}
+
+		let (file_table_pointer, _) = read_u64(magic_number_pointer);
+
+		return (carton, vector);
 	}
 }

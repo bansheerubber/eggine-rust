@@ -47,5 +47,5 @@ pub trait Encode {
 
 /// Decode an object from a byte slice. Returns the deserialized object along with how many bytes were read.
 pub trait Decode: Sized {
-	fn decode(vector: &[u8]) -> (Self, u64);
+	fn decode(vector: &[u8]) -> (Self, &[u8]);
 }
