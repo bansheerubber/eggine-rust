@@ -56,7 +56,7 @@ impl Carton {
 			let entry = entry.unwrap();
 			if entry.metadata().unwrap().is_file() {
 				let file_name = entry.path().to_str().unwrap();
-				if file_name.contains("metadata") {
+				if file_name.contains("metadata") || file_name.contains("toml") {
 					continue;
 				}
 
@@ -156,10 +156,15 @@ impl Decode for Carton {
 		let (string_table, _) = StringTable::decode(new_position);
 		carton.string_table = string_table;
 
-		// load metadata and files from carton
+		// load metadata and files from carton in the order that they were written to the `.carton`
 		let mut files = Vec::new();
-		for (file_name, position) in carton.file_table.get_metadata_positions() {
+		let mut sorted_metadata_positions = carton.file_table.get_metadata_positions().iter()
+			.collect::<Vec<(&String, &u64)>>();
+		sorted_metadata_positions.sort_by(|(_, a), (_, b)| a.cmp(b));
+
+		for (file_name, position) in sorted_metadata_positions {
 			let mut vector = &vector[(*position as usize)..];
+			let start = vector.len();
 
 			let (check_value, _) = read_u8(vector);
 			let metadata = if check_value == 7 {
@@ -170,18 +175,19 @@ impl Decode for Carton {
 				None
 			};
 
-			let (file, _) = FileDecoder::decode(vector);
+			let metadata_length = start - vector.len();
 
+			let (file, _) = FileDecoder::decode(vector);
 			if &file.file_name != file_name {
 				panic!("unexpected file name");
 			}
 
-			files.push((file, *position, metadata));
+			files.push((file, *position, metadata_length as u64, metadata));
 		}
 
 		// finish off loading the file table
-		for (file, position, metadata) in files {
-			carton.file_table.update_position(&file.file_name, position, position + file.file_offset);
+		for (file, position, metadata_length, metadata) in files {
+			carton.file_table.update_position(&file.file_name, position, position + metadata_length + file.file_offset);
 			carton.file_table.add_from_intermediate(File::from_intermediate(file, metadata));
 		}
 

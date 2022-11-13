@@ -12,5 +12,6 @@ fn main() {
 	let mut data = Vec::new();
 	file.read_to_end(&mut data).unwrap();
 
-	Carton::decode(&mut data);
+	let (new_carton, _) = Carton::decode(&mut data);
+	assert!(carton == new_carton);
 }
