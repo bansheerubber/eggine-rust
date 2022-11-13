@@ -13,7 +13,6 @@ pub fn read_u16(vector: &[u8]) -> (u16, &[u8]) {
 	for i in 0..2 {
 		let (byte, new_position) = read_u8(vector);
 		vector = new_position;
-		println!("{:?}", byte);
 
 		number |= (byte as u16) << (i * 8);
 	}

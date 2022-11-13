@@ -87,7 +87,7 @@ impl EncodeMut for Carton {
 impl Decode for Carton {
 	fn decode(vector: &[u8]) -> (Self, &[u8]) {
 		let mut magic_number_pointer = vector;
-		let carton = Carton::default();
+		let mut carton = Carton::default();
 
 		let mut magic = String::new();
 		for _ in 0..6 {
@@ -107,6 +107,12 @@ impl Decode for Carton {
 		}
 
 		let (file_table_pointer, _) = read_u64(magic_number_pointer);
+
+		let (file_table, new_position) = FileTable::decode(&vector[(file_table_pointer as usize)..]);
+		carton.file_table = file_table;
+
+		let (string_table, _) = StringTable::decode(new_position);
+		carton.string_table = string_table;
 
 		return (carton, vector);
 	}

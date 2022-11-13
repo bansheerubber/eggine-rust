@@ -1,7 +1,8 @@
 use std::collections::{ BTreeMap, HashMap, };
 
-use crate::stream::Encode;
-use crate::stream::writing::write_string;
+use crate::stream::{ Decode, Encode, };
+use crate::stream::reading::{ read_string, read_u64, };
+use crate::stream::writing::{ write_string, write_u64 };
 
 /// Data structure that stores all strings used in a carton. Any strings outside of the string table are meant to be
 /// referenced using their corresponding string table ID. String table IDs are within the range `0..2**60`.
@@ -36,9 +37,29 @@ impl StringTable {
 
 impl Encode for StringTable {
 	fn encode(&self, vector: &mut Vec<u8>) {
+		write_u64(self.sorted_mapping.len() as u64, vector);
+
 		let sorted_mapping = self.sorted_mapping.iter().map(|(_, v)| v).collect::<Vec<&String>>();
 		for string in sorted_mapping {
 			write_string(string, vector);
 		}
+	}
+}
+
+impl Decode for StringTable {
+	fn decode(vector: &[u8]) -> (Self, &[u8]) {
+		let mut vector = vector;
+		let mut table = StringTable::default();
+
+		let (row_count, new_position) = read_u64(vector);
+		vector = new_position;
+
+		for _ in 0..row_count {
+			let (string, new_position) = read_string(vector);
+			vector = new_position;
+			table.insert(&string);
+		}
+
+		return (table, vector);
 	}
 }
