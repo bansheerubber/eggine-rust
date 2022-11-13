@@ -1,7 +1,7 @@
 pub mod decode;
 pub mod encode;
 pub mod read_stream;
-pub mod u8_writing;
+pub mod u8_io;
 pub mod write_stream;
 
 pub use decode::Decode;
@@ -13,8 +13,8 @@ pub use write_stream::WriteStream;
 
 #[cfg(test)]
 mod tests {
-	use super::u8_writing::U8WriteStream;
-	use super::u8_writing::writing::{ write_string, write_u8, write_char, write_u16, write_u32, write_u64, write_vlq, };
+	use super::u8_io::U8WriteStream;
+	use super::u8_io::writing::{ write_string, write_u8, write_char, write_u16, write_u32, write_u64, write_vlq, };
 	use super::{ Encode, WriteStream };
 
 	// write stream definitions
