@@ -8,6 +8,7 @@ pub use decode::Decode;
 pub use encode::Encode;
 pub use encode::EncodeMut;
 pub use read_stream::ReadStream;
+pub use read_stream::StreamPosition;
 pub use write_stream::WriteStream;
 
 #[cfg(test)]
