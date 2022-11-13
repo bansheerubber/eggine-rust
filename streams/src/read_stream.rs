@@ -1,6 +1,7 @@
 use crate::Decode;
 
 pub type StreamPosition = u64;
+pub type StreamPositionDelta = u64;
 
 /// Stream that imports in data with the specified `Encoding`, and can decode the data into Rust objects.
 pub trait ReadStream<Encoding>: Sized {
