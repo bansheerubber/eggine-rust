@@ -1,7 +1,3 @@
-use serde::{ Deserialize, Serialize };
-use std::collections::HashMap;
-use toml::Value;
-
 /// Emitted when a `.toml` metadata file cannot be parsed.
 #[derive(Debug)]
 pub enum FileMetadataError {
@@ -20,7 +16,7 @@ pub struct FileMetadata {
 	/// File that the `FileMetadata`'s metadata describes.
 	file_name: String,
 	/// Indexable metadata contents
-	values: FileMetadataTOML,
+	value: toml::Value,
 }
 
 impl FileMetadata {
@@ -36,28 +32,21 @@ impl FileMetadata {
 				return Err(FileMetadataError::FileError);
 			};
 
-			let values = match toml::from_str::<FileMetadataTOML>(&contents) {
-				Ok(values) => values,
+			let value = match toml::from_str::<toml::Value>(&contents) {
+				Ok(value) => value,
 				Err(error) => return Err(FileMetadataError::ParseError(error)),
 			};
 
 			Ok(FileMetadata {
 				file_name: file_name[0..length - 5].to_string(),
-				values,
+				value,
 			})
 		} else {
 			Err(FileMetadataError::IncorrectExtension)
 		}
 	}
 
-	pub(crate) fn get_file_metadata_toml(&self) -> &FileMetadataTOML {
-		&self.values
+	pub(crate) fn get_file_metadata_toml(&self) -> &toml::Value {
+		&self.value
 	}
-}
-
-/// Represents the data found in a `.toml` metadata file.
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct FileMetadataTOML {
-	/// String key/value pairs from the `values` table.
-	pub(crate) values: HashMap<String, Value>,
 }
