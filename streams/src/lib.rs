@@ -9,13 +9,17 @@ pub use encode::Encode;
 pub use encode::EncodeMut;
 pub use read_stream::ReadStream;
 pub use read_stream::StreamPosition;
+pub use read_stream::StreamPositionDelta;
 pub use write_stream::WriteStream;
 
 #[cfg(test)]
 mod tests {
+	use super::u8_io::reading::{ read_char, read_string, read_u8, read_u16, read_u32, read_u64, read_vlq, };
+
+	use super::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
+	use super::u8_io::U8ReadStream;
 	use super::u8_io::U8WriteStream;
-	use super::u8_io::writing::{ write_string, write_u8, write_char, write_u16, write_u32, write_u64, write_vlq, };
-	use super::{ Encode, WriteStream };
+	use super::u8_io::writing::{ write_char, write_string, write_u8, write_u16, write_u32, write_u64, write_vlq, };
 
 	// write stream definitions
 	#[derive(Debug)]
@@ -79,13 +83,82 @@ mod tests {
     }
 	}
 
+	// read stream definitions
+	#[derive(Debug, Default)]
+	struct TestReadStream {
+		buffer: Vec<u8>,
+		position: StreamPosition,
+	}
+
+	impl U8ReadStream for TestReadStream {
+		fn read_u8(&mut self) -> (u8, StreamPosition) {
+			let (number, read_bytes) = read_u8(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (number, self.position);
+		}
+
+		fn read_char(&mut self) -> (char, StreamPosition) {
+			let (character, read_bytes) = read_char(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (character, self.position);
+		}
+
+		fn read_u16(&mut self) -> (u16, StreamPosition) {
+			let (number, read_bytes) = read_u16(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (number, self.position);
+		}
+
+		fn read_u32(&mut self) -> (u32, StreamPosition) {
+			let (number, read_bytes) = read_u32(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (number, self.position);
+		}
+
+		fn read_u64(&mut self) -> (u64, StreamPosition) {
+			let (number, read_bytes) = read_u64(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (number, self.position);
+		}
+
+		fn read_vlq(&mut self) -> (u64, StreamPosition) {
+			let (number, read_bytes) = read_vlq(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (number, self.position);
+		}
+
+		fn read_string(&mut self) -> (String, StreamPosition) {
+			let (string, read_bytes) = read_string(&self.buffer[self.position as usize..]);
+			self.position += read_bytes;
+			return (string, self.position);
+		}
+	}
+
+	impl ReadStream<u8> for TestReadStream {
+    type Error = TestStreamError;
+		type Import = Vec<u8>;
+
+    fn decode<T: Decode<u8, Self>>(&mut self) -> T {
+			TestObject::decode(self).0
+    }
+
+		fn can_decode(&self) -> bool {
+			return self.buffer.len() != 0;
+		}
+
+		fn import(&mut self, buffer: Self::Import) -> Result<(), Self::Error> {
+			self.buffer = buffer;
+			Ok(())
+		}
+	}
+
 	// test object definitions
 	#[derive(Debug, Eq, PartialEq)]
 	struct NestedTestObject<'a> {
-		signed_byte: u8,
-		signed_short: u16,
-		signed_int: u32,
-		signed_long: u64,
+		signed_byte: i8,
+		signed_short: i16,
+		signed_int: i32,
+		signed_long: i64,
 		string: &'a str,
 		unsigned_byte: u8,
 		unsigned_short: u16,
@@ -115,13 +188,50 @@ mod tests {
 		}
 	}
 
+	impl<T> Decode<u8, T> for NestedTestObject<'_>
+	where
+		T: ReadStream<u8> + U8ReadStream
+	{
+    fn decode(stream: &mut T) -> (Self, StreamPosition) {
+			let (variable_length, position) = stream.read_vlq();
+
+			let string = Box::leak(stream.read_string().0.into_boxed_str());
+
+			let unsigned_byte = stream.read_u8().0;
+			let unsigned_short = stream.read_u16().0;
+			let unsigned_int = stream.read_u32().0;
+			let unsigned_long = stream.read_u64().0;
+
+			let signed_byte = stream.read_u8().0 as i8;
+			let signed_short = stream.read_u16().0 as i16;
+			let signed_int = stream.read_u32().0 as i32;
+			let signed_long = stream.read_u64().0 as i64;
+
+			return (
+				NestedTestObject {
+					signed_byte,
+					signed_short,
+					signed_int,
+					signed_long,
+					string,
+					unsigned_byte,
+					unsigned_short,
+					unsigned_int,
+					unsigned_long,
+					variable_length,
+				},
+				position,
+			);
+    }
+	}
+
 	#[derive(Debug, Eq, PartialEq)]
 	struct TestObject<'a> {
 		nested_object: NestedTestObject<'a>,
-		signed_byte: u8,
-		signed_short: u16,
-		signed_int: u32,
-		signed_long: u64,
+		signed_byte: i8,
+		signed_short: i16,
+		signed_int: i32,
+		signed_long: i64,
 		string: &'a str,
 		unsigned_byte: u8,
 		unsigned_short: u16,
@@ -153,12 +263,52 @@ mod tests {
 		}
 	}
 
+	impl<T> Decode<u8, T> for TestObject<'_>
+	where
+		T: ReadStream<u8> + U8ReadStream
+	{
+    fn decode(stream: &mut T) -> (Self, StreamPosition) {
+			let nested_object = NestedTestObject::decode(stream).0;
+
+			let signed_byte = stream.read_u8().0 as i8;
+			let signed_short = stream.read_u16().0 as i16;
+			let signed_int = stream.read_u32().0 as i32;
+			let signed_long = stream.read_u64().0 as i64;
+
+			let string = Box::leak(stream.read_string().0.into_boxed_str());
+
+			let unsigned_byte = stream.read_u8().0;
+			let unsigned_short = stream.read_u16().0;
+			let unsigned_int = stream.read_u32().0;
+			let unsigned_long = stream.read_u64().0;
+
+			let (variable_length, position) = stream.read_vlq();
+
+			return (
+				TestObject {
+					nested_object,
+					signed_byte,
+					signed_short,
+					signed_int,
+					signed_long,
+					string,
+					unsigned_byte,
+					unsigned_short,
+					unsigned_int,
+					unsigned_long,
+					variable_length,
+				},
+				position,
+			);
+    }
+	}
+
 	const TEST_OBJECT: TestObject = TestObject {
 		nested_object: NestedTestObject {
-			signed_byte: 7,
-			signed_short: 1589,
-			signed_int: 96892,
-			signed_long: 906_543_840_289,
+			signed_byte: -7,
+			signed_short: -1589,
+			signed_int: -96892,
+			signed_long: -906_543_840_289,
 			string: "hey there how do you do",
 			unsigned_byte: 1,
 			unsigned_short: 5814,
@@ -166,10 +316,10 @@ mod tests {
 			unsigned_long: 82_457_238_382,
 			variable_length: 1_930_283_129,
 		},
-		signed_byte: 7,
-		signed_short: 1589,
-		signed_int: 96892,
-		signed_long: 906_543_840_289,
+		signed_byte: -7,
+		signed_short: -1589,
+		signed_int: -96892,
+		signed_long: -906_543_840_289,
 		string: "anyone else want to go to [funny location goes here]",
 		unsigned_byte: 1,
 		unsigned_short: 5814,
