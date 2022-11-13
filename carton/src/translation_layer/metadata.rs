@@ -10,6 +10,7 @@ pub(crate) struct FileMetadataEncoder<'a> {
 	pub(crate) string_table: &'a mut StringTable,
 }
 
+/// TODO write documentation after full TOML spec is supported
 impl EncodeMut for FileMetadataEncoder<'_> {
 	fn encode_mut(&mut self, vector: &mut Vec<u8>) {
 		for (key, value) in self.metadata.get_file_metadata_toml().values.iter() {
@@ -42,4 +43,10 @@ impl EncodeMut for FileMetadataEncoder<'_> {
 			}
 		}
 	}
+}
+
+/// Intermediate representation of a `FileMetadata` object.
+#[derive(Debug)]
+pub(crate) struct FileMetadataDecoder {
+
 }
