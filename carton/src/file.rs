@@ -7,7 +7,7 @@ use crate::stream::writing::{ write_u8, write_u16, };
 use crate::translation_layer::FileDecoder;
 
 /// Represents the compression algorithm used for a file.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Compression {
 	/// No compression. ID is encoded as 0.
 	None,
@@ -48,7 +48,7 @@ impl Decode for Compression {
 }
 
 /// Represents a file in a carton.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct File {
 	/// The compression format of the file.
 	compression: Compression,

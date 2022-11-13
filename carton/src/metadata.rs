@@ -11,7 +11,7 @@ pub enum FileMetadataError {
 
 /// Represents metadata for a file stored in a carton. All metadata has a corresponding file it describes. Metadata is
 /// interpreted from a TOML file that has the same name as the file it describes with the `.toml` extension appended.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FileMetadata {
 	/// File that the `FileMetadata`'s metadata describes.
 	file_name: String,

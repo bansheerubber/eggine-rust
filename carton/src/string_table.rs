@@ -10,7 +10,7 @@ use crate::stream::writing::{ write_string, write_u64 };
 /// Strings can have a length within a range `0..2**60`.
 ///
 /// String table IDs are written using a variable length format with a 2 byte granularity.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct StringTable {
 	mapping: HashMap<String, u64>,
 	sorted_mapping: BTreeMap<u64, String>,

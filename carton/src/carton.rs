@@ -17,7 +17,7 @@ const CARTON_VERSION: u8 = 2;
 /// designed to support everything from storing data in files, to sending data over the network. Cartons are designed to
 /// be constructed from a directory which includes data to be included in a video game. The carton preserves the file
 /// structure and automatically assigns imported files with metadata read from TOML files.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Carton {
 	/// Keeps track of files in the carton.
 	pub(crate) file_table: FileTable,

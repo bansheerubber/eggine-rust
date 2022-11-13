@@ -6,7 +6,7 @@ use crate::stream::reading::{ read_string, read_u64, };
 use crate::stream::writing::{ write_string, write_u64 };
 
 /// Maps files to their absolute positions within the carton.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) struct FileTable {
 	/// List of files.
 	files: Vec<File>,
