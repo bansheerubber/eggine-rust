@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::metadata::FileMetadata;
-use crate::stream::Encode;
+use crate::stream::{ Decode, Encode };
+use crate::stream::reading::{read_u16, read_u8};
 use crate::stream::writing::{ write_u8, write_u16, };
 
 /// Represents the compression algorithm used for a file.
@@ -29,6 +30,22 @@ impl Encode for Compression {
 	}
 }
 
+/// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
+/// compression algorithm.
+impl Decode for Compression {
+	fn decode(vector: &[u8]) -> (Self, &[u8]) {
+		let (id, new_position) = read_u16(vector);
+		match id {
+			0 => (Compression::None, new_position),
+			1 => {
+				let (level, new_position) = read_u8(new_position);
+				(Compression::ZStd(level as i8), new_position)
+			},
+			_ => todo!("Compression algorithm decode not implemented for {}", id),
+		}
+	}
+}
+
 /// Represents a file in a carton.
 #[derive(Debug)]
 pub struct File {
@@ -50,6 +67,8 @@ pub enum FileError {
 }
 
 impl File {
+	/// Create a file representation from a file name. Attempts to parse TOML metadata if it finds a `.toml` file that
+	/// otherwise has the same name as the input file name.
 	pub fn from_file(file_name: &str) -> Result<File, FileError> {
 		if !Path::new(file_name).exists() {
 			return Err(FileError::DoesntExist);
@@ -71,18 +90,22 @@ impl File {
 		})
 	}
 
+	/// Get the file's compression level.
 	pub fn get_compression(&self) -> &Compression {
 		&self.compression
 	}
 
+	/// Get the file's name.
 	pub fn get_file_name(&self) -> &str {
 		&self.file_name
 	}
 
+	/// Get the file's metadata.
 	pub fn get_metadata(&self) -> &Option<FileMetadata> {
 		&self.metadata
 	}
 
+	/// Get the file's size.
 	pub fn get_size(&self) -> u64 {
 		self.size
 	}
