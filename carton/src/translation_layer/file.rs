@@ -7,7 +7,7 @@ use crate::stream::{ Decode, Encode, EncodeMut, };
 use crate::stream::reading::{ read_string, read_u64, };
 use crate::stream::writing::{ write_string, write_u64 };
 
-use super::{ FileMetadataDecoder, FileMetadataEncoder, };
+use super::FileMetadataEncoder;
 
 /// Encodes a `FileMetadata` object
 #[derive(Debug)]
@@ -39,7 +39,7 @@ impl EncodeMut for FileEncoder<'_> {
 			encoder.encode_mut(vector);
 		}
 
-		self.file.get_compression().encode(vector);
+		self.file.get_compression().encode(vector); // can never be the value 7
 
 		write_u64(self.file.get_size(), vector);
 		write_string(self.file.get_file_name(), vector);
@@ -53,22 +53,14 @@ impl EncodeMut for FileEncoder<'_> {
 /// Intermediate representation of a `File` object.
 #[derive(Debug)]
 pub(crate) struct FileDecoder {
-	compression: Compression,
-	file_name: String,
-	file_offset: u64,
-	metadata: Option<FileMetadataDecoder>,
-	size: u64,
-}
-
-/// Translate the intermediate representation into a fully-fledged file object populated with metadata.
-impl FileDecoder {
-	pub(crate) fn translate(&self, string_table: &mut StringTable) {
-
-	}
+	pub(crate) compression: Compression,
+	pub(crate) file_name: String,
+	pub(crate) file_offset: u64,
+	pub(crate) size: u64,
 }
 
 /// Decode a file into an intermediate representation, because we have some things that we need to do after decoding
-/// that requires additional context, like `FileMetadata` string table lookups.
+/// that requires additional context, like setting file absolute position
 impl Decode for FileDecoder {
 	fn decode(vector: &[u8]) -> (Self, &[u8]) {
 		let length = vector.len();
@@ -76,7 +68,6 @@ impl Decode for FileDecoder {
 			compression: Compression::None,
 			file_name: String::new(),
 			file_offset: 0,
-			metadata: None,
 			size: 0,
 		};
 

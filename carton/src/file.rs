@@ -2,8 +2,9 @@ use std::path::Path;
 
 use crate::metadata::FileMetadata;
 use crate::stream::{ Decode, Encode };
-use crate::stream::reading::{read_u16, read_u8};
+use crate::stream::reading::{ read_u8, read_u16, };
 use crate::stream::writing::{ write_u8, write_u16, };
+use crate::translation_layer::FileDecoder;
 
 /// Represents the compression algorithm used for a file.
 #[derive(Debug)]
@@ -88,6 +89,20 @@ impl File {
 			metadata,
 			size: std::fs::metadata(file_name).unwrap().len(),
 		})
+	}
+
+	/// Create a file from the decode intermediate representation.
+	pub(crate) fn from_intermediate(intermediate: FileDecoder, metadata: Option<toml::Value>) -> File {
+		File {
+			compression: intermediate.compression,
+			file_name: intermediate.file_name.clone(),
+			metadata: if let Some(value) = metadata {
+				Some(FileMetadata::from_toml_value(&intermediate.file_name, value))
+			} else {
+				None
+			},
+			size: intermediate.size,
+		}
 	}
 
 	/// Get the file's compression level.
