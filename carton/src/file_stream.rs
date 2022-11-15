@@ -25,7 +25,7 @@ impl FileWriteStream {
 				.write(true)
 				.create(true)
 				.open(file_name)
-				.unwrap(),
+				.expect("Could not open file write stream"),
 		}
 	}
 }
@@ -120,7 +120,7 @@ impl WriteStream<u8> for FileWriteStream {
 	}
 
 	fn export(&mut self) -> Result<Self::Export, Self::Error> {
-		self.file.flush().unwrap();
+		self.file.flush().expect("Could not flush");
 		Ok(())
 	}
 
@@ -131,11 +131,11 @@ impl WriteStream<u8> for FileWriteStream {
 
 impl Seekable for FileWriteStream {
 	fn seek(&mut self, position: StreamPosition) {
-		self.file.seek(SeekFrom::Start(position)).unwrap();
+		self.file.seek(SeekFrom::Start(position)).expect("Could not seek");
 	}
 
 	fn get_position(&mut self) -> StreamPosition {
-		self.file.stream_position().unwrap()
+		self.file.stream_position().expect("Could not get stream position")
 	}
 }
 
@@ -151,7 +151,7 @@ impl FileReadStream {
 			file: OpenOptions::new()
 				.read(true)
 				.open(file_name)
-				.unwrap(),
+				.expect("Could not open file read stream"),
 			position: 0,
 		}
 	}
@@ -241,10 +241,10 @@ impl U8ReadStream for FileReadStream {
 		let (length, _) = self.read_vlq();
 
 		let mut buffer = vec![0; length as usize];
-		self.file.read(&mut buffer).unwrap();
-		self.position = self.file.stream_position().unwrap();
+		self.file.read(&mut buffer).expect("Could not read string into buffer");
+		self.position = self.file.stream_position().expect("Could not get stream position");
 
-		return (String::from_utf8(buffer).unwrap(), self.position);
+		return (String::from_utf8(buffer).expect("Could not decode utf8"), self.position);
 	}
 }
 
@@ -267,19 +267,19 @@ impl ReadStream<u8> for FileReadStream {
 
 impl Seekable for FileReadStream {
 	fn seek(&mut self, position: StreamPosition) {
-		self.file.seek(SeekFrom::Start(position)).unwrap();
+		self.file.seek(SeekFrom::Start(position)).expect("Could not seek");
 	}
 
 	fn get_position(&mut self) -> StreamPosition {
-		self.file.stream_position().unwrap()
+		self.file.stream_position().expect("Could not get stream position")
 	}
 }
 
 impl Peekable<u8> for FileReadStream {
 	fn peek(&mut self) -> u8 {
 		let mut buffer = [0];
-		self.file.read(&mut buffer).unwrap();
-		self.file.seek(SeekFrom::Current(-1)).unwrap();
+		self.file.read(&mut buffer).expect("Could not peek");
+		self.file.seek(SeekFrom::Current(-1)).expect("Could not seek");
 		return buffer[0];
 	}
 }
