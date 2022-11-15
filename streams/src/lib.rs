@@ -64,6 +64,10 @@ mod tests {
 		fn write_string(&mut self, string: &str) {
 			write_string(string, &mut self.buffer);
 		}
+
+		fn write_vector(&mut self, _: &Vec<u8>) {
+			todo!();
+		}
 	}
 
 	impl WriteStream<u8> for TestWriteStream {

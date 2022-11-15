@@ -90,5 +90,8 @@ pub trait U8WriteStream {
 	/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
 	/// characters.
 	fn write_string(&mut self, string: &str);
+
+	/// Writes a vector to file.
+	fn write_vector(&mut self, vector: &Vec<u8>);
 }
 
