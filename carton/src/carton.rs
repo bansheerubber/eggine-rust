@@ -89,16 +89,19 @@ where
 		let file_table_pointer = stream.get_position();
 		stream.write_u64(0);
 
+		// encode files
 		let mut positions = Vec::new();
 		for file in self.file_table.get_files() {
 			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table);
 			positions.push((String::from(file.get_file_name()), metadata_position, file_position));
 		}
 
+		// update file positions in file table
 		for (file_name, metadata_position, file_position) in positions {
 			self.file_table.update_position(&file_name, metadata_position, file_position);
 		}
 
+		// write file & string streams to file
 		let file_table_position = stream.get_position();
 		self.file_table.encode(stream);
 		self.string_table.encode(stream);
