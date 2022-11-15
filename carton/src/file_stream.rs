@@ -7,7 +7,6 @@ use std::io::Write;
 
 use streams::{ Decode, Encode, EncodeMut, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
-use streams::u8_io::reading::{ read_char, read_u8, read_u16, read_u32, read_u64, read_vlq, };
 
 #[derive(Debug)]
 pub enum FileStreamError {
@@ -161,70 +160,85 @@ impl FileReadStream {
 impl U8ReadStream for FileReadStream {
 	fn read_u8(&mut self) -> (u8, StreamPosition) {
 		let mut buffer = [0];
-		self.file.read(&mut buffer).unwrap();
+		self.file.read(&mut buffer).expect("Could not read from file");
+		self.position += 1;
 
-		let (number, read_bytes) = read_u8(&buffer);
-		self.position += read_bytes;
-		return (number, self.position);
+		return (buffer[0], self.position);
 	}
 
 	fn read_char(&mut self) -> (char, StreamPosition) {
 		let mut buffer = [0];
-		self.file.read(&mut buffer).unwrap();
+		self.file.read(&mut buffer).expect("Could not read from file");
+		self.position += 1;
 
-		let (character, read_bytes) = read_char(&buffer);
-		self.position += read_bytes;
-		return (character, self.position);
+		return (buffer[0] as char, self.position);
 	}
 
 	fn read_u16(&mut self) -> (u16, StreamPosition) {
-		let mut buffer = [0, 0];
-		self.file.read(&mut buffer).unwrap();
+		const BYTES: usize = 2;
 
-		let (number, read_bytes) = read_u16(&buffer);
-		self.position += read_bytes;
+		let mut buffer: [u8; BYTES] = [0; BYTES];
+		self.file.read(&mut buffer).expect("Could not read from file");
+		self.position += BYTES as u64;
+
+		let mut number = 0;
+		for i in 0..BYTES {
+			number |= (buffer[i] as u16) << (i * 8);
+		}
+
 		return (number, self.position);
 	}
 
 	fn read_u32(&mut self) -> (u32, StreamPosition) {
-		let mut buffer = [0, 0, 0, 0];
-		self.file.read(&mut buffer).unwrap();
+		const BYTES: usize = 4;
 
-		let (number, read_bytes) = read_u32(&buffer);
-		self.position += read_bytes;
+		let mut buffer: [u8; BYTES] = [0; BYTES];
+		self.file.read(&mut buffer).expect("Could not read from file");
+		self.position += BYTES as u64;
+
+		let mut number = 0;
+		for i in 0..BYTES {
+			number |= (buffer[i] as u32) << (i * 8);
+		}
+
 		return (number, self.position);
 	}
 
 	fn read_u64(&mut self) -> (u64, StreamPosition) {
-		let mut buffer = [0, 0, 0, 0, 0, 0, 0, 0];
-		self.file.read(&mut buffer).unwrap();
+		const BYTES: usize = 8;
 
-		let (number, read_bytes) = read_u64(&buffer);
-		self.position += read_bytes;
+		let mut buffer: [u8; BYTES] = [0; BYTES];
+		self.file.read(&mut buffer).expect("Could not read from file");
+		self.position += BYTES as u64;
+
+		let mut number = 0;
+		for i in 0..BYTES {
+			number |= (buffer[i] as u64) << (i * 8);
+		}
+
 		return (number, self.position);
 	}
 
 	fn read_vlq(&mut self) -> (u64, StreamPosition) {
-		let start = self.file.stream_position().unwrap();
-		let mut buffer = [0, 0, 0, 0, 0, 0, 0, 0];
-		self.file.read(&mut buffer).unwrap();
+		let mut number = 0;
+		let mut read = 0;
+		loop {
+			let (bytes, _) = self.read_u16();
+			number |= (bytes as u64 & 0x7FFF) << (read / 2 * 15);
+			read += 2;
 
-		let (number, read_bytes) = read_vlq(&buffer);
-		self.position += read_bytes;
+			if bytes & 0x8000 == 0 || read >= 8 {
+				break;
+			}
+		}
 
-		self.file.seek(SeekFrom::Start(start + read_bytes)).unwrap();
+		self.position += read;
 
 		return (number, self.position);
 	}
 
 	fn read_string(&mut self) -> (String, StreamPosition) {
-		let start = self.file.stream_position().unwrap();
-		let mut buffer = [0, 0, 0, 0, 0, 0, 0, 0];
-		self.file.read(&mut buffer).unwrap();
-
-		let (length, read_bytes) = read_vlq(&buffer);
-
-		self.file.seek(SeekFrom::Start(start + read_bytes)).unwrap();
+		let (length, _) = self.read_vlq();
 
 		let mut buffer = vec![0; length as usize];
 		self.file.read(&mut buffer).unwrap();
