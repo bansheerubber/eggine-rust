@@ -4,7 +4,7 @@ use std::path::Path;
 use streams::{ Decode, Encode, ReadStream, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
-use crate::StringTable;
+use crate::tables::StringTable;
 use crate::metadata::{ FileMetadata, encode_metadata };
 
 /// Represents the compression algorithm used for a file.

@@ -1,7 +1,7 @@
 use streams::{ ReadStream, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
-use crate::StringTable;
+use crate::tables::StringTable;
 
 /// Emitted when a `.toml` metadata file cannot be parsed.
 #[derive(Debug)]

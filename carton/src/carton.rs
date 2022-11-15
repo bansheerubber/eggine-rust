@@ -2,8 +2,8 @@ use streams::{ Decode, Encode, EncodeMut, ReadStream, Peekable, Seekable, Stream
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 use walkdir::WalkDir;
 
-use crate::FileTable;
-use crate::StringTable;
+use crate::tables::FileTable;
+use crate::tables::StringTable;
 use crate::file::{ File, decode_file, encode_file };
 use crate::file_stream::FileWriteStream;
 use crate::metadata::decode_value;
