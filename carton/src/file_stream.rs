@@ -10,7 +10,7 @@ use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 #[derive(Debug)]
 pub enum FileStreamError {
-
+	FlushError,
 }
 
 #[derive(Debug)]
@@ -120,8 +120,11 @@ impl WriteStream<u8> for FileWriteStream {
 	}
 
 	fn export(&mut self) -> Result<Self::Export, Self::Error> {
-		self.file.flush().expect("Could not flush");
-		Ok(())
+		if let Err(_) = self.file.flush() {
+			Err(Self::Error::FlushError)
+		} else {
+			Ok(())
+		}
 	}
 
 	fn can_export(&self) -> bool {
