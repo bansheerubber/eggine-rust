@@ -4,11 +4,9 @@ use walkdir::WalkDir;
 
 use crate::FileTable;
 use crate::StringTable;
-use crate::file::File;
+use crate::file::{ File, decode_file, encode_file };
 use crate::file_stream::FileWriteStream;
 use crate::metadata::decode_value;
-use crate::translation_layer::file::encode_file;
-use crate::translation_layer::decode_file;
 
 const CARTON_VERSION: u8 = 2;
 
