@@ -10,33 +10,36 @@ use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 #[derive(Debug)]
 pub enum FileStreamError {
-	FlushError,
+	Flush,
+	NoneFile,
 }
 
 #[derive(Debug)]
 pub(crate) struct FileWriteStream {
-	file: File,
+	file: Option<File>,
 }
 
 impl FileWriteStream {
 	pub(crate) fn new(file_name: &str) -> Self {
 		FileWriteStream {
-			file: OpenOptions::new()
-				.write(true)
-				.create(true)
-				.open(file_name)
-				.expect("Could not open file write stream"),
+			file: Some(
+				OpenOptions::new()
+					.write(true)
+					.create(true)
+					.open(file_name)
+					.expect("Could not open file write stream")
+			),
 		}
 	}
 }
 
 impl U8WriteStream for FileWriteStream {
 	fn write_u8(&mut self, byte: u8) {
-		self.file.write(&[byte]).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(&[byte]).expect("Could not write to file");
 	}
 
 	fn write_char(&mut self, character: char) {
-		self.file.write(&[character as u8]).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(&[character as u8]).expect("Could not write to file");
 	}
 
 	fn write_u16(&mut self, number: u16) {
@@ -49,7 +52,7 @@ impl U8WriteStream for FileWriteStream {
 			shift >>= 8;
 		}
 
-		self.file.write(&buffer).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
 	}
 
 	fn write_u32(&mut self, number: u32) {
@@ -62,7 +65,7 @@ impl U8WriteStream for FileWriteStream {
 			shift >>= 8;
 		}
 
-		self.file.write(&buffer).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
 	}
 
 	fn write_u64(&mut self, number: u64) {
@@ -75,7 +78,7 @@ impl U8WriteStream for FileWriteStream {
 			shift >>= 8;
 		}
 
-		self.file.write(&buffer).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
 	}
 
 	fn write_vlq(&mut self, number: u64) {
@@ -99,17 +102,17 @@ impl U8WriteStream for FileWriteStream {
 
 	fn write_string(&mut self, string: &str) {
 		self.write_vlq(string.len() as u64);
-		self.file.write(string.as_bytes()).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(string.as_bytes()).expect("Could not write to file");
 	}
 
 	fn write_vector(&mut self, vector: &Vec<u8>) {
-		self.file.write(vector).expect("Could not write to file");
+		self.file.as_mut().unwrap().write(vector).expect("Could not write to file");
 	}
 }
 
 impl WriteStream<u8> for FileWriteStream {
 	type Error = FileStreamError;
-	type Export = ();
+	type Export = File;
 
 	fn encode_mut<T: EncodeMut<u8, Self>>(&mut self, object: &mut T) {
 		object.encode_mut(self);
@@ -120,25 +123,27 @@ impl WriteStream<u8> for FileWriteStream {
 	}
 
 	fn export(&mut self) -> Result<Self::Export, Self::Error> {
-		if let Err(_) = self.file.flush() {
-			Err(Self::Error::FlushError)
+		if let Err(_) = self.file.as_mut().unwrap().flush() {
+			Err(Self::Error::Flush)
+		} else if self.file.is_none() {
+			Err(Self::Error::NoneFile)
 		} else {
-			Ok(())
+			Ok(std::mem::replace(&mut self.file, None).unwrap())
 		}
 	}
 
 	fn can_export(&self) -> bool {
-		true
+		self.file.is_some()
 	}
 }
 
 impl Seekable for FileWriteStream {
 	fn seek(&mut self, position: StreamPosition) {
-		self.file.seek(SeekFrom::Start(position)).expect("Could not seek");
+		self.file.as_mut().unwrap().seek(SeekFrom::Start(position)).expect("Could not seek");
 	}
 
 	fn get_position(&mut self) -> StreamPosition {
-		self.file.stream_position().expect("Could not get stream position")
+		self.file.as_mut().unwrap().stream_position().expect("Could not get stream position")
 	}
 }
 
