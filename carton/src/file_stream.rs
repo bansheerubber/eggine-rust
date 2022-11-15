@@ -8,7 +8,6 @@ use std::io::Write;
 use streams::{ Decode, Encode, EncodeMut, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 use streams::u8_io::reading::{ read_char, read_u8, read_u16, read_u32, read_u64, read_vlq, };
-use streams::u8_io::writing::{ write_char, write_string, write_u8, write_u16, write_u32, write_u64, write_vlq, };
 
 #[derive(Debug)]
 pub enum FileStreamError {
@@ -34,49 +33,78 @@ impl FileWriteStream {
 
 impl U8WriteStream for FileWriteStream {
 	fn write_u8(&mut self, byte: u8) {
-		let mut vector = Vec::new();
-		write_u8(byte, &mut vector);
-		self.file.write(&vector).unwrap();
+		self.file.write(&[byte]).expect("Could not write to file");
 	}
 
 	fn write_char(&mut self, character: char) {
-		let mut vector = Vec::new();
-		write_char(character, &mut vector);
-		self.file.write(&vector).unwrap();
+		self.file.write(&[character as u8]).expect("Could not write to file");
 	}
 
 	fn write_u16(&mut self, number: u16) {
-		let mut vector = Vec::new();
-		write_u16(number, &mut vector);
-		self.file.write(&vector).unwrap();
+		const BYTES: usize = 2;
+
+		let mut buffer: [u8; BYTES] = [0; BYTES];
+		let mut shift = number;
+		for i in 0..BYTES {
+			buffer[i] = (shift & 0xFF) as u8;
+			shift >>= 8;
+		}
+
+		self.file.write(&buffer).expect("Could not write to file");
 	}
 
 	fn write_u32(&mut self, number: u32) {
-		let mut vector = Vec::new();
-		write_u32(number, &mut vector);
-		self.file.write(&vector).unwrap();
+		const BYTES: usize = 4;
+
+		let mut buffer: [u8; BYTES] = [0; BYTES];
+		let mut shift = number;
+		for i in 0..BYTES {
+			buffer[i] = (shift & 0xFF) as u8;
+			shift >>= 8;
+		}
+
+		self.file.write(&buffer).expect("Could not write to file");
 	}
 
 	fn write_u64(&mut self, number: u64) {
-		let mut vector = Vec::new();
-		write_u64(number, &mut vector);
-		self.file.write(&vector).unwrap();
+		const BYTES: usize = 8;
+
+		let mut buffer: [u8; BYTES] = [0; BYTES];
+		let mut shift = number;
+		for i in 0..BYTES {
+			buffer[i] = (shift & 0xFF) as u8;
+			shift >>= 8;
+		}
+
+		self.file.write(&buffer).expect("Could not write to file");
 	}
 
 	fn write_vlq(&mut self, number: u64) {
-		let mut vector = Vec::new();
-		write_vlq(number, &mut vector);
-		self.file.write(&vector).unwrap();
+		let mut shift = number;
+		for _ in 0..4 {
+			let number = if shift >> 15 != 0 {
+				(shift as u16 & 0x7FFF) | 0x8000
+			} else {
+				shift as u16 & 0x7FFF
+			};
+
+			self.write_u16(number);
+
+			shift >>= 15;
+
+			if shift == 0 {
+				break;
+			}
+		}
 	}
 
 	fn write_string(&mut self, string: &str) {
-		let mut vector = Vec::new();
-		write_string(string, &mut vector);
-		self.file.write(&vector).unwrap();
+		self.write_vlq(string.len() as u64);
+		self.file.write(string.as_bytes()).expect("Could not write to file");
 	}
 
 	fn write_vector(&mut self, vector: &Vec<u8>) {
-		self.file.write(vector).unwrap();
+		self.file.write(vector).expect("Could not write to file");
 	}
 }
 
