@@ -8,15 +8,6 @@ use crate::file::{ Compression, File, };
 
 use crate::metadata::encode_metadata;
 
-/// Encodes a `FileMetadata` object
-#[derive(Debug)]
-pub(crate) struct FileEncoder<'a> {
-	pub(crate) file: &'a File,
-	pub(crate) file_position: u64,
-	pub(crate) metadata_position: u64,
-	pub(crate) string_table: &'a mut StringTable,
-}
-
 pub(crate) fn encode_file<T>(stream: &mut T, file: &File, string_table: &mut StringTable)
 	-> (StreamPosition, StreamPosition)
 where
