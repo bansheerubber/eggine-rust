@@ -1,9 +1,8 @@
 use std::path::Path;
+use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 use crate::metadata::FileMetadata;
-use crate::stream::{ Decode, Encode };
-use crate::stream::reading::{ read_u8, read_u16, };
-use crate::stream::writing::{ write_u8, write_u16, };
 use crate::translation_layer::FileDecoder;
 
 /// Represents the compression algorithm used for a file.
@@ -17,15 +16,18 @@ pub enum Compression {
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
 /// compression algorithm.
-impl Encode for Compression {
-	fn encode(&self, vector: &mut Vec<u8>) {
+impl<T> Encode<u8, T> for Compression
+where
+	T: WriteStream<u8> + U8WriteStream
+{
+	fn encode(&self, stream: &mut T) {
 		match *self {
     	Compression::None => {
-				write_u16(0, vector);
+				stream.write_u16(0);
 			}
     	Compression::ZStd(level) => {
-				write_u16(1, vector);
-				write_u8(level as u8, vector);
+				stream.write_u16(1);
+				stream.write_u8(level as u8);
 			}
 		}
 	}
@@ -33,13 +35,16 @@ impl Encode for Compression {
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
 /// compression algorithm.
-impl Decode for Compression {
-	fn decode(vector: &[u8]) -> (Self, &[u8]) {
-		let (id, new_position) = read_u16(vector);
+impl<T> Decode<u8, T> for Compression
+where
+	T: ReadStream<u8> + U8ReadStream
+{
+	fn decode(stream: &mut T) -> (Self, StreamPosition) {
+		let (id, new_position) = stream.read_u16();
 		match id {
 			0 => (Compression::None, new_position),
 			1 => {
-				let (level, new_position) = read_u8(new_position);
+				let (level, new_position) = stream.read_u8();
 				(Compression::ZStd(level as i8), new_position)
 			},
 			_ => todo!("Compression algorithm decode not implemented for {}", id),

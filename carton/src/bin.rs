@@ -1,7 +1,7 @@
 use std::io::Read;
 
-use carton::Carton;
-use carton::stream::Decode;
+use carton::{Carton, file_stream::FileReadStream};
+use streams::ReadStream;
 
 fn main() {
 	let mut carton = Carton::default();
@@ -12,6 +12,8 @@ fn main() {
 	let mut data = Vec::new();
 	file.read_to_end(&mut data).unwrap();
 
-	let (new_carton, _) = Carton::decode(&mut data);
+	let mut stream = FileReadStream::new("scratch/resources.carton");
+	let new_carton = stream.decode::<Carton>();
+
 	assert!(carton == new_carton);
 }

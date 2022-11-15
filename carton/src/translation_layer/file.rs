@@ -1,11 +1,10 @@
 use std::fs;
 use std::io::Read;
+use streams::{ Decode, Encode, EncodeMut, ReadStream, Seekable, StreamPosition, WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 use crate::StringTable;
-use crate::file::{File, Compression};
-use crate::stream::{ Decode, Encode, EncodeMut, };
-use crate::stream::reading::{ read_string, read_u64, };
-use crate::stream::writing::{ write_string, write_u64 };
+use crate::file::{ Compression, File, };
 
 use super::FileMetadataEncoder;
 
@@ -26,9 +25,12 @@ pub(crate) struct FileEncoder<'a> {
 ///
 /// File encoding w/o metadata:
 /// | compression (? bytes) | file size (8 bytes) | file name (? bytes) | file contents (`file size` bytes) |
-impl EncodeMut for FileEncoder<'_> {
-	fn encode_mut(&mut self, vector: &mut Vec<u8>) {
-		self.metadata_position = vector.len() as u64;
+impl<T> EncodeMut<u8, T> for FileEncoder<'_>
+where
+	T: WriteStream<u8> + U8WriteStream + Seekable
+{
+	fn encode_mut(&mut self, stream: &mut T) {
+		self.metadata_position = stream.get_position() as u64;
 
 		if let Some(metadata) = self.file.get_metadata() {
 			let mut encoder = FileMetadataEncoder {
@@ -36,17 +38,19 @@ impl EncodeMut for FileEncoder<'_> {
 				string_table: self.string_table,
 			};
 
-			encoder.encode_mut(vector);
+			encoder.encode_mut(stream);
 		}
 
-		self.file.get_compression().encode(vector); // can never be the value 7
+		self.file.get_compression().encode(stream); // can never be the value 7
 
-		write_u64(self.file.get_size(), vector);
-		write_string(self.file.get_file_name(), vector);
+		stream.write_u64(self.file.get_size());
+		stream.write_string(self.file.get_file_name());
 
-		self.file_position = vector.len() as u64;
+		self.file_position = stream.get_position();
 
-		fs::File::open(self.file.get_file_name()).unwrap().read_to_end(vector).unwrap();
+		let mut vector = Vec::new();
+		fs::File::open(self.file.get_file_name()).unwrap().read_to_end(&mut vector).unwrap();
+		stream.write_vector(&vector);
 	}
 }
 
@@ -61,9 +65,12 @@ pub(crate) struct FileDecoder {
 
 /// Decode a file into an intermediate representation, because we have some things that we need to do after decoding
 /// that requires additional context, like setting file absolute position
-impl Decode for FileDecoder {
-	fn decode(vector: &[u8]) -> (Self, &[u8]) {
-		let length = vector.len();
+impl<T> Decode<u8, T> for FileDecoder
+where
+	T: ReadStream<u8> + U8ReadStream + Seekable
+{
+	fn decode(stream: &mut T) -> (Self, StreamPosition) {
+		let start = stream.get_position();
 		let mut decoder = FileDecoder {
 			compression: Compression::None,
 			file_name: String::new(),
@@ -72,23 +79,20 @@ impl Decode for FileDecoder {
 		};
 
 		// read compression level
-		let (compression, new_position) = Compression::decode(vector);
-		let mut vector = new_position;
+		let (compression, _) = Compression::decode(stream);
 		decoder.compression = compression;
 
 		// read file size
-		let (size, new_position) = read_u64(vector);
-		vector = new_position;
+		let (size, _) = stream.read_u64();
 		decoder.size = size;
 
 		// read file name
-		let (name, new_position) = read_string(vector);
-		vector = new_position;
+		let (name, _) = stream.read_string();
 		decoder.file_name = name;
 
 		// set the file offset, since our vector slice is now positioned at the beginning of the file
-		decoder.file_offset = (length - vector.len()) as u64;
+		decoder.file_offset = (stream.get_position() - start) as u64;
 
-		return (decoder, vector);
+		return (decoder, stream.get_position());
 	}
 }

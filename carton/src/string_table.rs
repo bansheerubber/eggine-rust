@@ -1,8 +1,6 @@
 use std::collections::{ BTreeMap, HashMap, };
-
-use crate::stream::{ Decode, Encode, };
-use crate::stream::reading::{ read_string, read_u64, };
-use crate::stream::writing::{ write_string, write_u64 };
+use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 /// Data structure that stores all strings used in a carton. Any strings outside of the string table are meant to be
 /// referenced using their corresponding string table ID. String table IDs are within the range `0..2**60`.
@@ -40,31 +38,35 @@ impl StringTable {
 	}
 }
 
-impl Encode for StringTable {
-	fn encode(&self, vector: &mut Vec<u8>) {
-		write_u64(self.sorted_mapping.len() as u64, vector);
+impl<T> Encode<u8, T> for StringTable
+where
+	T: WriteStream<u8> + U8WriteStream
+{
+	fn encode(&self, stream: &mut T) {
+		stream.write_u64(self.sorted_mapping.len() as u64);
 
 		let sorted_mapping = self.sorted_mapping.iter().map(|(_, v)| v).collect::<Vec<&String>>();
 		for string in sorted_mapping {
-			write_string(string, vector);
+			stream.write_string(string);
 		}
 	}
 }
 
-impl Decode for StringTable {
-	fn decode(vector: &[u8]) -> (Self, &[u8]) {
-		let mut vector = vector;
+impl<T> Decode<u8, T> for StringTable
+where
+	T: ReadStream<u8> + U8ReadStream
+{
+	fn decode(stream: &mut T) -> (Self, StreamPosition) {
 		let mut table = StringTable::default();
 
-		let (row_count, new_position) = read_u64(vector);
-		vector = new_position;
+		let (row_count, mut position) = stream.read_u64();
 
 		for _ in 0..row_count {
-			let (string, new_position) = read_string(vector);
-			vector = new_position;
+			let (string, new_position) = stream.read_string();
+			position = new_position;
 			table.insert(&string);
 		}
 
-		return (table, vector);
+		return (table, position);
 	}
 }
