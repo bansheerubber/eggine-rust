@@ -5,7 +5,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 
-use streams::{ Decode, Encode, EncodeMut, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
+use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 #[derive(Debug)]
@@ -284,5 +284,19 @@ impl Peekable<u8> for FileReadStream {
 		self.file.read(&mut buffer).expect("Could not peek");
 		self.file.seek(SeekFrom::Current(-1)).expect("Could not seek");
 		return buffer[0];
+	}
+}
+
+impl Endable for FileReadStream {
+	fn is_at_end(&mut self) -> bool {
+		let mut buffer = [0];
+		let bytes_read = self.file.read(&mut buffer).expect("Could not read from file");
+
+		if bytes_read == 0 {
+			return true;
+		} else {
+			self.file.seek(SeekFrom::Current(-1)).expect("Could not seek");
+			return false;
+		}
 	}
 }

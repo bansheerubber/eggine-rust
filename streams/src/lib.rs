@@ -1,5 +1,6 @@
 pub mod decode;
 pub mod encode;
+pub mod endable;
 pub mod peek;
 pub mod read_stream;
 pub mod seek;
@@ -9,6 +10,7 @@ pub mod write_stream;
 pub use decode::Decode;
 pub use encode::Encode;
 pub use encode::EncodeMut;
+pub use endable::Endable;
 pub use peek::Peekable;
 pub use read_stream::ReadStream;
 pub use read_stream::StreamPosition;

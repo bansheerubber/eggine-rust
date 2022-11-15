@@ -1,8 +1,8 @@
-use streams::{ Decode, Encode, EncodeMut, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
+use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 use walkdir::WalkDir;
 
-use crate::tables::FileTable;
+use crate::tables::{FileTable, TableID};
 use crate::tables::StringTable;
 use crate::file::{ File, decode_file, encode_file };
 use crate::file_stream::FileWriteStream;
@@ -85,8 +85,8 @@ where
 		stream.write_char('N');
 		stream.write_u8(self.version);
 
-		// reserve spot for file table position
-		let file_table_pointer = stream.get_position();
+		// reserve spot for tables position
+		let table_pointer = stream.get_position();
 		stream.write_u64(0);
 
 		// encode files
@@ -102,13 +102,13 @@ where
 		}
 
 		// write file & string streams to file
-		let file_table_position = stream.get_position();
+		let first_table_position = stream.get_position();
 		self.file_table.encode(stream);
 		self.string_table.encode(stream);
 
 		// write file table position at the top of the file
-		stream.seek(file_table_pointer);
-		stream.write_u64(file_table_position);
+		stream.seek(table_pointer);
+		stream.write_u64(first_table_position);
 	}
 }
 
@@ -119,7 +119,7 @@ where
 /// a way to query files in the carton by searching metadata values.
 impl<T> Decode<u8, T> for Carton
 where
-	T: ReadStream<u8> + U8ReadStream + Seekable + Peekable<u8>
+	T: ReadStream<u8> + U8ReadStream + Seekable + Peekable<u8> + Endable
 {
 	fn decode(stream: &mut T) -> (Self, StreamPosition) {
 		let mut carton = Carton::default();
@@ -141,16 +141,26 @@ where
 			panic!("Invalid version");
 		}
 
-		let (file_table_pointer, _) = stream.read_u64();
+		// load tables
+		let (table_pointer, _) = stream.read_u64();
+		stream.seek(table_pointer);
 
-		// partially load the file table, only file name -> metadata position map is valid
-		stream.seek(file_table_pointer);
-		let (file_table, _) = FileTable::decode(stream);
-		carton.file_table = file_table;
-
-		// fully load the string table
-		let (string_table, _) = StringTable::decode(stream);
-		carton.string_table = string_table;
+		while !stream.is_at_end() {
+			let table_id = TableID::from(stream.peek());
+			match table_id {
+    		TableID::Invalid => unreachable!(),
+    		TableID::FileTable => {
+					// partially load the file table, only file name -> metadata position map is valid
+					let (file_table, _) = FileTable::decode(stream);
+					carton.file_table = file_table;
+				},
+    		TableID::StringTable => {
+					// fully load the string table
+					let (string_table, _) = StringTable::decode(stream);
+					carton.string_table = string_table;
+				},
+			}
+		}
 
 		// load metadata and files from carton in the order that they were written to the `.carton`
 		let mut files = Vec::new();
