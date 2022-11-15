@@ -6,8 +6,7 @@ use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 use crate::StringTable;
 use crate::file::{ Compression, File, };
 
-use super::FileMetadataEncoder;
-use super::metadata::encode_metadata;
+use crate::metadata::encode_metadata;
 
 /// Encodes a `FileMetadata` object
 #[derive(Debug)]
