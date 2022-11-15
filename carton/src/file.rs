@@ -3,7 +3,7 @@ use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 use crate::metadata::FileMetadata;
-use crate::translation_layer::FileDecoder;
+use crate::translation_layer::file::IntermediateFile;
 
 /// Represents the compression algorithm used for a file.
 #[derive(Debug, Eq, PartialEq)]
@@ -97,7 +97,7 @@ impl File {
 	}
 
 	/// Create a file from the decode intermediate representation.
-	pub(crate) fn from_intermediate(intermediate: FileDecoder, metadata: Option<toml::Value>) -> File {
+	pub(crate) fn from_intermediate(intermediate: IntermediateFile, metadata: Option<toml::Value>) -> File {
 		File {
 			compression: intermediate.compression,
 			file_name: intermediate.file_name.clone(),

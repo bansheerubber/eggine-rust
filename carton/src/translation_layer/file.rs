@@ -34,44 +34,39 @@ where
 }
 
 /// Intermediate representation of a `File` object.
-#[derive(Debug)]
-pub(crate) struct FileDecoder {
+pub(crate) struct IntermediateFile {
 	pub(crate) compression: Compression,
 	pub(crate) file_name: String,
 	pub(crate) file_offset: u64,
 	pub(crate) size: u64,
 }
 
-/// Decode a file into an intermediate representation, because we have some things that we need to do after decoding
-/// that requires additional context, like setting file absolute position
-impl<T> Decode<u8, T> for FileDecoder
+pub(crate) fn decode_file<T>(stream: &mut T) -> (IntermediateFile, StreamPosition)
 where
 	T: ReadStream<u8> + U8ReadStream + Seekable
 {
-	fn decode(stream: &mut T) -> (Self, StreamPosition) {
-		let start = stream.get_position();
-		let mut decoder = FileDecoder {
-			compression: Compression::None,
-			file_name: String::new(),
-			file_offset: 0,
-			size: 0,
-		};
+	let start = stream.get_position();
+	let mut intermediate = IntermediateFile {
+		compression: Compression::None,
+		file_name: String::new(),
+		file_offset: 0,
+		size: 0,
+	};
 
-		// read compression level
-		let (compression, _) = Compression::decode(stream);
-		decoder.compression = compression;
+	// read compression level
+	let (compression, _) = Compression::decode(stream);
+	intermediate.compression = compression;
 
-		// read file size
-		let (size, _) = stream.read_u64();
-		decoder.size = size;
+	// read file size
+	let (size, _) = stream.read_u64();
+	intermediate.size = size;
 
-		// read file name
-		let (name, _) = stream.read_string();
-		decoder.file_name = name;
+	// read file name
+	let (name, _) = stream.read_string();
+	intermediate.file_name = name;
 
-		// set the file offset, since our vector slice is now positioned at the beginning of the file
-		decoder.file_offset = (stream.get_position() - start) as u64;
+	// set the file offset, since our vector slice is now positioned at the beginning of the file
+	intermediate.file_offset = (stream.get_position() - start) as u64;
 
-		return (decoder, stream.get_position());
-	}
+	return (intermediate, stream.get_position());
 }
