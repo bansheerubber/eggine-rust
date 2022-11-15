@@ -4,6 +4,8 @@ use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 use crate::file::File;
 
+use super::TableID;
+
 /// Maps files to their absolute positions within the carton.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct FileTable {
@@ -61,6 +63,7 @@ where
 	T: WriteStream<u8> + U8WriteStream
 {
 	fn encode(&self, stream: &mut T) {
+		stream.write_u8(TableID::FileTable as u8);
 		stream.write_u64(self.metadata_positions.len() as u64);
 
 		for (file_name, position) in self.metadata_positions.iter() {
@@ -77,8 +80,12 @@ where
 	T: ReadStream<u8> + U8ReadStream
 {
 	fn decode(stream: &mut T) -> (Self, StreamPosition) {
-		let mut table = FileTable::default();
+		let (table_id, _) = stream.read_u8();
+		if table_id != TableID::FileTable as u8 {
+			panic!("Did not get expected table");
+		}
 
+		let mut table = FileTable::default();
 		let (row_count, mut position) = stream.read_u64();
 
 		for _ in 0..row_count {
