@@ -135,12 +135,11 @@ mod tests {
 	}
 
 	impl ReadStream<u8> for TestReadStream {
-    type DecodedType = TestObject<'static>;
 		type Error = TestStreamError;
 		type Import = Vec<u8>;
 
-    fn decode(&mut self) -> Self::DecodedType {
-			TestObject::decode(self).0
+    fn decode<T: Decode<u8, Self>>(&mut self) -> T {
+			T::decode(self).0
     }
 
 		fn can_decode(&self) -> bool {
@@ -356,7 +355,7 @@ mod tests {
 
 		let mut stream = TestReadStream::default();
 		stream.import(exported).expect("Could not import TestReadStream");
-		let test_object = stream.decode();
+		let test_object = stream.decode::<TestObject>();
 		assert!(test_object == TEST_OBJECT);
 	}
 }
