@@ -6,8 +6,9 @@ use crate::FileTable;
 use crate::StringTable;
 use crate::file::File;
 use crate::file_stream::FileWriteStream;
-use crate::translation_layer::metadata::decode_value;
-use crate::translation_layer::{ FileDecoder, FileEncoder, };
+use crate::metadata::decode_value;
+use crate::translation_layer::file::encode_file;
+use crate::translation_layer::{ FileDecoder, };
 
 const CARTON_VERSION: u8 = 2;
 
@@ -92,15 +93,8 @@ where
 
 		let mut positions = Vec::new();
 		for file in self.file_table.get_files() {
-			let mut encoder = FileEncoder {
-				file,
-				file_position: 0,
-				metadata_position: 0,
-				string_table: &mut self.string_table,
-			};
-
-			encoder.encode_mut(stream);
-			positions.push((String::from(file.get_file_name()), encoder.metadata_position, encoder.file_position));
+			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table);
+			positions.push((String::from(file.get_file_name()), metadata_position, file_position));
 		}
 
 		for (file_name, metadata_position, file_position) in positions {
