@@ -1,15 +1,19 @@
 pub mod decode;
 pub mod encode;
+pub mod peek;
 pub mod read_stream;
+pub mod seek;
 pub mod u8_io;
 pub mod write_stream;
 
 pub use decode::Decode;
 pub use encode::Encode;
 pub use encode::EncodeMut;
+pub use peek::Peekable;
 pub use read_stream::ReadStream;
 pub use read_stream::StreamPosition;
 pub use read_stream::StreamPositionDelta;
+pub use seek::Seekable;
 pub use write_stream::WriteStream;
 
 /// Test the `u8` encoding reference implementation of read/write streams.
