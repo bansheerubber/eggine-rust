@@ -1,15 +1,8 @@
-use streams::{ EncodeMut, ReadStream, Seekable, StreamPosition, WriteStream, };
+use streams::{ ReadStream, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
 use crate::StringTable;
 use crate::metadata::FileMetadata;
-
-/// Encodes a `FileMetadata` object
-#[derive(Debug)]
-pub(crate) struct FileMetadataEncoder<'a> {
-	pub(crate) metadata: &'a FileMetadata,
-	pub(crate) string_table: &'a mut StringTable,
-}
 
 enum TOMLValueType {
 	INVALID 	= 0,
@@ -39,7 +32,7 @@ impl From<u8> for TOMLValueType {
 
 fn encode_value<T>(value: &toml::Value, stream: &mut T, string_table: &mut StringTable)
 where
-T: WriteStream<u8> + U8WriteStream + Seekable
+	T: WriteStream<u8> + U8WriteStream + Seekable
 {
 	match value {
     toml::Value::String(value) => {
@@ -84,6 +77,14 @@ T: WriteStream<u8> + U8WriteStream + Seekable
 			}
 		},
 	}
+}
+
+// Encode the `toml::Value` in the metadata.
+pub fn encode_metadata<T>(stream: &mut T, metadata: &FileMetadata, string_table: &mut StringTable)
+where
+	T: WriteStream<u8> + U8WriteStream + Seekable
+{
+	encode_value(metadata.get_file_metadata_toml(), stream, string_table);
 }
 
 pub fn decode_value<T>(stream: &mut T, string_table: &mut StringTable) -> (toml::Value, StreamPosition)
@@ -145,16 +146,5 @@ where
 
 			return (toml::Value::Table(map), position);
 		},
-	}
-}
-
-// Encode the `toml::Value` in the metadata.
-impl<T> EncodeMut<u8, T> for FileMetadataEncoder<'_>
-where
-	T: WriteStream<u8> + U8WriteStream + Seekable
-{
-	fn encode_mut(&mut self, stream: &mut T) {
-		// TODO root should always be a table? 7 is always written first?
-		encode_value(self.metadata.get_file_metadata_toml(), stream, self.string_table);
 	}
 }
