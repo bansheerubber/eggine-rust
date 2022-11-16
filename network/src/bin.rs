@@ -11,12 +11,17 @@ fn main() {
 	}
 
 	if arguments.contains("--server") {
-		let server = Server::new(last_argument).unwrap();
-
+		let mut server = Server::new(last_argument).unwrap();
 		loop {
-
+			if let Err(error) = server.tick() {
+				if error.is_fatal() {
+					panic!("{:?}", error);
+				}
+			}
+			std::thread::sleep(std::time::Duration::from_millis(1));
 		}
 	} else {
-		let client = Client::new(last_argument).unwrap();
+		let mut client = Client::new(last_argument).unwrap();
+		client.test_send();
 	}
 }
