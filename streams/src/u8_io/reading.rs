@@ -69,6 +69,32 @@ pub fn read_string(vector: &[u8]) -> (String, StreamPositionDelta) {
 	return (output, read_bytes + length);
 }
 
+#[derive(Debug)]
+pub enum ReadStringSafeError {
+	TooLong(u64),
+	TooShort(u64),
+}
+
+/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
+/// characters. If the length is below the minimum length or above the maximum length, the read will fail.
+pub fn read_string_safe(vector: &[u8], minimum_length: u64, maximum_length: u64)
+	-> Result<(String, StreamPosition), ReadStringSafeError>
+{
+	let (length, read_bytes) = read_vlq(vector);
+
+	if length < minimum_length {
+		return Err(ReadStringSafeError::TooShort(length));
+	} else if length > maximum_length {
+		return Err(ReadStringSafeError::TooLong(length));
+	}
+
+	let mut output = String::new();
+	for i in 0..length as usize {
+		output.push(vector[read_bytes as usize + i] as char);
+	}
+	return Ok((output, read_bytes + length));
+}
+
 /// Trait for a stream that implements `u8` reading.
 pub trait U8ReadStream {
 	/// Reads one byte.
@@ -95,11 +121,6 @@ pub trait U8ReadStringStream {
 	/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
 	/// characters.
 	fn read_string(&mut self) -> (String, StreamPosition);
-}
-
-pub enum ReadStringSafeError {
-	TooLong,
-	TooShort,
 }
 
 /// Tests the length of the string before reading its contents.
