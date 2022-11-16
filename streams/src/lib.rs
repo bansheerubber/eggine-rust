@@ -21,7 +21,9 @@ pub use write_stream::WriteStream;
 /// Test the `u8` encoding reference implementation of read/write streams.
 #[cfg(test)]
 mod tests {
-	use super::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
+	use crate::u8_io::U8ReadStringStream;
+
+use super::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 	use super::u8_io::reading::{ read_char, read_string, read_u8, read_u16, read_u32, read_u64, read_vlq, };
 	use super::u8_io::U8ReadStream;
 	use super::u8_io::U8WriteStream;
@@ -136,7 +138,9 @@ mod tests {
 			self.position += read_bytes;
 			return (number, self.position);
 		}
+	}
 
+	impl U8ReadStringStream for TestReadStream {
 		fn read_string(&mut self) -> (String, StreamPosition) {
 			let (string, read_bytes) = read_string(&self.buffer[self.position as usize..]);
 			self.position += read_bytes;
@@ -200,7 +204,7 @@ mod tests {
 
 	impl<T> Decode<u8, T> for NestedTestObject<'_>
 	where
-		T: ReadStream<u8> + U8ReadStream
+		T: ReadStream<u8> + U8ReadStream + U8ReadStringStream
 	{
     fn decode(stream: &mut T) -> (Self, StreamPosition) {
 			let (variable_length, position) = stream.read_vlq();
@@ -275,7 +279,7 @@ mod tests {
 
 	impl<T> Decode<u8, T> for TestObject<'_>
 	where
-		T: ReadStream<u8> + U8ReadStream
+		T: ReadStream<u8> + U8ReadStream + U8ReadStringStream
 	{
     fn decode(stream: &mut T) -> (Self, StreamPosition) {
 			let nested_object = NestedTestObject::decode(stream).0;

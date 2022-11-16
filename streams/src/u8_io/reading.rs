@@ -89,9 +89,23 @@ pub trait U8ReadStream {
 	/// Reads a variable length quantity integer. The 16th bit in a 2 byte pair represents if the number has another two
 	/// bits. 1 if there are, 0 if there aren't. Integers within the range of `0..2**60` are supported.
 	fn read_vlq(&mut self) -> (u64, StreamPosition);
+}
 
+pub trait U8ReadStringStream {
 	/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
 	/// characters.
 	fn read_string(&mut self) -> (String, StreamPosition);
 }
 
+pub enum ReadStringSafeError {
+	TooLong,
+	TooShort,
+}
+
+/// Tests the length of the string before reading its contents.
+pub trait U8ReadStringSafeStream {
+	/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
+	/// characters. If the length is below the minimum length or above the maximum length, the read will fail.
+	fn read_string_safe(&mut self, minimum_length: u64, maximum_length: u64)
+		-> Result<(String, StreamPosition), ReadStringSafeError>;
+}
