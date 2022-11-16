@@ -1,0 +1,15 @@
+[package]
+name = "network"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+streams = { path = "../streams" }
+
+[lib]
+name = "network"
+path = "src/lib.rs"
+
+[[bin]]
+name = "networkbin"
+path = "src/bin.rs"

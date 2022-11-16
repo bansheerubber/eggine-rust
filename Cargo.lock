@@ -13,6 +13,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "network"
+version = "0.1.0"
+dependencies = [
+ "streams",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
