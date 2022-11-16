@@ -5,6 +5,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 
+use streams::u8_io::reading::U8ReadStringStream;
 use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
@@ -244,7 +245,9 @@ impl U8ReadStream for FileReadStream {
 
 		return (number, self.position);
 	}
+}
 
+impl U8ReadStringStream for FileReadStream {
 	fn read_string(&mut self) -> (String, StreamPosition) {
 		let (length, _) = self.read_vlq();
 

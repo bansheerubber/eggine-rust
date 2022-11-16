@@ -1,6 +1,6 @@
 use std::collections::{ BTreeMap, HashMap, };
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
-use streams::u8_io::{ U8ReadStream, U8WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 
 use super::TableID;
 
@@ -57,7 +57,7 @@ where
 
 impl<T> Decode<u8, T> for StringTable
 where
-	T: ReadStream<u8> + U8ReadStream
+	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream
 {
 	fn decode(stream: &mut T) -> (Self, StreamPosition) {
 		let (table_id, _) = stream.read_u8();

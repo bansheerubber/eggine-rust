@@ -1,5 +1,5 @@
 use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
-use streams::u8_io::{ U8ReadStream, U8WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 use walkdir::WalkDir;
 
 use crate::tables::{FileTable, TableID};
@@ -119,7 +119,7 @@ where
 /// a way to query files in the carton by searching metadata values.
 impl<T> Decode<u8, T> for Carton
 where
-	T: ReadStream<u8> + U8ReadStream + Seekable + Peekable<u8> + Endable
+	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream + Seekable + Peekable<u8> + Endable
 {
 	fn decode(stream: &mut T) -> (Self, StreamPosition) {
 		let mut carton = Carton::default();

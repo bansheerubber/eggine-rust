@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 use streams::{ Decode, Encode, ReadStream, Seekable, StreamPosition, WriteStream, };
-use streams::u8_io::{ U8ReadStream, U8WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 
 use crate::tables::StringTable;
 use crate::metadata::{ FileMetadata, encode_metadata };
@@ -168,7 +168,7 @@ pub(crate) struct IntermediateFile {
 
 pub(crate) fn decode_file<T>(stream: &mut T) -> (IntermediateFile, StreamPosition)
 where
-	T: ReadStream<u8> + U8ReadStream + Seekable
+	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream + Seekable
 {
 	let start = stream.get_position();
 	let mut intermediate = IntermediateFile {

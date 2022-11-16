@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
-use streams::u8_io::{ U8ReadStream, U8WriteStream, };
+use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 
 use crate::file::File;
 
@@ -77,7 +77,7 @@ where
 /// after the initial decode. File starting positions are inferred during metadata decoding.
 impl<T> Decode<u8, T> for FileTable
 where
-	T: ReadStream<u8> + U8ReadStream
+	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream
 {
 	fn decode(stream: &mut T) -> (Self, StreamPosition) {
 		let (table_id, _) = stream.read_u8();
