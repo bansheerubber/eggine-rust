@@ -1,12 +1,18 @@
 use std::collections::{ HashMap, HashSet, };
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::Instant;
+use std::time::{ Duration, Instant, };
 use streams::ReadStream;
 
 use crate::handshake::{ Handshake, Version, };
 use crate::network_stream::NetworkReadStream;
 
 use super::ClientConnection;
+
+// TODO implement encode/decode for this
+#[derive(Debug)]
+pub enum DisconnectionReason {
+	Timeout,
+}
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -116,6 +122,22 @@ impl Server {
 			}
 		}
 
+		// time out clients that have lived for too long
+		let now = Instant::now();
+		let time_out_clients = self.address_to_client.iter()
+			.filter_map(|(_, client)| {
+				if now - client.last_activity > Duration::from_secs(30) {
+					Some(client.address)
+				} else {
+					None
+				}
+			})
+			.collect::<Vec<SocketAddr>>();
+
+		for address in time_out_clients {
+			self.disconnect_client(address, DisconnectionReason::Timeout);
+		}
+
 		Ok(())
 	}
 
@@ -168,6 +190,12 @@ impl Server {
 		let mut new_vector = Vec::new();
 		new_vector.resize(MAX_PACKET_SIZE + 1, 0);
 		std::mem::replace(&mut self.receive_buffer, new_vector)
+	}
+
+	fn disconnect_client(&mut self, address: SocketAddr, reason: DisconnectionReason) {
+		// TODO encode client disconnect
+		println!("! {:?} timed out", address);
+		self.address_to_client.remove(&address);
 	}
 
 	/// Attempt to initialize a connection with a client who just talked to us.
