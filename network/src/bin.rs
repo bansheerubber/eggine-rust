@@ -23,5 +23,14 @@ fn main() {
 	} else {
 		let mut client = Client::new(last_argument).unwrap();
 		client.test_send();
+
+		loop {
+			if let Err(error) = client.tick() {
+				if error.is_fatal() {
+					panic!("{:?}", error);
+				}
+			}
+			std::thread::sleep(std::time::Duration::from_millis(1));
+		}
 	}
 }

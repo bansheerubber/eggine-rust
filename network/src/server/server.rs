@@ -1,18 +1,14 @@
 use std::collections::{ HashMap, HashSet, };
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ Duration, Instant, };
-use streams::ReadStream;
+use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
+use streams::{ ReadStream, WriteStream, };
 
+use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
-use crate::network_stream::NetworkReadStream;
+use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
+use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
 use super::ClientConnection;
-
-// TODO implement encode/decode for this
-#[derive(Debug)]
-pub enum DisconnectionReason {
-	Timeout,
-}
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -28,6 +24,8 @@ pub enum ServerError {
 	PacketTooBig(SocketAddr),
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
 	Receive(std::io::Error),
+	/// Emitted if we encountered an OS socket error during a send. Fatal.
+	Send(std::io::Error),
 	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
 	/// available packets from the socket at the moment. Non-fatal.
 	WouldBlock,
@@ -43,13 +41,11 @@ impl ServerError {
 			ServerError::InvalidIP => false,
 			ServerError::PacketTooBig(_) => false,
 			ServerError::Receive(_) => true,
+			ServerError::Send(_) => true,
 			ServerError::WouldBlock => false,
 		}
 	}
 }
-
-/// Maximum eggine packet size.
-const MAX_PACKET_SIZE: usize = (2 as usize).pow(12);
 
 #[derive(Debug)]
 pub struct Server {
@@ -64,6 +60,8 @@ pub struct Server {
 	handshake: Handshake,
 	/// The buffer we write into when we receive data.
 	receive_buffer: Vec<u8>,
+	receive_stream: NetworkReadStream,
+	send_stream: NetworkWriteStream,
 	socket: UdpSocket,
 }
 
@@ -102,7 +100,9 @@ impl Server {
 				},
 			},
 			receive_buffer,
+			receive_stream: NetworkReadStream::new(),
 			socket,
+			send_stream: NetworkWriteStream::new(),
 		})
 	}
 
@@ -180,9 +180,32 @@ impl Server {
 		} else {
 			let buffer = self.disown_receive_buffer();
 			self.initialize_client(source, &address, buffer)?;
+
+			self.test_encode_packet(source).unwrap();
 		}
 
 		Ok(ReceiveResult::None)
+	}
+
+	/// Decode a packet.
+	fn decode_packet(&mut self, buffer: Vec<u8>) -> Result<(), ServerError> {
+		Ok(())
+	}
+
+	fn test_encode_packet(&mut self, address: SocketAddr) -> Result<(), ServerError> {
+		let mut packet = Packet::new(0, 0);
+		packet.add_sub_payload(SubPayload::Ping(
+			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+		));
+
+		self.send_stream.encode(&packet);
+
+		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
+		if let Err(error) = self.socket.send_to(&self.send_stream.export().unwrap(), address) {
+			return Err(ServerError::Send(error));
+		}
+
+		Ok(())
 	}
 
 	/// Create a new receive buffer, returning the old one.
@@ -200,13 +223,12 @@ impl Server {
 
 	/// Attempt to initialize a connection with a client who just talked to us.
 	fn initialize_client(&mut self, source: SocketAddr, address: &Ipv6Addr, handshake_buffer: Vec<u8>) -> Result<(), ServerError> {
-		let mut read_stream = NetworkReadStream::new();
-		read_stream.import(handshake_buffer).unwrap();
+		self.receive_stream.import(handshake_buffer).unwrap();
 
 		println!("Client talking from {:?}", source);
 
 		// check handshake
-		let handshake = read_stream.decode::<Handshake>();
+		let handshake = self.receive_stream.decode::<Handshake>();
 		if handshake != self.handshake {
 			println!("  @ invalid handshake"); // @ indicates that the ip was blacklisted for this
 			self.blacklist.insert(address.clone());
