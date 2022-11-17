@@ -1,4 +1,4 @@
-use streams::{ Decode, Encode, EncodeMut, ReadStream, StreamPosition, WriteStream, };
+use streams::{ Decode, Encode, Endable,EncodeMut, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 use streams::u8_io::writing::{ write_char, write_string, write_u8, write_u16, write_u32, write_u64, write_vlq, };
 use streams::u8_io::reading::{
@@ -169,5 +169,11 @@ impl ReadStream<u8> for NetworkReadStream {
 		self.position = 0;
 
 		Ok(())
+	}
+}
+
+impl Endable for NetworkReadStream {
+	fn is_at_end(&mut self) -> bool {
+		self.position >= self.buffer.len() as StreamPosition
 	}
 }

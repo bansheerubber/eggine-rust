@@ -59,7 +59,7 @@ pub struct Server {
 	/// Handshae we compare client handshakes against.
 	handshake: Handshake,
 	/// The buffer we write into when we receive data.
-	receive_buffer: Vec<u8>,
+	receive_buffer: [u8; MAX_PACKET_SIZE],
 	receive_stream: NetworkReadStream,
 	send_stream: NetworkWriteStream,
 	socket: UdpSocket,
@@ -79,13 +79,6 @@ impl Server {
 
 		socket.set_nonblocking(true).unwrap();
 
-		// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
-		// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
-		// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
-		// `0..MAX_PACKET_SIZE`.
-		let mut receive_buffer = Vec::new();
-		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
-
 		Ok(Server {
 			address: socket.local_addr().unwrap(),
 			address_to_client: HashMap::new(),
@@ -99,7 +92,11 @@ impl Server {
 					revision: 0,
 				},
 			},
-			receive_buffer,
+			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
+			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
+			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
+			// `0..MAX_PACKET_SIZE`.
+			receive_buffer: [0; MAX_PACKET_SIZE],
 			receive_stream: NetworkReadStream::new(),
 			socket,
 			send_stream: NetworkWriteStream::new(),
@@ -174,13 +171,15 @@ impl Server {
 			return Err(ServerError::PacketTooBig(source));
 		}
 
+		// TODO optimize this
+		let mut buffer: Vec<u8> = Vec::new();
+		buffer.extend(&self.receive_buffer[0..read_bytes]);
+
 		// now we're done error checking, figure out what to do with the data we just got
 		if self.address_to_client.contains_key(&source) {
-
+			self.decode_packet(source, buffer)?;
 		} else {
-			let buffer = self.disown_receive_buffer();
 			self.initialize_client(source, &address, buffer)?;
-
 			self.test_encode_packet(source).unwrap();
 		}
 
@@ -188,11 +187,33 @@ impl Server {
 	}
 
 	/// Decode a packet.
-	fn decode_packet(&mut self, buffer: Vec<u8>) -> Result<(), ServerError> {
+	fn decode_packet(&mut self, source: SocketAddr, buffer: Vec<u8>) -> Result<(), ServerError> {
+		let now = Instant::now();
+		let client = self.address_to_client.get_mut(&source).unwrap();
+		client.last_activity = now;
+
+		self.receive_stream.import(buffer).unwrap();
+		let packet = self.receive_stream.decode::<Packet>();
+		for sub_payload in packet.get_sub_payloads() {
+			match sub_payload {
+				SubPayload::Ping(time) => {
+					println!(". got ping with time {}", time);
+				},
+				SubPayload::Pong(time) => {
+					println!(
+						". got pong with time {} from {:?}. round-trip duration is {}us",
+						time,
+						source,
+						(now - client.last_ping_time).as_micros()
+					);
+				}
+			}
+		}
+
 		Ok(())
 	}
 
-	fn test_encode_packet(&mut self, address: SocketAddr) -> Result<(), ServerError> {
+	fn test_encode_packet(&mut self, source: SocketAddr) -> Result<(), ServerError> {
 		let mut packet = Packet::new(0, 0);
 		packet.add_sub_payload(SubPayload::Ping(
 			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
@@ -201,24 +222,18 @@ impl Server {
 		self.send_stream.encode(&packet);
 
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send_to(&self.send_stream.export().unwrap(), address) {
+		let bytes = self.send_stream.export().unwrap();
+		if let Err(error) = self.socket.send_to(&bytes, source) {
 			return Err(ServerError::Send(error));
 		}
 
 		Ok(())
 	}
 
-	/// Create a new receive buffer, returning the old one.
-	fn disown_receive_buffer(&mut self) -> Vec<u8> {
-		let mut new_vector = Vec::new();
-		new_vector.resize(MAX_PACKET_SIZE + 1, 0);
-		std::mem::replace(&mut self.receive_buffer, new_vector)
-	}
-
-	fn disconnect_client(&mut self, address: SocketAddr, reason: DisconnectionReason) {
+	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) {
 		// TODO encode client disconnect
-		println!("! {:?} timed out", address);
-		self.address_to_client.remove(&address);
+		println!("! {:?} timed out", source);
+		self.address_to_client.remove(&source);
 	}
 
 	/// Attempt to initialize a connection with a client who just talked to us.
@@ -246,6 +261,7 @@ impl Server {
 		self.address_to_client.insert(source, ClientConnection {
 			address: source,
 			last_activity: Instant::now(),
+			last_ping_time: Instant::now(),
 		});
 
 		Ok(())

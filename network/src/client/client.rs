@@ -1,10 +1,11 @@
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::Instant;
+use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
 use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
+use crate::payload::{ Packet, SubPayload, };
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -39,7 +40,7 @@ pub struct Client {
 	address: SocketAddr,
 	/// The last time we received data from the server.
 	last_activity: Instant,
-	receive_buffer: Vec<u8>,
+	receive_buffer: [u8; MAX_PACKET_SIZE],
 	receive_stream: NetworkReadStream,
 	send_stream: NetworkWriteStream,
 	socket: UdpSocket,
@@ -61,17 +62,17 @@ impl Client {
 			return Err(ClientError::Create(error));
 		}
 
-		// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
-		// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
-		// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
-		// `0..MAX_PACKET_SIZE`.
 		let mut receive_buffer = Vec::new();
 		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
 
 		Ok(Client {
 			address: socket.local_addr().unwrap(),
 			last_activity: Instant::now(),
-			receive_buffer,
+			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
+			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
+			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
+			// `0..MAX_PACKET_SIZE`.
+			receive_buffer: [0; MAX_PACKET_SIZE],
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
 			socket,
@@ -98,21 +99,45 @@ impl Client {
 			return Err(ClientError::PacketTooBig);
 		}
 
+		// TODO optimize this
+		let mut buffer: Vec<u8> = Vec::new();
+		buffer.extend(&self.receive_buffer[0..read_bytes]);
+
 		self.last_activity = Instant::now();
 
-		let buffer = self.disown_receive_buffer();
 		self.receive_stream.import(buffer).unwrap();
 
-		println!("{:?}", self.receive_stream);
+		let packet = self.receive_stream.decode::<Packet>();
+		for sub_payload in packet.get_sub_payloads() {
+			match sub_payload {
+				SubPayload::Ping(time) => {
+					println!(". got ping with time {}", time);
+					self.test_encode_packet().unwrap();
+				},
+				SubPayload::Pong(time) => {
+					println!(". got pong with time {}", time);
+				}
+			}
+		}
 
 		Ok(())
 	}
 
-	/// Create a new receive buffer, returning the old one.
-	fn disown_receive_buffer(&mut self) -> Vec<u8> {
-		let mut new_vector = Vec::new();
-		new_vector.resize(MAX_PACKET_SIZE + 1, 0);
-		std::mem::replace(&mut self.receive_buffer, new_vector)
+	fn test_encode_packet(&mut self) -> Result<(), ClientError> {
+		let mut packet = Packet::new(0, 0);
+		packet.add_sub_payload(SubPayload::Pong(
+			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+		));
+
+		self.send_stream.encode(&packet);
+
+		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
+		let bytes = self.send_stream.export().unwrap();
+		if let Err(error) = self.socket.send(&bytes) {
+			return Err(ClientError::Send(error));
+		}
+
+		Ok(())
 	}
 
 	pub fn test_send(&mut self) {
