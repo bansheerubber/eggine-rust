@@ -1,4 +1,3 @@
-use std::collections::{ HashMap, HashSet, };
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
@@ -54,9 +53,6 @@ impl ServerError {
 pub struct Server {
 	/// The address the server is bound to
 	address: SocketAddr,
-	/// If we get too many invalid packets from an IP address, add them to the blacklist so we immediately discard any
-	/// additional packets from them
-	blacklist: HashSet<Ipv6Addr>,
 	client_table: ClientTable,
 	/// Handshae we compare client handshakes against.
 	handshake: Handshake,
@@ -83,7 +79,6 @@ impl Server {
 
 		Ok(Server {
 			address: socket.local_addr().unwrap(),
-			blacklist: HashSet::new(),
 			client_table: ClientTable::default(),
 			handshake: Handshake {
 				checksum: [0; 16],
@@ -189,14 +184,14 @@ impl Server {
 		};
 
 		// stop blacklisted data from continuing
-		if self.blacklist.contains(&address) {
+		if self.client_table.is_in_blacklist(&address) {
 			return Err(ServerError::Blacklisted(source));
 		}
 
 		// make sure what we just read is not too big to be an eggine packet
 		if read_bytes > MAX_PACKET_SIZE {
 			println!("@ received too big of a packet from {:?}", address); // @ indicates that the ip was blacklisted for this
-			self.blacklist.insert(address.clone());
+			self.client_table.add_to_blacklist(address.clone());
 			return Err(ServerError::PacketTooBig(source));
 		}
 
@@ -297,7 +292,7 @@ impl Server {
 		let handshake = self.receive_stream.decode::<Handshake>();
 		if handshake != self.handshake {
 			println!("  @ invalid handshake"); // @ indicates that the ip was blacklisted for this
-			self.blacklist.insert(address.clone());
+			self.client_table.add_to_blacklist(address.clone());
 			return Err(ServerError::ClientCreation);
 		}
 
