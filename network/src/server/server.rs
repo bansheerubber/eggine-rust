@@ -7,7 +7,7 @@ use crate::handshake::{ Handshake, Version, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
-use super::{ClientConnection, ClientTable};
+use super::{ ClientConnection, ClientTable, };
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -103,7 +103,7 @@ impl Server {
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out all `ClientConnection`s' time-to-live.
 	pub fn tick(&mut self) -> Result<(), ServerError> {
-		// reset client outgoing packets
+		// reset client outgoing packets so we can write new information into them
 		for (_, client) in self.client_table.client_iter_mut() {
 			client.outgoing_packet = Packet::new(0, 0); // TODO add reset function to packet
 		}
@@ -204,13 +204,17 @@ impl Server {
 			self.decode_packet(source, buffer)?;
 		} else {
 			self.initialize_client(source, &address, buffer)?;
-			self.test_encode_packet(source).unwrap();
+
+			let client = self.client_table.get_client_mut(&source)?;
+			client.outgoing_packet.add_sub_payload(SubPayload::Ping(
+				SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+			));
 		}
 
 		Ok(ReceiveResult::None)
 	}
 
-	/// Decode a packet.
+	/// Decode a packet from an already connected IP address.
 	fn decode_packet(&mut self, source: SocketAddr, buffer: Vec<u8>) -> Result<(), ServerError> {
 		let now = Instant::now();
 		let client = self.client_table.get_client_mut(&source)?;
@@ -244,15 +248,6 @@ impl Server {
 		Ok(())
 	}
 
-	fn test_encode_packet(&mut self, source: SocketAddr) -> Result<(), ServerError> {
-		let client = self.client_table.get_client_mut(&source)?;
-		client.outgoing_packet.add_sub_payload(SubPayload::Ping(
-			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
-		));
-
-		Ok(())
-	}
-
 	/// Send a byte vector to the specified client address.
 	fn send_bytes_to(&mut self, source: SocketAddr, bytes: &Vec<u8>) -> Result<(), ServerError> {
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
@@ -263,24 +258,8 @@ impl Server {
 		Ok(())
 	}
 
-	/// Disconnect a client from the server. Removes the `ClientConnection` associated with the source address from the
-	/// server connection state. Tell the client that their connection has been closed.
-	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) -> Result<(), ServerError> {
-		let client = self.client_table.get_client_mut(&source)?;
-		client.outgoing_packet.add_sub_payload(SubPayload::Disconnect(reason));
-		self.send_stream.encode(&client.outgoing_packet);
-
-		println!(". disconnected client with reason {:?}", reason);
-
-		self.client_table.remove_client(&source); // remove the client before we have a chance of erroring out during the send
-
-		let bytes = self.send_stream.export().unwrap();
-		self.send_bytes_to(source, &bytes)?;
-
-		Ok(())
-	}
-
-	/// Attempt to initialize a connection with a client who just talked to us.
+	/// Attempt to initialize a connection with a new IP address who just talked to us. Test for a handshake, and make
+	/// sure the handshake is compatible with the server's handshake.
 	fn initialize_client(&mut self, source: SocketAddr, address: &Ipv6Addr, handshake_buffer: Vec<u8>)
 		-> Result<(), ServerError>
 	{
@@ -310,6 +289,23 @@ impl Server {
 			last_ping_time: Instant::now(),
 			outgoing_packet: Packet::new(0, 0),
 		});
+
+		Ok(())
+	}
+
+	/// Disconnect a client from the server. Removes the `ClientConnection` associated with the source address from the
+	/// server connection state. Tell the client that their connection has been closed.
+	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) -> Result<(), ServerError> {
+		let client = self.client_table.get_client_mut(&source)?;
+		client.outgoing_packet.add_sub_payload(SubPayload::Disconnect(reason));
+		self.send_stream.encode(&client.outgoing_packet);
+
+		println!(". disconnected client with reason {:?}", reason);
+
+		self.client_table.remove_client(&source); // remove the client before we have a chance of erroring out during the send
+
+		let bytes = self.send_stream.export().unwrap();
+		self.send_bytes_to(source, &bytes)?;
 
 		Ok(())
 	}

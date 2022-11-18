@@ -102,14 +102,14 @@ impl Client {
 			return Err(ClientError::PacketTooBig);
 		}
 
+		self.last_activity = Instant::now();
+
 		// TODO optimize this
 		let mut buffer: Vec<u8> = Vec::new();
 		buffer.extend(&self.receive_buffer[0..read_bytes]);
-
-		self.last_activity = Instant::now();
-
 		self.receive_stream.import(buffer).unwrap();
 
+		// figure out what to do with the packet we just got
 		let packet = self.receive_stream.decode::<Packet>();
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
