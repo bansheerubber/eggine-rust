@@ -15,6 +15,8 @@ pub enum ClientError {
 	Connect(std::io::Error),
 	/// Emitted if we were disconnected by the server. Fatal.
 	Disconnected(DisconnectionReason),
+	/// Received an invalid handshake. We likely talked to a random UDP server. Fatal.
+	Handshake,
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig,
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
@@ -33,6 +35,7 @@ impl ClientError {
 			ClientError::Create(_) => true,
 			ClientError::Connect(_) => true,
 			ClientError::Disconnected(_) => true,
+			ClientError::Handshake => true,
 			ClientError::PacketTooBig => false,
 			ClientError::Receive(_) => true,
 			ClientError::Send(_) => true,
@@ -46,6 +49,7 @@ pub struct Client {
 	address: SocketAddr,
 	/// True if the server accepted our handshake and we're in a state where we are ready to exchange packets.
 	connection_initialized: bool,
+	handshake: Handshake,
 	/// The last time we received data from the server.
 	last_activity: Instant,
 	outgoing_packet: Packet,
@@ -73,6 +77,16 @@ impl Client {
 		Ok(Client {
 			address: socket.local_addr().unwrap(),
 			connection_initialized: false,
+			handshake: Handshake {
+				checksum: [0; 16],
+				sequences: (0, 0),
+				version: Version {
+					branch: String::from("master"),
+					major: 0,
+					minor: 0,
+					revision: 0,
+				}
+			},
 			last_activity: Instant::now(),
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
@@ -119,10 +133,26 @@ impl Client {
 
 		self.last_activity = Instant::now();
 
+		// import raw bytes into the receive stream
 		// TODO optimize this
 		let mut buffer: Vec<u8> = Vec::new();
 		buffer.extend(&self.receive_buffer[0..read_bytes]);
 		self.receive_stream.import(buffer).unwrap();
+
+		// if the connection has not been initialized yet, we need to check if the server sent us back a handshake
+		if !self.connection_initialized {
+			// check handshake
+			let handshake = self.receive_stream.decode::<Handshake>();
+			if handshake != self.handshake {
+				println!("! invalid handshake");
+				return Err(ClientError::Handshake);
+			}
+
+			println!(". connection established");
+			self.connection_initialized = true;
+
+			return Ok(());
+		}
 
 		// figure out what to do with the packet we just got
 		let packet = self.receive_stream.decode::<Packet>();
@@ -152,21 +182,12 @@ impl Client {
 	/// Initializes a connection with the specified server. Done by sending a handshake, and receiving a sequence ID pair
 	/// used for exchanging packets.
 	pub fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), ClientError> {
-		let handshake = Handshake {
-			checksum: [0; 16],
-			version: Version {
-				branch: String::from("master"),
-				major: 0,
-				minor: 0,
-				revision: 0,
-			}
-		};
-
 		if let Err(error) = self.socket.connect(address) {
 			return Err(ClientError::Connect(error));
 		}
 
-		self.send_stream.encode(&handshake);
+		println!(". establishing connection to {:?}...", self.socket.peer_addr());
+		self.send_stream.encode(&self.handshake);
 		let bytes = self.send_stream.export().unwrap();
 
 		self.send_bytes(&bytes)?;

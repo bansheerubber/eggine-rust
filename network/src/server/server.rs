@@ -82,6 +82,7 @@ impl Server {
 			client_table: ClientTable::default(),
 			handshake: Handshake {
 				checksum: [0; 16],
+				sequences: (0, 0),
 				version: Version {
 					branch: String::from("master"),
 					major: 0,
@@ -267,7 +268,7 @@ impl Server {
 	{
 		self.receive_stream.import(handshake_buffer).unwrap();
 
-		println!("Client talking from {:?}", source);
+		println!(". client talking from {:?}", source);
 
 		// check handshake
 		let handshake = self.receive_stream.decode::<Handshake>();
@@ -291,6 +292,12 @@ impl Server {
 			last_ping_time: Instant::now(),
 			outgoing_packet: Packet::new(0, 0),
 		});
+
+		// send our handshake to the client
+		self.send_stream.encode(&self.handshake);
+
+		let bytes = self.send_stream.export().unwrap();
+		self.send_bytes_to(source, &bytes)?;
 
 		Ok(())
 	}
