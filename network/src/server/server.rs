@@ -5,7 +5,7 @@ use streams::{ ReadStream, WriteStream, };
 use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
-use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
+use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, self, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
 use super::{ ClientConnection, ClientTable, };
@@ -20,6 +20,8 @@ pub enum ServerError {
 	CouldNotFindClient,
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
 	Create(std::io::Error),
+	/// Emitted if we encounter a program with decoding received data.
+	EncodeDecodeError(network_stream::Error),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
 	InvalidIP,
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -40,6 +42,7 @@ impl ServerError {
 			ServerError::Blacklisted(_) => false,
 			ServerError::ClientCreation => false,
 			ServerError::CouldNotFindClient => false,
+			ServerError::EncodeDecodeError(_) => false,
 			ServerError::Create(_) => true,
 			ServerError::InvalidIP => false,
 			ServerError::PacketTooBig(_) => false,
@@ -47,6 +50,12 @@ impl ServerError {
 			ServerError::Send(_) => true,
 			ServerError::WouldBlock => false,
 		}
+	}
+}
+
+impl From<network_stream::Error> for ServerError {
+	fn from(error: network_stream::Error) -> Self {
+		ServerError::EncodeDecodeError(error)
 	}
 }
 
@@ -115,9 +124,9 @@ impl Server {
 			for source in sources {
 				let client = self.client_table.get_client(&source)?;
 				if client.outgoing_packet.get_sub_payloads().len() > 0 { // only send packets if we have information to send
-					self.send_stream.encode(&client.outgoing_packet);
+					self.send_stream.encode(&client.outgoing_packet)?;
 
-					let bytes = self.send_stream.export().unwrap();
+					let bytes = self.send_stream.export()?;
 					self.send_bytes_to(source, &bytes)?;
 					reset_sources.push(source);
 				}
@@ -233,8 +242,15 @@ impl Server {
 
 		let last_ping_time = client.last_ping_time;
 
-		self.receive_stream.import(buffer).unwrap();
-		let packet = self.receive_stream.decode::<Packet>();
+		self.receive_stream.import(buffer)?;
+		let packet = match self.receive_stream.decode::<Packet>() {
+			Ok((packet, _)) => packet,
+			Err(error) => {
+				self.log.print(LogLevel::Error, format!("could not decode packet from {:?} for {:?}", source, error), 0);
+				return Err(ServerError::EncodeDecodeError(error));
+			},
+		};
+
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
 				SubPayload::Disconnect(reason) => {
@@ -278,12 +294,20 @@ impl Server {
 	fn initialize_client(&mut self, source: SocketAddr, address: &Ipv6Addr, handshake_buffer: Vec<u8>)
 		-> Result<(), ServerError>
 	{
-		self.receive_stream.import(handshake_buffer).unwrap();
+		self.receive_stream.import(handshake_buffer)?;
 
 		self.log.print(LogLevel::Info, format!("client talking from {:?}", source), 0);
 
+		// decode handshake
+		let handshake = match self.receive_stream.decode::<Handshake>() {
+			Ok((handshake, _)) => handshake,
+			Err(error) => {
+				self.log.print(LogLevel::Error, format!("could not decode handshake from {:?} for {:?}", source, error), 0);
+				return Err(ServerError::EncodeDecodeError(error));
+			},
+		};
+
 		// check handshake
-		let handshake = self.receive_stream.decode::<Handshake>();
 		if handshake != self.handshake {
 			self.log.print(LogLevel::Blacklist, format!("invalid handshake"), 1);
 			self.client_table.add_to_blacklist(address.clone());
@@ -306,9 +330,9 @@ impl Server {
 		});
 
 		// send our handshake to the client
-		self.send_stream.encode(&self.handshake);
+		self.send_stream.encode(&self.handshake)?;
 
-		let bytes = self.send_stream.export().unwrap();
+		let bytes = self.send_stream.export()?;
 		self.send_bytes_to(source, &bytes)?;
 
 		Ok(())
@@ -319,13 +343,13 @@ impl Server {
 	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) -> Result<(), ServerError> {
 		let client = self.client_table.get_client_mut(&source)?;
 		client.outgoing_packet.add_sub_payload(SubPayload::Disconnect(reason));
-		self.send_stream.encode(&client.outgoing_packet);
+		self.send_stream.encode(&client.outgoing_packet)?;
 
 		self.log.print(LogLevel::Info, format!("disconnected client with reason {:?}", reason), 0);
 
 		self.client_table.remove_client(&source); // remove the client before we have a chance of erroring out during the send
 
-		let bytes = self.send_stream.export().unwrap();
+		let bytes = self.send_stream.export()?;
 		self.send_bytes_to(source, &bytes)?;
 
 		Ok(())

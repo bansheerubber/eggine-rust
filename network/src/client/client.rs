@@ -5,7 +5,7 @@ use streams::{ ReadStream, WriteStream, };
 use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
-use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
+use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, self, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
 #[derive(Debug)]
@@ -16,6 +16,8 @@ pub enum ClientError {
 	Connect(std::io::Error),
 	/// Emitted if we were disconnected by the server. Fatal.
 	Disconnected(DisconnectionReason),
+	/// Emitted if we encounter a program with decoding received data.
+	EncodeDecodeError(network_stream::Error),
 	/// Received an invalid handshake. We likely talked to a random UDP server. Fatal.
 	Handshake,
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -35,6 +37,7 @@ impl ClientError {
 		match *self {
 			ClientError::Create(_) => true,
 			ClientError::Connect(_) => true,
+			ClientError::EncodeDecodeError(_) => true,
 			ClientError::Disconnected(_) => true,
 			ClientError::Handshake => true,
 			ClientError::PacketTooBig => false,
@@ -42,6 +45,12 @@ impl ClientError {
 			ClientError::Send(_) => true,
 			ClientError::WouldBlock => false,
 		}
+	}
+}
+
+impl From<network_stream::Error> for ClientError {
+	fn from(error: network_stream::Error) -> Self {
+		ClientError::EncodeDecodeError(error)
 	}
 }
 
@@ -108,9 +117,9 @@ impl Client {
 	pub fn tick(&mut self) -> Result<(), ClientError> {
 		// send the packet we worked on constructing to the server, then reset it
 		if self.outgoing_packet.get_sub_payloads().len() > 0 {
-			self.send_stream.encode(&self.outgoing_packet);
+			self.send_stream.encode(&self.outgoing_packet)?;
 
-			let bytes = self.send_stream.export().unwrap();
+			let bytes = self.send_stream.export()?;
 			self.send_bytes(&bytes)?;
 
 			self.outgoing_packet = Packet::new(0, 0); // TODO improve packet reset API
@@ -140,12 +149,12 @@ impl Client {
 		// TODO optimize this
 		let mut buffer: Vec<u8> = Vec::new();
 		buffer.extend(&self.receive_buffer[0..read_bytes]);
-		self.receive_stream.import(buffer).unwrap();
+		self.receive_stream.import(buffer)?;
 
 		// if the connection has not been initialized yet, we need to check if the server sent us back a handshake
 		if !self.connection_initialized {
 			// check handshake
-			let handshake = self.receive_stream.decode::<Handshake>();
+			let handshake = self.receive_stream.decode::<Handshake>()?.0;
 			if handshake != self.handshake {
 				self.log.print(LogLevel::Error, format!("invalid handshake"), 0);
 				return Err(ClientError::Handshake);
@@ -158,7 +167,7 @@ impl Client {
 		}
 
 		// figure out what to do with the packet we just got
-		let packet = self.receive_stream.decode::<Packet>();
+		let packet = self.receive_stream.decode::<Packet>()?.0;
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
 				SubPayload::Disconnect(reason) => {
@@ -190,8 +199,8 @@ impl Client {
 		}
 
 		self.log.print(LogLevel::Info, format!("establishing connection to {:?}...", self.socket.peer_addr().unwrap()), 0);
-		self.send_stream.encode(&self.handshake);
-		let bytes = self.send_stream.export().unwrap();
+		self.send_stream.encode(&self.handshake)?;
+		let bytes = self.send_stream.export()?;
 
 		self.send_bytes(&bytes)?;
 

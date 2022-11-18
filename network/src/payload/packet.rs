@@ -1,6 +1,8 @@
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
+use crate::network_stream::Error;
+
 use super::{ Payload, SubPayload, };
 
 #[derive(Debug)]
@@ -30,27 +32,29 @@ impl Packet {
 	}
 }
 
-impl<T> Encode<u8, T> for Packet
+impl<T> Encode<u8, T, Error> for Packet
 where
-	T: WriteStream<u8> + U8WriteStream
+	T: WriteStream<u8, Error> + U8WriteStream<Error>
 {
-	fn encode(&self, stream: &mut T) {
-		stream.write_u32(self.sequence_number);
-		stream.write_u32(self.last_sequence_number);
+	fn encode(&self, stream: &mut T) -> Result<(), Error> {
+		stream.write_u32(self.sequence_number)?;
+		stream.write_u32(self.last_sequence_number)?;
 
 		for part in self.acknowledge_mask {
-			stream.write_u64(part);
+			stream.write_u64(part)?;
 		}
 
-		stream.encode(&self.payload);
+		stream.encode(&self.payload)?;
+
+		Ok(())
 	}
 }
 
-impl<T> Decode<u8, T> for Packet
+impl<T> Decode<u8, T, Error> for Packet
 where
-	T: ReadStream<u8> + U8ReadStream + U8ReadStringSafeStream + Endable
+	T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringSafeStream<Error> + Endable<Error>
 {
-	fn decode(stream: &mut T) -> (Self, StreamPosition) {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
 		let mut packet = Packet {
 			acknowledge_mask: [0; 2],
 			last_sequence_number: 0,
@@ -58,15 +62,16 @@ where
 			payload: Payload::default(),
 		};
 
-		packet.sequence_number = stream.read_u32().0;
-		packet.last_sequence_number = stream.read_u32().0;
+		packet.sequence_number = stream.read_u32()?.0;
+		packet.last_sequence_number = stream.read_u32()?.0;
 
 		for i in 0..packet.acknowledge_mask.len() {
-			packet.acknowledge_mask[i] = stream.read_u64().0;
+			packet.acknowledge_mask[i] = stream.read_u64()?.0;
 		}
 
-		packet.payload = stream.decode::<Payload>();
+		let (payload, position) = stream.decode::<Payload>()?;
+		packet.payload = payload;
 
-		return (packet, 0); // TODO validstream position;
+		Ok((packet, position))
 	}
 }
