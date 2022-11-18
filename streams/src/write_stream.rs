@@ -1,7 +1,7 @@
 use crate::{ Encode, EncodeMut, };
 
 /// Stream that encodes Rust objects into the specified `Encoding`, and transforms the data into the specified `Export`
-/// type.
+/// type. For more information on how `Error` is meant to be used, see `ReadStream`.
 pub trait WriteStream<Encoding, Error>: Sized {
 	type Export;
 
