@@ -96,37 +96,37 @@ pub fn read_string_safe(vector: &[u8], minimum_length: u64, maximum_length: u64)
 }
 
 /// Trait for a stream that implements `u8` reading.
-pub trait U8ReadStream {
+pub trait U8ReadStream<Error> {
 	/// Reads one byte.
-	fn read_u8(&mut self) -> (u8, StreamPosition);
+	fn read_u8(&mut self) -> Result<(u8, StreamPosition), Error>;
 
 	/// Reads a char as a `u8`.
-	fn read_char(&mut self) -> (char, StreamPosition);
+	fn read_char(&mut self) -> Result<(char, StreamPosition), Error>;
 
 	/// Reads two bytes in little-endian format.
-	fn read_u16(&mut self) -> (u16, StreamPosition);
+	fn read_u16(&mut self) -> Result<(u16, StreamPosition), Error>;
 
 	/// Reads four bytes in little-endian format.
-	fn read_u32(&mut self) -> (u32, StreamPosition);
+	fn read_u32(&mut self) -> Result<(u32, StreamPosition), Error>;
 
 	/// Reads eight bytes in little-endian format.
-	fn read_u64(&mut self) -> (u64, StreamPosition);
+	fn read_u64(&mut self) -> Result<(u64, StreamPosition), Error>;
 
 	/// Reads a variable length quantity integer. The 16th bit in a 2 byte pair represents if the number has another two
 	/// bits. 1 if there are, 0 if there aren't. Integers within the range of `0..2**60` are supported.
-	fn read_vlq(&mut self) -> (u64, StreamPosition);
+	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), Error>;
 }
 
-pub trait U8ReadStringStream {
+pub trait U8ReadStringStream<Error> {
 	/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
 	/// characters.
-	fn read_string(&mut self) -> (String, StreamPosition);
+	fn read_string(&mut self) -> Result<(String, StreamPosition), Error>;
 }
 
 /// Tests the length of the string before reading its contents.
-pub trait U8ReadStringSafeStream {
+pub trait U8ReadStringSafeStream<Error> {
 	/// Strings are length encoded, with a variable length integer representing the length. Strings can have up to 2**60
 	/// characters. If the length is below the minimum length or above the maximum length, the read will fail.
 	fn read_string_safe(&mut self, minimum_length: u64, maximum_length: u64)
-		-> Result<(String, StreamPosition), ReadStringSafeError>;
+		-> Result<(String, StreamPosition), Error>;
 }
