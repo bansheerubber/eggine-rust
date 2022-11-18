@@ -1,6 +1,8 @@
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
+use super::DisconnectionReason;
+
 #[derive(Debug, Default)]
 pub struct Payload {
 	sub_payloads: Vec<SubPayload>,
@@ -43,6 +45,7 @@ where
 
 #[derive(Debug)]
 pub enum SubPayload {
+	Disconnect(DisconnectionReason),
 	Ping(u64),
 	Pong(u64),
 }
@@ -53,7 +56,7 @@ pub enum SubPayloadType {
 	CreateStream		= 2,
 	Ping						= 3,
 	Pong						= 4,
-	DropConnection	= 5,
+	Disconnect			= 5,
 }
 
 impl<T> Encode<u8, T> for SubPayloadType
@@ -63,7 +66,7 @@ where
 	fn encode(&self, stream: &mut T) {
 		let value = match *self {
 			SubPayloadType::CreateStream => SubPayloadType::CreateStream as u8,
-			SubPayloadType::DropConnection => SubPayloadType::DropConnection as u8,
+			SubPayloadType::Disconnect => SubPayloadType::Disconnect as u8,
 			SubPayloadType::Ping => SubPayloadType::Ping as u8,
 			SubPayloadType::Pong => SubPayloadType::Pong as u8,
 			SubPayloadType::Stream => SubPayloadType::Stream as u8,
@@ -85,7 +88,7 @@ where
 			2 => SubPayloadType::CreateStream,
 			3 => SubPayloadType::Ping,
 			4 => SubPayloadType::Pong,
-			5 => SubPayloadType::DropConnection,
+			5 => SubPayloadType::Disconnect,
 			_ => SubPayloadType::Invalid,
 		};
 
@@ -98,14 +101,18 @@ where
 	T: WriteStream<u8> + U8WriteStream
 {
 	fn encode(&self, stream: &mut T) {
-		match *self {
+		match self {
+			SubPayload::Disconnect(reason) => {
+				stream.encode(&SubPayloadType::Disconnect);
+				stream.encode(reason);
+			}
 			SubPayload::Ping(time) => {
 				stream.encode(&SubPayloadType::Ping);
-				stream.write_u64(time);
+				stream.write_u64(*time);
 			},
 			SubPayload::Pong(time) => {
 				stream.encode(&SubPayloadType::Pong);
-				stream.write_u64(time);
+				stream.write_u64(*time);
 			},
 		}
 	}
@@ -120,7 +127,9 @@ where
 
 		let sub_payload = match sub_payload_type {
 			SubPayloadType::CreateStream => todo!(),
-			SubPayloadType::DropConnection => todo!(),
+			SubPayloadType::Disconnect => {
+				SubPayload::Disconnect(stream.decode::<DisconnectionReason>())
+			},
 			SubPayloadType::Ping => {
 				SubPayload::Ping(stream.read_u64().0)
 			},

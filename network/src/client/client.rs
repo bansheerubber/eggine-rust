@@ -1,16 +1,18 @@
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
+use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
 use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
-use crate::payload::{ Packet, SubPayload, };
+use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
 #[derive(Debug)]
 pub enum ClientError {
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
 	Create(std::io::Error),
+	/// Emitted if we were disconnected by the server. Fatal.
+	Disconnected(DisconnectionReason),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig,
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
@@ -27,6 +29,7 @@ impl ClientError {
 	pub fn is_fatal(&self) -> bool {
 		match *self {
 			ClientError::Create(_) => true,
+			ClientError::Disconnected(_) => true,
 			ClientError::PacketTooBig => false,
 			ClientError::Receive(_) => true,
 			ClientError::Send(_) => true,
@@ -110,6 +113,10 @@ impl Client {
 		let packet = self.receive_stream.decode::<Packet>();
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
+				SubPayload::Disconnect(reason) => {
+					println!(". server told us to disconnect with reason {:?}", reason);
+					return Err(ClientError::Disconnected(*reason));
+				},
 				SubPayload::Ping(time) => {
 					println!(". got ping with time {}", time);
 					self.test_encode_packet().unwrap();

@@ -8,7 +8,7 @@ use crate::handshake::{ Handshake, Version, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
-use super::ClientConnection;
+use super::{ClientConnection, ClientTable};
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -16,6 +16,8 @@ pub enum ServerError {
 	Blacklisted(SocketAddr),
 	/// Emitted if we encountered a problem during client connection creation. Non-fatal.
 	ClientCreation,
+	/// Emitted if we could not find a `ClientConnection` associated with a `SocketAddr`
+	CouldNotFindClient,
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
 	Create(std::io::Error),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
@@ -37,6 +39,7 @@ impl ServerError {
 		match *self {
 			ServerError::Blacklisted(_) => false,
 			ServerError::ClientCreation => false,
+			ServerError::CouldNotFindClient => false,
 			ServerError::Create(_) => true,
 			ServerError::InvalidIP => false,
 			ServerError::PacketTooBig(_) => false,
@@ -51,11 +54,10 @@ impl ServerError {
 pub struct Server {
 	/// The address the server is bound to
 	address: SocketAddr,
-	/// Maps IP address & port to a client.
-	address_to_client: HashMap<SocketAddr, ClientConnection>,
 	/// If we get too many invalid packets from an IP address, add them to the blacklist so we immediately discard any
 	/// additional packets from them
 	blacklist: HashSet<Ipv6Addr>,
+	client_table: ClientTable,
 	/// Handshae we compare client handshakes against.
 	handshake: Handshake,
 	/// The buffer we write into when we receive data.
@@ -81,8 +83,8 @@ impl Server {
 
 		Ok(Server {
 			address: socket.local_addr().unwrap(),
-			address_to_client: HashMap::new(),
 			blacklist: HashSet::new(),
+			client_table: ClientTable::default(),
 			handshake: Handshake {
 				checksum: [0; 16],
 				version: Version {
@@ -106,6 +108,12 @@ impl Server {
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out all `ClientConnection`s' time-to-live.
 	pub fn tick(&mut self) -> Result<(), ServerError> {
+		// reset client outgoing packets
+		for (_, client) in self.client_table.client_iter_mut() {
+			client.outgoing_packet = Packet::new(0, 0); // TODO add reset function to packet
+		}
+
+		// receive packets
 		loop {
 			match self.recv() {
 				Ok(_) => {},
@@ -119,20 +127,41 @@ impl Server {
 			}
 		}
 
-		// time out clients that have lived for too long
-		let now = Instant::now();
-		let time_out_clients = self.address_to_client.iter()
-			.filter_map(|(_, client)| {
-				if now - client.last_activity > Duration::from_secs(30) {
-					Some(client.address)
-				} else {
-					None
-				}
-			})
-			.collect::<Vec<SocketAddr>>();
+		// find clients that have lived for too long
+		{
+			let now = Instant::now();
+			let time_out_clients = self.client_table.client_iter()
+				.filter_map(|(_, client)| {
+					if now - client.last_activity > Duration::from_secs(30) {
+						Some(client.address)
+					} else {
+						None
+					}
+				})
+				.collect::<Vec<SocketAddr>>();
 
-		for address in time_out_clients {
-			self.disconnect_client(address, DisconnectionReason::Timeout);
+			// force disconnects on timed out clients
+			for source in time_out_clients {
+				println!("! {:?} timed out", source);
+				if let Err(error) = self.disconnect_client(source, DisconnectionReason::Timeout) {
+					if let ServerError::CouldNotFindClient = error {
+						unreachable!();
+					} else {
+						return Err(error);
+					}
+				}
+			}
+		}
+
+		// send client outgoing packets
+		// TODO make this a little more efficient, right now this sucks b/c i can't use a &self ref in the for loop source
+		let sources = self.client_table.client_iter().map(|(source, _)| *source).collect::<Vec<SocketAddr>>();
+		for source in sources {
+			let client = self.client_table.get_client(&source)?;
+			self.send_stream.encode(&client.outgoing_packet);
+
+			let bytes = self.send_stream.export().unwrap();
+			self.send_bytes_to(source, &bytes)?;
 		}
 
 		Ok(())
@@ -176,7 +205,7 @@ impl Server {
 		buffer.extend(&self.receive_buffer[0..read_bytes]);
 
 		// now we're done error checking, figure out what to do with the data we just got
-		if self.address_to_client.contains_key(&source) {
+		if self.client_table.has_client(&source) {
 			self.decode_packet(source, buffer)?;
 		} else {
 			self.initialize_client(source, &address, buffer)?;
@@ -189,13 +218,20 @@ impl Server {
 	/// Decode a packet.
 	fn decode_packet(&mut self, source: SocketAddr, buffer: Vec<u8>) -> Result<(), ServerError> {
 		let now = Instant::now();
-		let client = self.address_to_client.get_mut(&source).unwrap();
+		let client = self.client_table.get_client_mut(&source)?;
 		client.last_activity = now;
+
+		let last_ping_time = client.last_ping_time;
 
 		self.receive_stream.import(buffer).unwrap();
 		let packet = self.receive_stream.decode::<Packet>();
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
+				SubPayload::Disconnect(reason) => {
+					println!(". got disconnect from {:?} for reason {:?}", source, reason);
+					self.disconnect_client(source, DisconnectionReason::Requested)?;
+					return Ok(()); // stop processing sub payloads now, the connection is now closed
+				},
 				SubPayload::Ping(time) => {
 					println!(". got ping with time {}", time);
 				},
@@ -204,7 +240,7 @@ impl Server {
 						". got pong with time {} from {:?}. round-trip duration is {}us",
 						time,
 						source,
-						(now - client.last_ping_time).as_micros()
+						(now - last_ping_time).as_micros()
 					);
 				}
 			}
@@ -214,15 +250,17 @@ impl Server {
 	}
 
 	fn test_encode_packet(&mut self, source: SocketAddr) -> Result<(), ServerError> {
-		let mut packet = Packet::new(0, 0);
-		packet.add_sub_payload(SubPayload::Ping(
+		let client = self.client_table.get_client_mut(&source)?;
+		client.outgoing_packet.add_sub_payload(SubPayload::Ping(
 			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 		));
 
-		self.send_stream.encode(&packet);
+		Ok(())
+	}
 
+	/// Send a byte vector to the specified client address.
+	fn send_bytes_to(&mut self, source: SocketAddr, bytes: &Vec<u8>) -> Result<(), ServerError> {
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		let bytes = self.send_stream.export().unwrap();
 		if let Err(error) = self.socket.send_to(&bytes, source) {
 			return Err(ServerError::Send(error));
 		}
@@ -230,14 +268,27 @@ impl Server {
 		Ok(())
 	}
 
-	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) {
-		// TODO encode client disconnect
-		println!("! {:?} timed out", source);
-		self.address_to_client.remove(&source);
+	/// Disconnect a client from the server. Removes the `ClientConnection` associated with the source address from the
+	/// server connection state. Tell the client that their connection has been closed.
+	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) -> Result<(), ServerError> {
+		let client = self.client_table.get_client_mut(&source)?;
+		client.outgoing_packet.add_sub_payload(SubPayload::Disconnect(reason));
+		self.send_stream.encode(&client.outgoing_packet);
+
+		println!(". disconnected client with reason {:?}", reason);
+
+		self.client_table.remove_client(&source); // remove the client before we have a chance of erroring out during the send
+
+		let bytes = self.send_stream.export().unwrap();
+		self.send_bytes_to(source, &bytes)?;
+
+		Ok(())
 	}
 
 	/// Attempt to initialize a connection with a client who just talked to us.
-	fn initialize_client(&mut self, source: SocketAddr, address: &Ipv6Addr, handshake_buffer: Vec<u8>) -> Result<(), ServerError> {
+	fn initialize_client(&mut self, source: SocketAddr, address: &Ipv6Addr, handshake_buffer: Vec<u8>)
+		-> Result<(), ServerError>
+	{
 		self.receive_stream.import(handshake_buffer).unwrap();
 
 		println!("Client talking from {:?}", source);
@@ -251,17 +302,18 @@ impl Server {
 		}
 
 		// figure out if they already joined on this ip/port
-		if self.address_to_client.contains_key(&source) {
+		if self.client_table.has_client(&source) {
 			println!("  ! already connected");
 			return Err(ServerError::ClientCreation);
 		}
 
 		// we're home free, add the client to the client list
 		println!("  . initialized client connection successfully");
-		self.address_to_client.insert(source, ClientConnection {
+		self.client_table.add_client(source, ClientConnection {
 			address: source,
 			last_activity: Instant::now(),
 			last_ping_time: Instant::now(),
+			outgoing_packet: Packet::new(0, 0),
 		});
 
 		Ok(())
