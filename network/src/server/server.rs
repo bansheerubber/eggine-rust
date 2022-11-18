@@ -309,8 +309,10 @@ impl Server {
 		};
 
 		// check handshake
-		if handshake != self.handshake {
-			self.log.print(LogLevel::Blacklist, format!("invalid handshake"), 1);
+		if !self.handshake.is_compatible(&handshake) {
+			self.log.print(
+				LogLevel::Blacklist, format!("invalid handshake, theirs: {:?}, ours: {:?}", handshake, self.handshake), 1
+			);
 			self.client_table.add_to_blacklist(address.clone());
 			return Err(ServerError::ClientCreation);
 		}

@@ -70,7 +70,12 @@ pub struct Handshake {
 	pub version: Version,
 }
 
-// TODO add custom handshake equality check
+impl Handshake {
+	/// Tests if the two handshakes are compatible.
+	pub fn is_compatible(&self, other: &Handshake) -> bool {
+		self.checksum == other.checksum
+	}
+}
 
 impl<T> Encode<u8, T, Error> for Handshake
 where

@@ -163,8 +163,10 @@ impl Client {
 		if !self.connection_initialized {
 			// check handshake
 			let handshake = self.receive_stream.decode::<Handshake>()?.0;
-			if handshake != self.handshake {
-				self.log.print(LogLevel::Error, format!("invalid handshake"), 0);
+			if !self.handshake.is_compatible(&handshake) {
+				self.log.print(
+					LogLevel::Error, format!("invalid handshake, theirs: {:?}, our: {:?}", handshake, self.handshake), 1
+				);
 				return Err(ClientError::Handshake);
 			}
 
