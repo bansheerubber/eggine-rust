@@ -50,6 +50,7 @@ pub struct Handshake {
 	/// Checksum of the network API. If the checksum between a client and server do not match, then they would be unable
 	/// to communicate with each other.
 	pub checksum: [u8; 16],
+	pub sequences: (u32, u32),
 	/// Version of the eggine that the client/server is running on.
 	pub version: Version,
 }
@@ -65,6 +66,9 @@ where
 		stream.write_char('I');
 		stream.write_char('N');
 		stream.write_char('E');
+
+		stream.write_u32(self.sequences.0);
+		stream.write_u32(self.sequences.1);
 
 		for byte in self.checksum {
 			stream.write_u8(byte);
@@ -89,6 +93,10 @@ where
 			panic!("Wrong magic number")
 		}
 
+		// read the sequence numbers
+		let (sequence1, _) = stream.read_u32();
+		let (sequence2, _) = stream.read_u32();
+
 		// read the checksum
 		let mut checksum = [0; 16];
 		for i in 0..16 {
@@ -99,6 +107,7 @@ where
 
 		(Handshake {
 			checksum,
+			sequences: (sequence1, sequence2),
 			version,
 		}, 0) // TODO fix position
 	}
