@@ -7,7 +7,7 @@ fn main() {
 	carton.to_file("scratch/resources.carton");
 
 	let mut stream = FileReadStream::new("scratch/resources.carton");
-	let new_carton = stream.decode::<Carton>();
+	let new_carton = stream.decode::<Carton>().unwrap().0;
 
 	assert!(carton == new_carton);
 }

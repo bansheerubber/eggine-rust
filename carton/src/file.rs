@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -18,36 +19,40 @@ pub enum Compression {
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
 /// compression algorithm.
-impl<T> Encode<u8, T> for Compression
+impl<T, U> Encode<u8, T, U> for Compression
 where
-	T: WriteStream<u8> + U8WriteStream
+	T: WriteStream<u8, U> + U8WriteStream<U>,
+	U: Debug
 {
-	fn encode(&self, stream: &mut T) {
+	fn encode(&self, stream: &mut T) -> Result<(), U> {
 		match *self {
     	Compression::None => {
-				stream.write_u16(0);
+				stream.write_u16(0)?;
 			}
     	Compression::ZStd(level) => {
-				stream.write_u16(1);
-				stream.write_u8(level as u8);
+				stream.write_u16(1)?;
+				stream.write_u8(level as u8)?;
 			}
 		}
+
+		Ok(())
 	}
 }
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
 /// compression algorithm.
-impl<T> Decode<u8, T> for Compression
+impl<T, U> Decode<u8, T, U> for Compression
 where
-	T: ReadStream<u8> + U8ReadStream
+	T: ReadStream<u8, U> + U8ReadStream<U>,
+	U: Debug
 {
-	fn decode(stream: &mut T) -> (Self, StreamPosition) {
-		let (id, new_position) = stream.read_u16();
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
+		let (id, new_position) = stream.read_u16()?;
 		match id {
-			0 => (Compression::None, new_position),
+			0 => Ok((Compression::None, new_position)),
 			1 => {
-				let (level, new_position) = stream.read_u8();
-				(Compression::ZStd(level as i8), new_position)
+				let (level, new_position) = stream.read_u8()?;
+				Ok((Compression::ZStd(level as i8), new_position))
 			},
 			_ => todo!("Compression algorithm decode not implemented for {}", id),
 		}
@@ -133,29 +138,30 @@ impl File {
 	}
 }
 
-pub(crate) fn encode_file<T>(stream: &mut T, file: &File, string_table: &mut StringTable)
-	-> (StreamPosition, StreamPosition)
+pub(crate) fn encode_file<T, U>(stream: &mut T, file: &File, string_table: &mut StringTable)
+	-> Result<(StreamPosition, StreamPosition), U>
 where
-	T: WriteStream<u8> + U8WriteStream + Seekable
+	T: WriteStream<u8, U> + U8WriteStream<U> + Seekable<U>,
+	U: Debug
 {
-	let metadata_position = stream.get_position() as u64;
+	let metadata_position = stream.get_position()? as u64;
 
 	if let Some(metadata) = file.get_metadata() {
-		encode_metadata(stream, metadata, string_table);
+		encode_metadata(stream, metadata, string_table)?;
 	}
 
-	file.get_compression().encode(stream); // can never be the value 7
+	file.get_compression().encode(stream)?; // can never be the value 7
 
-	stream.write_u64(file.get_size());
-	stream.write_string(file.get_file_name());
+	stream.write_u64(file.get_size())?;
+	stream.write_string(file.get_file_name())?;
 
-	let file_position = stream.get_position();
+	let file_position = stream.get_position()?;
 
 	let mut vector = Vec::new();
 	fs::File::open(file.get_file_name()).unwrap().read_to_end(&mut vector).unwrap();
-	stream.write_vector(&vector);
+	stream.write_vector(&vector)?;
 
-	(metadata_position, file_position)
+	Ok((metadata_position, file_position))
 }
 
 /// Intermediate representation of a `File` object.
@@ -166,11 +172,12 @@ pub(crate) struct IntermediateFile {
 	pub(crate) size: u64,
 }
 
-pub(crate) fn decode_file<T>(stream: &mut T) -> (IntermediateFile, StreamPosition)
+pub(crate) fn decode_file<T, U>(stream: &mut T) -> Result<(IntermediateFile, StreamPosition), U>
 where
-	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream + Seekable
+	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U> + Seekable<U>,
+	U: Debug
 {
-	let start = stream.get_position();
+	let start = stream.get_position()?;
 	let mut intermediate = IntermediateFile {
 		compression: Compression::None,
 		file_name: String::new(),
@@ -179,19 +186,19 @@ where
 	};
 
 	// read compression level
-	let (compression, _) = Compression::decode(stream);
+	let (compression, _) = stream.decode::<Compression>()?;
 	intermediate.compression = compression;
 
 	// read file size
-	let (size, _) = stream.read_u64();
+	let (size, _) = stream.read_u64()?;
 	intermediate.size = size;
 
 	// read file name
-	let (name, _) = stream.read_string();
+	let (name, _) = stream.read_string()?;
 	intermediate.file_name = name;
 
 	// set the file offset, since our vector slice is now positioned at the beginning of the file
-	intermediate.file_offset = (stream.get_position() - start) as u64;
+	intermediate.file_offset = (stream.get_position()? - start) as u64;
 
-	return (intermediate, stream.get_position());
+	Ok((intermediate, stream.get_position()?))
 }

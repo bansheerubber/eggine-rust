@@ -1,4 +1,6 @@
-use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
+use std::fmt::Debug;
+
+use streams::{ Decode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 use walkdir::WalkDir;
 
@@ -40,7 +42,7 @@ impl Carton {
 	/// Write the carton to a file.
 	pub fn to_file(&mut self, file_name: &str) {
 		let mut stream = FileWriteStream::new(file_name);
-		stream.encode_mut(self);
+		stream.encode_mut(self).unwrap();
 		stream.export().unwrap();
 	}
 
@@ -71,28 +73,29 @@ impl Carton {
 /// necessary for completing the file and string tables. Once all files are written, the file table is written with the
 /// string table following afterwards. Once the file table and string tables are written, the file table pointer at the
 /// start of the file is updated to point to the absolute location of the file table.
-impl<T> EncodeMut<u8, T> for Carton
+impl<T, U> EncodeMut<u8, T, U> for Carton
 where
-	T: WriteStream<u8> + U8WriteStream + Seekable
+	T: WriteStream<u8, U> + U8WriteStream<U> + Seekable<U>,
+	U: Debug
 {
-	fn encode_mut(&mut self, stream: &mut T) {
+	fn encode_mut(&mut self, stream: &mut T) -> Result<(), U> {
 		// write magic number and the version
-		stream.write_char('C');
-		stream.write_char('A');
-		stream.write_char('R');
-		stream.write_char('T');
-		stream.write_char('O');
-		stream.write_char('N');
-		stream.write_u8(self.version);
+		stream.write_char('C')?;
+		stream.write_char('A')?;
+		stream.write_char('R')?;
+		stream.write_char('T')?;
+		stream.write_char('O')?;
+		stream.write_char('N')?;
+		stream.write_u8(self.version)?;
 
 		// reserve spot for tables position
-		let table_pointer = stream.get_position();
-		stream.write_u64(0);
+		let table_pointer = stream.get_position()?;
+		stream.write_u64(0)?;
 
 		// encode files
 		let mut positions = Vec::new();
 		for file in self.file_table.get_files() {
-			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table);
+			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table)?;
 			positions.push((String::from(file.get_file_name()), metadata_position, file_position));
 		}
 
@@ -102,13 +105,15 @@ where
 		}
 
 		// write file & string streams to file
-		let first_table_position = stream.get_position();
-		self.file_table.encode(stream);
-		self.string_table.encode(stream);
+		let first_table_position = stream.get_position()?;
+		stream.encode(&self.file_table)?;
+		stream.encode(&self.string_table)?;
 
 		// write file table position at the top of the file
-		stream.seek(table_pointer);
-		stream.write_u64(first_table_position);
+		stream.seek(table_pointer)?;
+		stream.write_u64(first_table_position)?;
+
+		Ok(())
 	}
 }
 
@@ -117,17 +122,18 @@ where
 /// data loaded into memory are the representations of the files, instead of their entire contents. The API gives the
 /// user the option to load the file into memory after decoding. Metadata is always memory resident, since the API gives
 /// a way to query files in the carton by searching metadata values.
-impl<T> Decode<u8, T> for Carton
+impl<T, U> Decode<u8, T, U> for Carton
 where
-	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream + Seekable + Peekable<u8> + Endable
+	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U> + Seekable<U> + Peekable<u8, U> + Endable,
+	U: Debug
 {
-	fn decode(stream: &mut T) -> (Self, StreamPosition) {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
 		let mut carton = Carton::default();
 
 		// check the carton magic number
 		let mut magic = String::new();
 		for _ in 0..6 {
-			let (character, _) = stream.read_char();
+			let (character, _) = stream.read_char()?;
 			magic.push(character);
 		}
 
@@ -136,27 +142,27 @@ where
 		}
 
 		// check the carton version
-		let (version, _) = stream.read_u8();
+		let (version, _) = stream.read_u8()?;
 		if version != CARTON_VERSION {
 			panic!("Invalid version");
 		}
 
 		// load tables
-		let (table_pointer, _) = stream.read_u64();
-		stream.seek(table_pointer);
+		let (table_pointer, _) = stream.read_u64()?;
+		stream.seek(table_pointer)?;
 
 		while !stream.is_at_end() {
-			let table_id = TableID::from(stream.peek());
+			let table_id = TableID::from(stream.peek()?);
 			match table_id {
     		TableID::Invalid => unreachable!(),
     		TableID::FileTable => {
 					// partially load the file table, only file name -> metadata position map is valid
-					let (file_table, _) = FileTable::decode(stream);
+					let (file_table, _) = stream.decode::<FileTable>()?;
 					carton.file_table = file_table;
 				},
     		TableID::StringTable => {
 					// fully load the string table
-					let (string_table, _) = StringTable::decode(stream);
+					let (string_table, _) = stream.decode::<StringTable>()?;
 					carton.string_table = string_table;
 				},
 			}
@@ -169,18 +175,18 @@ where
 		sorted_metadata_positions.sort_by(|(_, a), (_, b)| a.cmp(b));
 
 		for (file_name, position) in sorted_metadata_positions {
-			stream.seek(*position);
+			stream.seek(*position)?;
 
-			let check_value = stream.peek();
+			let check_value = stream.peek()?;
 			let metadata = if check_value == 7 {
-				let (metadata, _) = decode_value(stream, &mut carton.string_table);
+				let (metadata, _) = decode_value(stream, &mut carton.string_table)?;
 				Some(metadata)
 			} else {
 				None
 			};
 
-			let metadata_length = stream.get_position() - *position;
-			let (file, _) = decode_file(stream);
+			let metadata_length = stream.get_position()? - *position;
+			let (file, _) = decode_file(stream)?;
 			if &file.file_name != file_name {
 				panic!("unexpected file name");
 			}
@@ -194,6 +200,6 @@ where
 			carton.file_table.add_from_intermediate(File::from_intermediate(file, metadata));
 		}
 
-		return (carton, stream.get_position());
+		Ok((carton, stream.get_position()?))
 	}
 }

@@ -1,4 +1,5 @@
 use std::collections::{ BTreeMap, HashMap, };
+use std::fmt::Debug;
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 
@@ -40,40 +41,44 @@ impl StringTable {
 	}
 }
 
-impl<T> Encode<u8, T> for StringTable
+impl<T, U> Encode<u8, T, U> for StringTable
 where
-	T: WriteStream<u8> + U8WriteStream
+	T: WriteStream<u8, U> + U8WriteStream<U>,
+	U: Debug
 {
-	fn encode(&self, stream: &mut T) {
-		stream.write_u8(TableID::StringTable as u8);
-		stream.write_u64(self.sorted_mapping.len() as u64);
+	fn encode(&self, stream: &mut T) -> Result<(), U> {
+		stream.write_u8(TableID::StringTable as u8)?;
+		stream.write_u64(self.sorted_mapping.len() as u64)?;
 
 		let sorted_mapping = self.sorted_mapping.iter().map(|(_, v)| v).collect::<Vec<&String>>();
 		for string in sorted_mapping {
-			stream.write_string(string);
+			stream.write_string(string)?;
 		}
+
+		Ok(())
 	}
 }
 
-impl<T> Decode<u8, T> for StringTable
+impl<T, U> Decode<u8, T, U> for StringTable
 where
-	T: ReadStream<u8> + U8ReadStream + U8ReadStringStream
+	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U>,
+	U: Debug
 {
-	fn decode(stream: &mut T) -> (Self, StreamPosition) {
-		let (table_id, _) = stream.read_u8();
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
+		let (table_id, _) = stream.read_u8()?;
 		if table_id != TableID::StringTable as u8 {
 			panic!("Did not get expected table");
 		}
 
 		let mut table = StringTable::default();
-		let (row_count, mut position) = stream.read_u64();
+		let (row_count, mut position) = stream.read_u64()?;
 
 		for _ in 0..row_count {
-			let (string, new_position) = stream.read_string();
+			let (string, new_position) = stream.read_string()?;
 			position = new_position;
 			table.insert(&string);
 		}
 
-		return (table, position);
+		Ok((table, position))
 	}
 }

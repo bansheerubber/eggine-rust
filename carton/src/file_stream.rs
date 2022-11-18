@@ -34,16 +34,18 @@ impl FileWriteStream {
 	}
 }
 
-impl U8WriteStream for FileWriteStream {
-	fn write_u8(&mut self, byte: u8) {
+impl U8WriteStream<FileStreamError> for FileWriteStream {
+	fn write_u8(&mut self, byte: u8) -> Result<(), FileStreamError> {
 		self.file.as_mut().unwrap().write(&[byte]).expect("Could not write to file");
+		Ok(())
 	}
 
-	fn write_char(&mut self, character: char) {
+	fn write_char(&mut self, character: char) -> Result<(), FileStreamError> {
 		self.file.as_mut().unwrap().write(&[character as u8]).expect("Could not write to file");
+		Ok(())
 	}
 
-	fn write_u16(&mut self, number: u16) {
+	fn write_u16(&mut self, number: u16) -> Result<(), FileStreamError> {
 		const BYTES: usize = 2;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -54,9 +56,11 @@ impl U8WriteStream for FileWriteStream {
 		}
 
 		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
+
+		Ok(())
 	}
 
-	fn write_u32(&mut self, number: u32) {
+	fn write_u32(&mut self, number: u32) -> Result<(), FileStreamError> {
 		const BYTES: usize = 4;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -67,9 +71,11 @@ impl U8WriteStream for FileWriteStream {
 		}
 
 		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
+
+		Ok(())
 	}
 
-	fn write_u64(&mut self, number: u64) {
+	fn write_u64(&mut self, number: u64) -> Result<(), FileStreamError> {
 		const BYTES: usize = 8;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -80,9 +86,11 @@ impl U8WriteStream for FileWriteStream {
 		}
 
 		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
+
+		Ok(())
 	}
 
-	fn write_vlq(&mut self, number: u64) {
+	fn write_vlq(&mut self, number: u64) -> Result<(), FileStreamError> {
 		let mut shift = number;
 		for _ in 0..4 {
 			let number = if shift >> 15 != 0 {
@@ -91,7 +99,7 @@ impl U8WriteStream for FileWriteStream {
 				shift as u16 & 0x7FFF
 			};
 
-			self.write_u16(number);
+			self.write_u16(number)?;
 
 			shift >>= 15;
 
@@ -99,35 +107,44 @@ impl U8WriteStream for FileWriteStream {
 				break;
 			}
 		}
+
+		Ok(())
 	}
 
-	fn write_string(&mut self, string: &str) {
-		self.write_vlq(string.len() as u64);
+	fn write_string(&mut self, string: &str) -> Result<(), FileStreamError> {
+		self.write_vlq(string.len() as u64)?;
 		self.file.as_mut().unwrap().write(string.as_bytes()).expect("Could not write to file");
+		Ok(())
 	}
 
-	fn write_vector(&mut self, vector: &Vec<u8>) {
+	fn write_vector(&mut self, vector: &Vec<u8>) -> Result<(), FileStreamError> {
 		self.file.as_mut().unwrap().write(vector).expect("Could not write to file");
+		Ok(())
 	}
 }
 
-impl WriteStream<u8> for FileWriteStream {
-	type Error = FileStreamError;
+impl WriteStream<u8, FileStreamError> for FileWriteStream {
 	type Export = File;
 
-	fn encode_mut<T: EncodeMut<u8, Self>>(&mut self, object: &mut T) {
-		object.encode_mut(self);
+	fn encode_mut<T>(&mut self, object: &mut T) -> Result<(), FileStreamError>
+	where
+		T: EncodeMut<u8, Self, FileStreamError>
+	{
+		object.encode_mut(self)
 	}
 
-	fn encode<T: Encode<u8, Self>>(&mut self, object: &T) {
-		object.encode(self);
+	fn encode<T>(&mut self, object: &T) -> Result<(), FileStreamError>
+	where
+		T: Encode<u8, Self, FileStreamError>
+	{
+		object.encode(self)
 	}
 
-	fn export(&mut self) -> Result<Self::Export, Self::Error> {
+	fn export(&mut self) -> Result<Self::Export, FileStreamError> {
 		if let Err(_) = self.file.as_mut().unwrap().flush() {
-			Err(Self::Error::Flush)
+			Err(FileStreamError::Flush)
 		} else if self.file.is_none() {
-			Err(Self::Error::NoneFile)
+			Err(FileStreamError::NoneFile)
 		} else {
 			Ok(std::mem::replace(&mut self.file, None).unwrap())
 		}
@@ -138,13 +155,15 @@ impl WriteStream<u8> for FileWriteStream {
 	}
 }
 
-impl Seekable for FileWriteStream {
-	fn seek(&mut self, position: StreamPosition) {
+impl Seekable<FileStreamError> for FileWriteStream {
+	fn seek(&mut self, position: StreamPosition) -> Result<(), FileStreamError> {
 		self.file.as_mut().unwrap().seek(SeekFrom::Start(position)).expect("Could not seek");
+		Ok(())
 	}
 
-	fn get_position(&mut self) -> StreamPosition {
-		self.file.as_mut().unwrap().stream_position().expect("Could not get stream position")
+	fn get_position(&mut self) -> Result<StreamPosition, FileStreamError> {
+		let position = self.file.as_mut().unwrap().stream_position().expect("Could not get stream position");
+		Ok(position)
 	}
 }
 
@@ -166,24 +185,24 @@ impl FileReadStream {
 	}
 }
 
-impl U8ReadStream for FileReadStream {
-	fn read_u8(&mut self) -> (u8, StreamPosition) {
+impl U8ReadStream<FileStreamError> for FileReadStream {
+	fn read_u8(&mut self) -> Result<(u8, StreamPosition), FileStreamError> {
 		let mut buffer = [0];
 		self.file.read(&mut buffer).expect("Could not read from file");
 		self.position += 1;
 
-		return (buffer[0], self.position);
+		Ok((buffer[0], self.position))
 	}
 
-	fn read_char(&mut self) -> (char, StreamPosition) {
+	fn read_char(&mut self) -> Result<(char, StreamPosition), FileStreamError> {
 		let mut buffer = [0];
 		self.file.read(&mut buffer).expect("Could not read from file");
 		self.position += 1;
 
-		return (buffer[0] as char, self.position);
+		Ok((buffer[0] as char, self.position))
 	}
 
-	fn read_u16(&mut self) -> (u16, StreamPosition) {
+	fn read_u16(&mut self) -> Result<(u16, StreamPosition), FileStreamError> {
 		const BYTES: usize = 2;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -195,10 +214,10 @@ impl U8ReadStream for FileReadStream {
 			number |= (buffer[i] as u16) << (i * 8);
 		}
 
-		return (number, self.position);
+		Ok((number, self.position))
 	}
 
-	fn read_u32(&mut self) -> (u32, StreamPosition) {
+	fn read_u32(&mut self) -> Result<(u32, StreamPosition), FileStreamError> {
 		const BYTES: usize = 4;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -210,10 +229,10 @@ impl U8ReadStream for FileReadStream {
 			number |= (buffer[i] as u32) << (i * 8);
 		}
 
-		return (number, self.position);
+		Ok((number, self.position))
 	}
 
-	fn read_u64(&mut self) -> (u64, StreamPosition) {
+	fn read_u64(&mut self) -> Result<(u64, StreamPosition), FileStreamError> {
 		const BYTES: usize = 8;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -225,14 +244,14 @@ impl U8ReadStream for FileReadStream {
 			number |= (buffer[i] as u64) << (i * 8);
 		}
 
-		return (number, self.position);
+		Ok((number, self.position))
 	}
 
-	fn read_vlq(&mut self) -> (u64, StreamPosition) {
+	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), FileStreamError> {
 		let mut number = 0;
 		let mut read = 0;
 		loop {
-			let (bytes, _) = self.read_u16();
+			let (bytes, _) = self.read_u16()?;
 			number |= (bytes as u64 & 0x7FFF) << (read / 2 * 15);
 			read += 2;
 
@@ -243,55 +262,59 @@ impl U8ReadStream for FileReadStream {
 
 		self.position += read;
 
-		return (number, self.position);
+		Ok((number, self.position))
 	}
 }
 
-impl U8ReadStringStream for FileReadStream {
-	fn read_string(&mut self) -> (String, StreamPosition) {
-		let (length, _) = self.read_vlq();
+impl U8ReadStringStream<FileStreamError> for FileReadStream {
+	fn read_string(&mut self) -> Result<(String, StreamPosition), FileStreamError> {
+		let (length, _) = self.read_vlq()?;
 
 		let mut buffer = vec![0; length as usize];
 		self.file.read(&mut buffer).expect("Could not read string into buffer");
 		self.position = self.file.stream_position().expect("Could not get stream position");
 
-		return (String::from_utf8(buffer).expect("Could not decode utf8"), self.position);
+		Ok((String::from_utf8(buffer).expect("Could not decode utf8"), self.position))
 	}
 }
 
-impl ReadStream<u8> for FileReadStream {
-	type Error = FileStreamError;
+impl ReadStream<u8, FileStreamError> for FileReadStream {
 	type Import = ();
 
-	fn decode<T: Decode<u8, Self>>(&mut self) -> T {
-		T::decode(self).0
+	fn decode<T>(&mut self) -> Result<(T, StreamPosition), FileStreamError>
+	where
+		T: Decode<u8, Self, FileStreamError>
+	{
+		T::decode(self)
 	}
 
 	fn can_decode(&self) -> bool {
 		true
 	}
 
-	fn import(&mut self, _: Self::Import) -> Result<(), Self::Error> {
+	fn import(&mut self, _: Self::Import) -> Result<(), FileStreamError> {
 		Ok(())
 	}
 }
 
-impl Seekable for FileReadStream {
-	fn seek(&mut self, position: StreamPosition) {
+impl Seekable<FileStreamError> for FileReadStream {
+	fn seek(&mut self, position: StreamPosition) -> Result<(), FileStreamError> {
 		self.file.seek(SeekFrom::Start(position)).expect("Could not seek");
+		Ok(())
 	}
 
-	fn get_position(&mut self) -> StreamPosition {
-		self.file.stream_position().expect("Could not get stream position")
+	fn get_position(&mut self) -> Result<StreamPosition, FileStreamError> {
+		let position = self.file.stream_position().expect("Could not get stream position");
+		Ok(position)
 	}
 }
 
-impl Peekable<u8> for FileReadStream {
-	fn peek(&mut self) -> u8 {
+impl Peekable<u8, FileStreamError> for FileReadStream {
+	fn peek(&mut self) -> Result<u8, FileStreamError> {
 		let mut buffer = [0];
 		self.file.read(&mut buffer).expect("Could not peek");
 		self.file.seek(SeekFrom::Current(-1)).expect("Could not seek");
-		return buffer[0];
+		Ok(buffer[0])
 	}
 }
 
