@@ -21,8 +21,8 @@ fn main() {
 			std::thread::sleep(std::time::Duration::from_millis(1));
 		}
 	} else {
-		let mut client = Client::new(last_argument).unwrap();
-		client.test_send();
+		let mut client = Client::new("[::]:0").unwrap();
+		client.initialize_connection(last_argument).expect("Could not initialize connection to the server");
 
 		loop {
 			if let Err(error) = client.tick() {

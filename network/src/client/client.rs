@@ -11,6 +11,8 @@ use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 pub enum ClientError {
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
 	Create(std::io::Error),
+	/// Emitted if we encountered a problem connecting to a server socket. Fatal.
+	Connect(std::io::Error),
 	/// Emitted if we were disconnected by the server. Fatal.
 	Disconnected(DisconnectionReason),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -29,6 +31,7 @@ impl ClientError {
 	pub fn is_fatal(&self) -> bool {
 		match *self {
 			ClientError::Create(_) => true,
+			ClientError::Connect(_) => true,
 			ClientError::Disconnected(_) => true,
 			ClientError::PacketTooBig => false,
 			ClientError::Receive(_) => true,
@@ -41,6 +44,8 @@ impl ClientError {
 #[derive(Debug)]
 pub struct Client {
 	address: SocketAddr,
+	/// True if the server accepted our handshake and we're in a state where we are ready to exchange packets.
+	connection_initialized: bool,
 	/// The last time we received data from the server.
 	last_activity: Instant,
 	outgoing_packet: Packet,
@@ -51,9 +56,9 @@ pub struct Client {
 }
 
 impl Client {
-	/// Initialize the client and connect to the specified address.
+	/// Initialize the a client socket bound to the specified address.
 	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, ClientError> {
-		let socket = match UdpSocket::bind("[::]:0") {
+		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
 			Err(error) => return Err(ClientError::Create(error)),
 		};
@@ -62,15 +67,12 @@ impl Client {
 			return Err(ClientError::Create(error));
 		}
 
-		if let Err(error) = socket.connect(address) {
-			return Err(ClientError::Create(error));
-		}
-
 		let mut receive_buffer = Vec::new();
 		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
 
 		Ok(Client {
 			address: socket.local_addr().unwrap(),
+			connection_initialized: false,
 			last_activity: Instant::now(),
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
@@ -147,19 +149,9 @@ impl Client {
 		Ok(())
 	}
 
-	/// Send a byte vector to the server.
-	fn send_bytes(&mut self, bytes: &Vec<u8>) -> Result<(), ClientError> {
-		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send(&bytes) {
-			return Err(ClientError::Send(error));
-		}
-
-		Ok(())
-	}
-
-	pub fn test_send(&mut self) {
-		let mut stream = NetworkWriteStream::new();
-
+	/// Initializes a connection with the specified server. Done by sending a handshake, and receiving a sequence ID pair
+	/// used for exchanging packets.
+	pub fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), ClientError> {
 		let handshake = Handshake {
 			checksum: [0; 16],
 			version: Version {
@@ -170,12 +162,29 @@ impl Client {
 			}
 		};
 
-		stream.encode(&handshake);
-
-		if !stream.can_export() {
-			panic!("Could not export");
-		} else {
-			self.socket.send(&mut stream.export().unwrap()).unwrap();
+		if let Err(error) = self.socket.connect(address) {
+			return Err(ClientError::Connect(error));
 		}
+
+		self.send_stream.encode(&handshake);
+		let bytes = self.send_stream.export().unwrap();
+
+		self.send_bytes(&bytes)?;
+
+		Ok(())
+	}
+
+	pub fn is_connection_valid(&self) -> bool {
+		self.connection_initialized
+	}
+
+	/// Send a byte vector to the server.
+	fn send_bytes(&mut self, bytes: &Vec<u8>) -> Result<(), ClientError> {
+		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
+		if let Err(error) = self.socket.send(&bytes) {
+			return Err(ClientError::Send(error));
+		}
+
+		Ok(())
 	}
 }
