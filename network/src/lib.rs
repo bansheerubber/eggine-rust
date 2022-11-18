@@ -1,5 +1,6 @@
 pub mod client;
 pub mod handshake;
+pub mod log;
 pub mod network_stream;
 pub mod payload;
 pub mod server;

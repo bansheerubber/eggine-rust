@@ -4,6 +4,7 @@ use streams::{ ReadStream, WriteStream, };
 
 use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
+use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
@@ -56,6 +57,7 @@ pub struct Server {
 	client_table: ClientTable,
 	/// Handshae we compare client handshakes against.
 	handshake: Handshake,
+	log: Log,
 	/// The buffer we write into when we receive data.
 	receive_buffer: [u8; MAX_PACKET_SIZE],
 	receive_stream: NetworkReadStream,
@@ -90,6 +92,7 @@ impl Server {
 					revision: 0,
 				},
 			},
+			log: Log::default(),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
@@ -108,16 +111,21 @@ impl Server {
 			// send client outgoing packets
 			// TODO make this a little more efficient, right now this sucks b/c i can't use a &self ref in the for loop source
 			let sources = self.client_table.client_iter().map(|(source, _)| *source).collect::<Vec<SocketAddr>>();
+			let mut reset_sources = Vec::new();
 			for source in sources {
 				let client = self.client_table.get_client(&source)?;
-				self.send_stream.encode(&client.outgoing_packet);
+				if client.outgoing_packet.get_sub_payloads().len() > 0 { // only send packets if we have information to send
+					self.send_stream.encode(&client.outgoing_packet);
 
-				let bytes = self.send_stream.export().unwrap();
-				self.send_bytes_to(source, &bytes)?;
+					let bytes = self.send_stream.export().unwrap();
+					self.send_bytes_to(source, &bytes)?;
+					reset_sources.push(source);
+				}
 			}
 
 			// reset client outgoing packets so we can write new information into them
-			for (_, client) in self.client_table.client_iter_mut() {
+			for source in reset_sources {
+				let client = self.client_table.get_client_mut(&source)?;
 				client.outgoing_packet = Packet::new(0, 0); // TODO add reset function to packet
 			}
 		}
@@ -151,7 +159,7 @@ impl Server {
 
 			// force disconnects on timed out clients
 			for source in time_out_clients {
-				println!("! {:?} timed out", source);
+				self.log.print(LogLevel::Error, format!("{:?} timed out", source), 0);
 				if let Err(error) = self.disconnect_client(source, DisconnectionReason::Timeout) {
 					if let ServerError::CouldNotFindClient = error {
 						unreachable!();
@@ -193,7 +201,7 @@ impl Server {
 
 		// make sure what we just read is not too big to be an eggine packet
 		if read_bytes > MAX_PACKET_SIZE {
-			println!("@ received too big of a packet from {:?}", address); // @ indicates that the ip was blacklisted for this
+			self.log.print(LogLevel::Blacklist, format!("received too big of a packet from {:?}", source), 0);
 			self.client_table.add_to_blacklist(address.clone());
 			return Err(ServerError::PacketTooBig(source));
 		}
@@ -230,19 +238,23 @@ impl Server {
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
 				SubPayload::Disconnect(reason) => {
-					println!(". got disconnect from {:?} for reason {:?}", source, reason);
+					self.log.print(LogLevel::Info, format!("got disconnect from {:?} for reason {:?}", source, reason), 0);
 					self.disconnect_client(source, DisconnectionReason::Requested)?;
 					return Ok(()); // stop processing sub payloads now, the connection is now closed
 				},
 				SubPayload::Ping(time) => {
-					println!(". got ping with time {}", time);
+					self.log.print(LogLevel::Info, format!("got ping with time {}", time), 0);
 				},
 				SubPayload::Pong(time) => {
-					println!(
-						". got pong with time {} from {:?}. round-trip duration is {}us",
-						time,
-						source,
-						(now - last_ping_time).as_micros()
+					self.log.print(
+						LogLevel::Info,
+						format!(
+							"got pong with time {} from {:?}. round-trip duration is {}us",
+							time,
+							source,
+							(now - last_ping_time).as_micros()
+						),
+						0
 					);
 				}
 			}
@@ -268,24 +280,24 @@ impl Server {
 	{
 		self.receive_stream.import(handshake_buffer).unwrap();
 
-		println!(". client talking from {:?}", source);
+		self.log.print(LogLevel::Info, format!("client talking from {:?}", source), 0);
 
 		// check handshake
 		let handshake = self.receive_stream.decode::<Handshake>();
 		if handshake != self.handshake {
-			println!("  @ invalid handshake"); // @ indicates that the ip was blacklisted for this
+			self.log.print(LogLevel::Blacklist, format!("invalid handshake"), 1);
 			self.client_table.add_to_blacklist(address.clone());
 			return Err(ServerError::ClientCreation);
 		}
 
 		// figure out if they already joined on this ip/port
 		if self.client_table.has_client(&source) {
-			println!("  ! already connected");
+			self.log.print(LogLevel::Error, format!("already connected"), 1);
 			return Err(ServerError::ClientCreation);
 		}
 
 		// we're home free, add the client to the client list
-		println!("  . initialized client connection successfully");
+		self.log.print(LogLevel::Info, format!("established client connection successfully"), 1);
 		self.client_table.add_client(source, ClientConnection {
 			address: source,
 			last_activity: Instant::now(),
@@ -309,7 +321,7 @@ impl Server {
 		client.outgoing_packet.add_sub_payload(SubPayload::Disconnect(reason));
 		self.send_stream.encode(&client.outgoing_packet);
 
-		println!(". disconnected client with reason {:?}", reason);
+		self.log.print(LogLevel::Info, format!("disconnected client with reason {:?}", reason), 0);
 
 		self.client_table.remove_client(&source); // remove the client before we have a chance of erroring out during the send
 

@@ -4,6 +4,7 @@ use streams::{ ReadStream, WriteStream, };
 
 use crate::MAX_PACKET_SIZE;
 use crate::handshake::{ Handshake, Version, };
+use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
 
@@ -52,6 +53,7 @@ pub struct Client {
 	handshake: Handshake,
 	/// The last time we received data from the server.
 	last_activity: Instant,
+	log: Log,
 	outgoing_packet: Packet,
 	receive_buffer: [u8; MAX_PACKET_SIZE],
 	receive_stream: NetworkReadStream,
@@ -88,6 +90,7 @@ impl Client {
 				}
 			},
 			last_activity: Instant::now(),
+			log: Log::default(),
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
@@ -104,7 +107,7 @@ impl Client {
 	/// out our time-to-live.
 	pub fn tick(&mut self) -> Result<(), ClientError> {
 		// send the packet we worked on constructing to the server, then reset it
-		{
+		if self.outgoing_packet.get_sub_payloads().len() > 0 {
 			self.send_stream.encode(&self.outgoing_packet);
 
 			let bytes = self.send_stream.export().unwrap();
@@ -127,7 +130,7 @@ impl Client {
 
 		// make sure what we just read is not too big to be an eggine packet
 		if read_bytes > MAX_PACKET_SIZE {
-			println!("! received too big of a packet");
+			self.log.print(LogLevel::Error, format!("received too big of a packet"), 0);
 			return Err(ClientError::PacketTooBig);
 		}
 
@@ -144,11 +147,11 @@ impl Client {
 			// check handshake
 			let handshake = self.receive_stream.decode::<Handshake>();
 			if handshake != self.handshake {
-				println!("! invalid handshake");
+				self.log.print(LogLevel::Error, format!("invalid handshake"), 0);
 				return Err(ClientError::Handshake);
 			}
 
-			println!(". connection established");
+			self.log.print(LogLevel::Info, format!("connection established"), 0);
 			self.connection_initialized = true;
 
 			return Ok(());
@@ -159,11 +162,11 @@ impl Client {
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
 				SubPayload::Disconnect(reason) => {
-					println!(". server told us to disconnect with reason {:?}", reason);
+					self.log.print(LogLevel::Info, format!("server told us to disconnect with reason {:?}", reason), 0);
 					return Err(ClientError::Disconnected(*reason));
 				},
 				SubPayload::Ping(time) => {
-					println!(". got ping with time {}", time);
+					self.log.print(LogLevel::Info, format!("got ping with time {}", time), 0);
 
 					// send a pong to the server
 					self.outgoing_packet.add_sub_payload(SubPayload::Pong(
@@ -171,7 +174,7 @@ impl Client {
 					));
 				},
 				SubPayload::Pong(time) => {
-					println!(". got pong with time {}", time);
+					self.log.print(LogLevel::Info, format!("got pong with time {}", time), 0);
 				}
 			}
 		}
@@ -186,7 +189,7 @@ impl Client {
 			return Err(ClientError::Connect(error));
 		}
 
-		println!(". establishing connection to {:?}...", self.socket.peer_addr());
+		self.log.print(LogLevel::Info, format!("establishing connection to {:?}...", self.socket.peer_addr().unwrap()), 0);
 		self.send_stream.encode(&self.handshake);
 		let bytes = self.send_stream.export().unwrap();
 
