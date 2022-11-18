@@ -135,7 +135,7 @@ impl Server {
 			// reset client outgoing packets so we can write new information into them
 			for source in reset_sources {
 				let client = self.client_table.get_client_mut(&source)?;
-				client.outgoing_packet = Packet::new(0, 0); // TODO add reset function to packet
+				client.outgoing_packet.next(0); // TODO last sequence number
 			}
 		}
 

@@ -122,7 +122,7 @@ impl Client {
 			let bytes = self.send_stream.export()?;
 			self.send_bytes(&bytes)?;
 
-			self.outgoing_packet = Packet::new(0, 0); // TODO improve packet reset API
+			self.outgoing_packet.next(0); // TODO last sequence number
 		}
 
 		// read a packet from the server

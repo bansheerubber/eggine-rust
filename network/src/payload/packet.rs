@@ -23,6 +23,14 @@ impl Packet {
 		}
 	}
 
+	/// Resets the payload and configures the sequence numbers/acknowledgement mask for the next send.
+	pub fn next(&mut self, last_sequence_number: u32) {
+		// TODO acknowledge mask
+		self.sequence_number += 1; // TODO overflow
+		self.last_sequence_number = last_sequence_number;
+		self.payload = Payload::default();
+	}
+
 	pub fn add_sub_payload(&mut self, sub_payload: SubPayload) {
 		self.payload.add(sub_payload);
 	}
