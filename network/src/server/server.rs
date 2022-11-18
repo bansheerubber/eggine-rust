@@ -103,9 +103,22 @@ impl Server {
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out all `ClientConnection`s' time-to-live.
 	pub fn tick(&mut self) -> Result<(), ServerError> {
-		// reset client outgoing packets so we can write new information into them
-		for (_, client) in self.client_table.client_iter_mut() {
-			client.outgoing_packet = Packet::new(0, 0); // TODO add reset function to packet
+		{
+			// send client outgoing packets
+			// TODO make this a little more efficient, right now this sucks b/c i can't use a &self ref in the for loop source
+			let sources = self.client_table.client_iter().map(|(source, _)| *source).collect::<Vec<SocketAddr>>();
+			for source in sources {
+				let client = self.client_table.get_client(&source)?;
+				self.send_stream.encode(&client.outgoing_packet);
+
+				let bytes = self.send_stream.export().unwrap();
+				self.send_bytes_to(source, &bytes)?;
+			}
+
+			// reset client outgoing packets so we can write new information into them
+			for (_, client) in self.client_table.client_iter_mut() {
+				client.outgoing_packet = Packet::new(0, 0); // TODO add reset function to packet
+			}
 		}
 
 		// receive packets
@@ -146,17 +159,6 @@ impl Server {
 					}
 				}
 			}
-		}
-
-		// send client outgoing packets
-		// TODO make this a little more efficient, right now this sucks b/c i can't use a &self ref in the for loop source
-		let sources = self.client_table.client_iter().map(|(source, _)| *source).collect::<Vec<SocketAddr>>();
-		for source in sources {
-			let client = self.client_table.get_client(&source)?;
-			self.send_stream.encode(&client.outgoing_packet);
-
-			let bytes = self.send_stream.export().unwrap();
-			self.send_bytes_to(source, &bytes)?;
 		}
 
 		Ok(())
