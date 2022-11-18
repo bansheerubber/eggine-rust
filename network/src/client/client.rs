@@ -43,6 +43,7 @@ pub struct Client {
 	address: SocketAddr,
 	/// The last time we received data from the server.
 	last_activity: Instant,
+	outgoing_packet: Packet,
 	receive_buffer: [u8; MAX_PACKET_SIZE],
 	receive_stream: NetworkReadStream,
 	send_stream: NetworkWriteStream,
@@ -71,6 +72,7 @@ impl Client {
 		Ok(Client {
 			address: socket.local_addr().unwrap(),
 			last_activity: Instant::now(),
+			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
@@ -85,6 +87,17 @@ impl Client {
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out our time-to-live.
 	pub fn tick(&mut self) -> Result<(), ClientError> {
+		// send the packet we worked on constructing to the server, then reset it
+		{
+			self.send_stream.encode(&self.outgoing_packet);
+
+			let bytes = self.send_stream.export().unwrap();
+			self.send_bytes(&bytes)?;
+
+			self.outgoing_packet = Packet::new(0, 0); // TODO improve packet reset API
+		}
+
+		// read a packet from the server
 		let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
 			Ok(a) => a,
 			Err(error) => {
@@ -119,7 +132,11 @@ impl Client {
 				},
 				SubPayload::Ping(time) => {
 					println!(". got ping with time {}", time);
-					self.test_encode_packet().unwrap();
+
+					// send a pong to the server
+					self.outgoing_packet.add_sub_payload(SubPayload::Pong(
+						SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+					));
 				},
 				SubPayload::Pong(time) => {
 					println!(". got pong with time {}", time);
@@ -130,16 +147,9 @@ impl Client {
 		Ok(())
 	}
 
-	fn test_encode_packet(&mut self) -> Result<(), ClientError> {
-		let mut packet = Packet::new(0, 0);
-		packet.add_sub_payload(SubPayload::Pong(
-			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
-		));
-
-		self.send_stream.encode(&packet);
-
+	/// Send a byte vector to the server.
+	fn send_bytes(&mut self, bytes: &Vec<u8>) -> Result<(), ClientError> {
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		let bytes = self.send_stream.export().unwrap();
 		if let Err(error) = self.socket.send(&bytes) {
 			return Err(ClientError::Send(error));
 		}
