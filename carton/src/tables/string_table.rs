@@ -1,7 +1,8 @@
 use std::collections::{ BTreeMap, HashMap, };
-use std::fmt::Debug;
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
+
+use crate::{ CartonError, Error, };
 
 use super::TableID;
 
@@ -41,12 +42,11 @@ impl StringTable {
 	}
 }
 
-impl<T, U> Encode<u8, T, U> for StringTable
+impl<T> Encode<u8, T, Error> for StringTable
 where
-	T: WriteStream<u8, U> + U8WriteStream<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), U> {
+	fn encode(&self, stream: &mut T) -> Result<(), Error> {
 		stream.write_u8(TableID::StringTable as u8)?;
 		stream.write_u64(self.sorted_mapping.len() as u64)?;
 
@@ -59,15 +59,14 @@ where
 	}
 }
 
-impl<T, U> Decode<u8, T, U> for StringTable
+impl<T> Decode<u8, T, Error> for StringTable
 where
-	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U>,
-	U: Debug
+	T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringStream<Error>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
 		let (table_id, _) = stream.read_u8()?;
 		if table_id != TableID::StringTable as u8 {
-			panic!("Did not get expected table");
+			return Err(Box::new(CartonError::UnexpectedTable));
 		}
 
 		let mut table = StringTable::default();

@@ -1,10 +1,10 @@
-use std::fmt::Debug;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 use streams::{ Decode, Encode, ReadStream, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 
+use crate::{ CartonError, Error, };
 use crate::tables::StringTable;
 use crate::metadata::{ FileMetadata, encode_metadata };
 
@@ -19,12 +19,11 @@ pub enum Compression {
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
 /// compression algorithm.
-impl<T, U> Encode<u8, T, U> for Compression
+impl<T> Encode<u8, T, Error> for Compression
 where
-	T: WriteStream<u8, U> + U8WriteStream<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), U> {
+	fn encode(&self, stream: &mut T) -> Result<(), Error> {
 		match *self {
     	Compression::None => {
 				stream.write_u16(0)?;
@@ -41,12 +40,11 @@ where
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
 /// compression algorithm.
-impl<T, U> Decode<u8, T, U> for Compression
+impl<T> Decode<u8, T, Error> for Compression
 where
-	T: ReadStream<u8, U> + U8ReadStream<U>,
-	U: Debug
+	T: ReadStream<u8, Error> + U8ReadStream<Error>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
 		let (id, new_position) = stream.read_u16()?;
 		match id {
 			0 => Ok((Compression::None, new_position)),
@@ -54,7 +52,7 @@ where
 				let (level, new_position) = stream.read_u8()?;
 				Ok((Compression::ZStd(level as i8), new_position))
 			},
-			_ => todo!("Compression algorithm decode not implemented for {}", id),
+			_ => Err(Box::new(CartonError::InvalidCompression)),
 		}
 	}
 }
@@ -138,11 +136,10 @@ impl File {
 	}
 }
 
-pub(crate) fn encode_file<T, U>(stream: &mut T, file: &File, string_table: &mut StringTable)
-	-> Result<(StreamPosition, StreamPosition), U>
+pub(crate) fn encode_file<T>(stream: &mut T, file: &File, string_table: &mut StringTable)
+	-> Result<(StreamPosition, StreamPosition), Error>
 where
-	T: WriteStream<u8, U> + U8WriteStream<U> + Seekable<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error>
 {
 	let metadata_position = stream.get_position()? as u64;
 
@@ -158,7 +155,16 @@ where
 	let file_position = stream.get_position()?;
 
 	let mut vector = Vec::new();
-	fs::File::open(file.get_file_name()).unwrap().read_to_end(&mut vector).unwrap();
+
+	let mut file = match fs::File::open(file.get_file_name()) {
+    Ok(file) => file,
+    Err(error) => return Err(Box::new(CartonError::FileError(error))),
+	};
+
+	if let Err(error) = file.read_to_end(&mut vector) {
+		return Err(Box::new(CartonError::FileError(error)));
+	}
+
 	stream.write_vector(&vector)?;
 
 	Ok((metadata_position, file_position))
@@ -172,10 +178,9 @@ pub(crate) struct IntermediateFile {
 	pub(crate) size: u64,
 }
 
-pub(crate) fn decode_file<T, U>(stream: &mut T) -> Result<(IntermediateFile, StreamPosition), U>
+pub(crate) fn decode_file<T>(stream: &mut T) -> Result<(IntermediateFile, StreamPosition), Error>
 where
-	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U> + Seekable<U>,
-	U: Debug
+	T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringStream<Error> + Seekable<Error>
 {
 	let start = stream.get_position()?;
 	let mut intermediate = IntermediateFile {

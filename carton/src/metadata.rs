@@ -1,7 +1,7 @@
-use std::fmt::Debug;
 use streams::{ ReadStream, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
+use crate::{ CartonError, Error, };
 use crate::tables::StringTable;
 
 /// Emitted when a `.toml` metadata file cannot be parsed.
@@ -91,10 +91,9 @@ impl From<u8> for TOMLValueType {
 	}
 }
 
-fn encode_value<T, U>(value: &toml::Value, stream: &mut T, string_table: &mut StringTable) -> Result<(), U>
+fn encode_value<T, Error>(value: &toml::Value, stream: &mut T, string_table: &mut StringTable) -> Result<(), Error>
 where
-	T: WriteStream<u8, U> + U8WriteStream<U> + Seekable<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error>
 {
 	match value {
     toml::Value::String(value) => {
@@ -144,29 +143,29 @@ where
 }
 
 // Encode the `toml::Value` in the metadata.
-pub fn encode_metadata<T, U>(stream: &mut T, metadata: &FileMetadata, string_table: &mut StringTable) -> Result<(), U>
+pub fn encode_metadata<T>(stream: &mut T, metadata: &FileMetadata, string_table: &mut StringTable)
+	-> Result<(), Error>
 where
-	T: WriteStream<u8, U> + U8WriteStream<U> + Seekable<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error>
 {
 	encode_value(metadata.get_file_metadata_toml(), stream, string_table)
 }
 
-pub fn decode_value<T, U>(stream: &mut T, string_table: &mut StringTable) -> Result<(toml::Value, StreamPosition), U>
+pub fn decode_value<T>(stream: &mut T, string_table: &mut StringTable)
+	-> Result<(toml::Value, StreamPosition), Error>
 where
-	T: ReadStream<u8, U> + U8ReadStream<U> + Seekable<U>,
-	U: Debug
+	T: ReadStream<u8, Error> + U8ReadStream<Error> + Seekable<Error>
 {
 	let (value_type, _) = stream.read_u8()?;
 
 	match TOMLValueType::from(value_type) {
-    TOMLValueType::INVALID => unreachable!(),
+    TOMLValueType::INVALID => Err(Box::new(CartonError::InvalidTOMLType(value_type))),
     TOMLValueType::STRING => {
 			let (id, next_position) = stream.read_vlq()?;
 			if let Some(string) = string_table.get_from_index(id) {
 				Ok((toml::Value::String(string.clone()), next_position))
 			} else {
-				panic!(); // TODO better error handling
+				Err(Box::new(CartonError::NotInStringTable(id)))
 			}
 		},
     TOMLValueType::INTEGER => {
@@ -200,7 +199,7 @@ where
 				let (id, _) = stream.read_vlq()?;
 
 				let Some(key) = string_table.get_from_index(id) else {
-					panic!(); // TODO better error handling
+					return Err(Box::new(CartonError::NotInStringTable(id)));
 				};
 				let key = key.clone();
 

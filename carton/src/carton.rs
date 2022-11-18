@@ -1,10 +1,9 @@
-use std::fmt::Debug;
-
 use streams::{ Decode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 use walkdir::WalkDir;
 
-use crate::tables::{FileTable, TableID};
+use crate::{ CartonError, Error, };
+use crate::tables::{ FileTable, TableID, };
 use crate::tables::StringTable;
 use crate::file::{ File, decode_file, encode_file };
 use crate::file_stream::FileWriteStream;
@@ -41,7 +40,7 @@ impl Default for Carton {
 impl Carton {
 	/// Write the carton to a file.
 	pub fn to_file(&mut self, file_name: &str) {
-		let mut stream = FileWriteStream::new(file_name);
+		let mut stream = FileWriteStream::new(file_name).unwrap();
 		stream.encode_mut(self).unwrap();
 		stream.export().unwrap();
 	}
@@ -73,12 +72,11 @@ impl Carton {
 /// necessary for completing the file and string tables. Once all files are written, the file table is written with the
 /// string table following afterwards. Once the file table and string tables are written, the file table pointer at the
 /// start of the file is updated to point to the absolute location of the file table.
-impl<T, U> EncodeMut<u8, T, U> for Carton
+impl<T> EncodeMut<u8, T, Error> for Carton
 where
-	T: WriteStream<u8, U> + U8WriteStream<U> + Seekable<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error>
 {
-	fn encode_mut(&mut self, stream: &mut T) -> Result<(), U> {
+	fn encode_mut(&mut self, stream: &mut T) -> Result<(), Error> {
 		// write magic number and the version
 		stream.write_char('C')?;
 		stream.write_char('A')?;
@@ -122,12 +120,12 @@ where
 /// data loaded into memory are the representations of the files, instead of their entire contents. The API gives the
 /// user the option to load the file into memory after decoding. Metadata is always memory resident, since the API gives
 /// a way to query files in the carton by searching metadata values.
-impl<T, U> Decode<u8, T, U> for Carton
+impl<T> Decode<u8, T, Error> for Carton
 where
-	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U> + Seekable<U> + Peekable<u8, U> + Endable,
-	U: Debug
+	T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringStream<Error> + Seekable<Error>
+		+ Peekable<u8, Error> + Endable<Error>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
 		let mut carton = Carton::default();
 
 		// check the carton magic number
@@ -138,23 +136,23 @@ where
 		}
 
 		if magic != "CARTON" {
-			panic!("Invalid magic number");
+			return Err(Box::new(CartonError::InvalidMagicNumber));
 		}
 
 		// check the carton version
 		let (version, _) = stream.read_u8()?;
 		if version != CARTON_VERSION {
-			panic!("Invalid version");
+			return Err(Box::new(CartonError::InvalidVersion));
 		}
 
 		// load tables
 		let (table_pointer, _) = stream.read_u64()?;
 		stream.seek(table_pointer)?;
 
-		while !stream.is_at_end() {
+		while !stream.is_at_end()? {
 			let table_id = TableID::from(stream.peek()?);
 			match table_id {
-    		TableID::Invalid => unreachable!(),
+    		TableID::Invalid => return Err(Box::new(CartonError::UnexpectedTable)),
     		TableID::FileTable => {
 					// partially load the file table, only file name -> metadata position map is valid
 					let (file_table, _) = stream.decode::<FileTable>()?;
@@ -188,7 +186,7 @@ where
 			let metadata_length = stream.get_position()? - *position;
 			let (file, _) = decode_file(stream)?;
 			if &file.file_name != file_name {
-				panic!("unexpected file name");
+				return Err(Box::new(CartonError::UnexpectedFileName));
 			}
 
 			files.push((file, *position, metadata_length as u64, metadata));

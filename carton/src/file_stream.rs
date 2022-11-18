@@ -9,6 +9,8 @@ use streams::u8_io::reading::U8ReadStringStream;
 use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
+use crate::{ CartonError, Error, };
+
 #[derive(Debug)]
 pub enum FileStreamError {
 	Flush,
@@ -21,31 +23,47 @@ pub(crate) struct FileWriteStream {
 }
 
 impl FileWriteStream {
-	pub(crate) fn new(file_name: &str) -> Self {
-		FileWriteStream {
-			file: Some(
-				OpenOptions::new()
-					.write(true)
-					.create(true)
-					.open(file_name)
-					.expect("Could not open file write stream")
-			),
+	pub(crate) fn new(file_name: &str) -> Result<Self, Error> {
+		let file = match OpenOptions::new()
+			.write(true)
+			.create(true)
+			.open(file_name)
+		{
+			Ok(file) => file,
+			Err(error) => return Err(Box::new(CartonError::FileError(error))),
+		};
+
+		Ok(FileWriteStream {
+			file: Some(file),
+		})
+	}
+
+	fn get_file_mut(&mut self) -> Result<&mut File, Error> {
+		match self.file.as_mut() {
+			Some(file) => Ok(file),
+			None => Err(Box::new(CartonError::NoFile))
 		}
 	}
 }
 
-impl U8WriteStream<FileStreamError> for FileWriteStream {
-	fn write_u8(&mut self, byte: u8) -> Result<(), FileStreamError> {
-		self.file.as_mut().unwrap().write(&[byte]).expect("Could not write to file");
-		Ok(())
+impl U8WriteStream<Error> for FileWriteStream {
+	fn write_u8(&mut self, byte: u8) -> Result<(), Error> {
+		if let Err(error) = self.get_file_mut()?.write(&[byte]) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn write_char(&mut self, character: char) -> Result<(), FileStreamError> {
-		self.file.as_mut().unwrap().write(&[character as u8]).expect("Could not write to file");
-		Ok(())
+	fn write_char(&mut self, character: char) -> Result<(), Error> {
+		if let Err(error) = self.get_file_mut()?.write(&[character as u8]) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn write_u16(&mut self, number: u16) -> Result<(), FileStreamError> {
+	fn write_u16(&mut self, number: u16) -> Result<(), Error> {
 		const BYTES: usize = 2;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -55,12 +73,14 @@ impl U8WriteStream<FileStreamError> for FileWriteStream {
 			shift >>= 8;
 		}
 
-		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
-
-		Ok(())
+		if let Err(error) = self.get_file_mut()?.write(&buffer) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn write_u32(&mut self, number: u32) -> Result<(), FileStreamError> {
+	fn write_u32(&mut self, number: u32) -> Result<(), Error> {
 		const BYTES: usize = 4;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -70,12 +90,14 @@ impl U8WriteStream<FileStreamError> for FileWriteStream {
 			shift >>= 8;
 		}
 
-		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
-
-		Ok(())
+		if let Err(error) = self.get_file_mut()?.write(&buffer) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn write_u64(&mut self, number: u64) -> Result<(), FileStreamError> {
+	fn write_u64(&mut self, number: u64) -> Result<(), Error> {
 		const BYTES: usize = 8;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
@@ -85,12 +107,14 @@ impl U8WriteStream<FileStreamError> for FileWriteStream {
 			shift >>= 8;
 		}
 
-		self.file.as_mut().unwrap().write(&buffer).expect("Could not write to file");
-
-		Ok(())
+		if let Err(error) = self.get_file_mut()?.write(&buffer) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn write_vlq(&mut self, number: u64) -> Result<(), FileStreamError> {
+	fn write_vlq(&mut self, number: u64) -> Result<(), Error> {
 		let mut shift = number;
 		for _ in 0..4 {
 			let number = if shift >> 15 != 0 {
@@ -111,40 +135,46 @@ impl U8WriteStream<FileStreamError> for FileWriteStream {
 		Ok(())
 	}
 
-	fn write_string(&mut self, string: &str) -> Result<(), FileStreamError> {
+	fn write_string(&mut self, string: &str) -> Result<(), Error> {
 		self.write_vlq(string.len() as u64)?;
-		self.file.as_mut().unwrap().write(string.as_bytes()).expect("Could not write to file");
-		Ok(())
+		if let Err(error) = self.get_file_mut()?.write(string.as_bytes()) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn write_vector(&mut self, vector: &Vec<u8>) -> Result<(), FileStreamError> {
-		self.file.as_mut().unwrap().write(vector).expect("Could not write to file");
-		Ok(())
+	fn write_vector(&mut self, vector: &Vec<u8>) -> Result<(), Error> {
+		if let Err(error) = self.get_file_mut()?.write(vector) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 }
 
-impl WriteStream<u8, FileStreamError> for FileWriteStream {
+impl WriteStream<u8, Error> for FileWriteStream {
 	type Export = File;
 
-	fn encode_mut<T>(&mut self, object: &mut T) -> Result<(), FileStreamError>
+	fn encode_mut<T>(&mut self, object: &mut T) -> Result<(), Error>
 	where
-		T: EncodeMut<u8, Self, FileStreamError>
+		T: EncodeMut<u8, Self, Error>
 	{
 		object.encode_mut(self)
 	}
 
-	fn encode<T>(&mut self, object: &T) -> Result<(), FileStreamError>
+	fn encode<T>(&mut self, object: &T) -> Result<(), Error>
 	where
-		T: Encode<u8, Self, FileStreamError>
+		T: Encode<u8, Self, Error>
 	{
 		object.encode(self)
 	}
 
-	fn export(&mut self) -> Result<Self::Export, FileStreamError> {
-		if let Err(_) = self.file.as_mut().unwrap().flush() {
-			Err(FileStreamError::Flush)
+	fn export(&mut self) -> Result<Self::Export, Error> {
+		if let Err(_) = self.get_file_mut()?.flush() {
+			Err(Box::new(FileStreamError::Flush))
 		} else if self.file.is_none() {
-			Err(FileStreamError::NoneFile)
+			Err(Box::new(FileStreamError::NoneFile))
 		} else {
 			Ok(std::mem::replace(&mut self.file, None).unwrap())
 		}
@@ -155,15 +185,20 @@ impl WriteStream<u8, FileStreamError> for FileWriteStream {
 	}
 }
 
-impl Seekable<FileStreamError> for FileWriteStream {
-	fn seek(&mut self, position: StreamPosition) -> Result<(), FileStreamError> {
-		self.file.as_mut().unwrap().seek(SeekFrom::Start(position)).expect("Could not seek");
-		Ok(())
+impl Seekable<Error> for FileWriteStream {
+	fn seek(&mut self, position: StreamPosition) -> Result<(), Error> {
+		if let Err(error) = self.get_file_mut()?.seek(SeekFrom::Start(position)) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn get_position(&mut self) -> Result<StreamPosition, FileStreamError> {
-		let position = self.file.as_mut().unwrap().stream_position().expect("Could not get stream position");
-		Ok(position)
+	fn get_position(&mut self) -> Result<StreamPosition, Error> {
+		match self.get_file_mut()?.stream_position() {
+			Ok(position) => Ok(position),
+			Err(error) => Err(Box::new(CartonError::FileError(error))),
+		}
 	}
 }
 
@@ -174,39 +209,53 @@ pub struct FileReadStream {
 }
 
 impl FileReadStream {
-	pub fn new(file_name: &str) -> Self {
-		FileReadStream {
-			file: OpenOptions::new()
-				.read(true)
-				.open(file_name)
-				.expect("Could not open file read stream"),
+	pub fn new(file_name: &str) -> Result<Self, Error> {
+		let file = match OpenOptions::new()
+			.read(true)
+			.open(file_name)
+		{
+			Ok(file) => file,
+			Err(error) => return Err(Box::new(CartonError::FileError(error))),
+		};
+
+		Ok(FileReadStream {
+			file,
 			position: 0,
-		}
+		})
 	}
 }
 
-impl U8ReadStream<FileStreamError> for FileReadStream {
-	fn read_u8(&mut self) -> Result<(u8, StreamPosition), FileStreamError> {
+impl U8ReadStream<Error> for FileReadStream {
+	fn read_u8(&mut self) -> Result<(u8, StreamPosition), Error> {
 		let mut buffer = [0];
-		self.file.read(&mut buffer).expect("Could not read from file");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
 		self.position += 1;
 
 		Ok((buffer[0], self.position))
 	}
 
-	fn read_char(&mut self) -> Result<(char, StreamPosition), FileStreamError> {
+	fn read_char(&mut self) -> Result<(char, StreamPosition), Error> {
 		let mut buffer = [0];
-		self.file.read(&mut buffer).expect("Could not read from file");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
 		self.position += 1;
 
 		Ok((buffer[0] as char, self.position))
 	}
 
-	fn read_u16(&mut self) -> Result<(u16, StreamPosition), FileStreamError> {
+	fn read_u16(&mut self) -> Result<(u16, StreamPosition), Error> {
 		const BYTES: usize = 2;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
-		self.file.read(&mut buffer).expect("Could not read from file");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
 		self.position += BYTES as u64;
 
 		let mut number = 0;
@@ -217,11 +266,14 @@ impl U8ReadStream<FileStreamError> for FileReadStream {
 		Ok((number, self.position))
 	}
 
-	fn read_u32(&mut self) -> Result<(u32, StreamPosition), FileStreamError> {
+	fn read_u32(&mut self) -> Result<(u32, StreamPosition), Error> {
 		const BYTES: usize = 4;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
-		self.file.read(&mut buffer).expect("Could not read from file");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
 		self.position += BYTES as u64;
 
 		let mut number = 0;
@@ -232,11 +284,14 @@ impl U8ReadStream<FileStreamError> for FileReadStream {
 		Ok((number, self.position))
 	}
 
-	fn read_u64(&mut self) -> Result<(u64, StreamPosition), FileStreamError> {
+	fn read_u64(&mut self) -> Result<(u64, StreamPosition), Error> {
 		const BYTES: usize = 8;
 
 		let mut buffer: [u8; BYTES] = [0; BYTES];
-		self.file.read(&mut buffer).expect("Could not read from file");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
 		self.position += BYTES as u64;
 
 		let mut number = 0;
@@ -247,7 +302,7 @@ impl U8ReadStream<FileStreamError> for FileReadStream {
 		Ok((number, self.position))
 	}
 
-	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), FileStreamError> {
+	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), Error> {
 		let mut number = 0;
 		let mut read = 0;
 		loop {
@@ -266,24 +321,33 @@ impl U8ReadStream<FileStreamError> for FileReadStream {
 	}
 }
 
-impl U8ReadStringStream<FileStreamError> for FileReadStream {
-	fn read_string(&mut self) -> Result<(String, StreamPosition), FileStreamError> {
+impl U8ReadStringStream<Error> for FileReadStream {
+	fn read_string(&mut self) -> Result<(String, StreamPosition), Error> {
 		let (length, _) = self.read_vlq()?;
 
 		let mut buffer = vec![0; length as usize];
-		self.file.read(&mut buffer).expect("Could not read string into buffer");
-		self.position = self.file.stream_position().expect("Could not get stream position");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
 
-		Ok((String::from_utf8(buffer).expect("Could not decode utf8"), self.position))
+		self.position = match self.file.stream_position() {
+			Ok(position) => position,
+			Err(error) => return Err(Box::new(CartonError::FileError(error))),
+		};
+
+		match String::from_utf8(buffer) {
+    	Ok(string) => Ok((string, self.position)),
+    	Err(error) => Err(Box::new(CartonError::FromUtf8(error))),
+		}
 	}
 }
 
-impl ReadStream<u8, FileStreamError> for FileReadStream {
+impl ReadStream<u8, Error> for FileReadStream {
 	type Import = ();
 
-	fn decode<T>(&mut self) -> Result<(T, StreamPosition), FileStreamError>
+	fn decode<T>(&mut self) -> Result<(T, StreamPosition), Error>
 	where
-		T: Decode<u8, Self, FileStreamError>
+		T: Decode<u8, Self, Error>
 	{
 		T::decode(self)
 	}
@@ -292,42 +356,59 @@ impl ReadStream<u8, FileStreamError> for FileReadStream {
 		true
 	}
 
-	fn import(&mut self, _: Self::Import) -> Result<(), FileStreamError> {
+	fn import(&mut self, _: Self::Import) -> Result<(), Error> {
 		Ok(())
 	}
 }
 
-impl Seekable<FileStreamError> for FileReadStream {
-	fn seek(&mut self, position: StreamPosition) -> Result<(), FileStreamError> {
-		self.file.seek(SeekFrom::Start(position)).expect("Could not seek");
-		Ok(())
+impl Seekable<Error> for FileReadStream {
+	fn seek(&mut self, position: StreamPosition) -> Result<(), Error> {
+		if let Err(error) = self.file.seek(SeekFrom::Start(position)) {
+			Err(Box::new(CartonError::FileError(error)))
+		} else {
+			Ok(())
+		}
 	}
 
-	fn get_position(&mut self) -> Result<StreamPosition, FileStreamError> {
-		let position = self.file.stream_position().expect("Could not get stream position");
-		Ok(position)
+	fn get_position(&mut self) -> Result<StreamPosition, Error> {
+		match self.file.stream_position() {
+			Ok(position) => Ok(position),
+			Err(error) => Err(Box::new(CartonError::FileError(error))),
+		}
 	}
 }
 
-impl Peekable<u8, FileStreamError> for FileReadStream {
-	fn peek(&mut self) -> Result<u8, FileStreamError> {
+impl Peekable<u8, Error> for FileReadStream {
+	fn peek(&mut self) -> Result<u8, Error> {
 		let mut buffer = [0];
-		self.file.read(&mut buffer).expect("Could not peek");
-		self.file.seek(SeekFrom::Current(-1)).expect("Could not seek");
+		if let Err(error) = self.file.read(&mut buffer) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
+		if let Err(error) = self.file.seek(SeekFrom::Current(-1)) {
+			return Err(Box::new(CartonError::FileError(error)));
+		}
+
 		Ok(buffer[0])
 	}
 }
 
-impl Endable for FileReadStream {
-	fn is_at_end(&mut self) -> bool {
+impl Endable<Error> for FileReadStream {
+	fn is_at_end(&mut self) -> Result<bool, Error> {
 		let mut buffer = [0];
-		let bytes_read = self.file.read(&mut buffer).expect("Could not read from file");
+		let bytes_read = match self.file.read(&mut buffer) {
+			Ok(bytes_read) => bytes_read,
+			Err(error) => return Err(Box::new(CartonError::FileError(error))),
+		};
 
 		if bytes_read == 0 {
-			return true;
+			Ok(true)
 		} else {
-			self.file.seek(SeekFrom::Current(-1)).expect("Could not seek");
-			return false;
+			if let Err(error) = self.file.seek(SeekFrom::Current(-1)) {
+				Err(Box::new(CartonError::FileError(error)))
+			} else {
+				Ok(false)
+			}
 		}
 	}
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 
+use crate::{ CartonError, Error };
 use crate::file::File;
 
 use super::TableID;
@@ -59,12 +59,11 @@ impl FileTable {
 /// The file table stores a key/value pair where the keys are file names and the values are file metadata positions. If
 /// we follow the position pointer, we will read either the encoded TOML metadata for the file, or if lacking TOML
 /// metadata, the compression level, file size, and file name.
-impl<T, U> Encode<u8, T, U> for FileTable
+impl<T> Encode<u8, T, Error> for FileTable
 where
-	T: WriteStream<u8, U> + U8WriteStream<U>,
-	U: Debug
+	T: WriteStream<u8, Error> + U8WriteStream<Error>,
 {
-	fn encode(&self, stream: &mut T) -> Result<(), U> {
+	fn encode(&self, stream: &mut T) -> Result<(), Error> {
 		stream.write_u8(TableID::FileTable as u8)?;
 		stream.write_u64(self.metadata_positions.len() as u64)?;
 
@@ -79,15 +78,14 @@ where
 
 /// We can only resolve metadata positions at this point. We have to do a separate pass for file starting positions
 /// after the initial decode. File starting positions are inferred during metadata decoding.
-impl<T, U> Decode<u8, T, U> for FileTable
+impl<T> Decode<u8, T, Error> for FileTable
 where
-	T: ReadStream<u8, U> + U8ReadStream<U> + U8ReadStringStream<U>,
-	U: Debug
+	T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringStream<Error>,
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), U> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
 		let (table_id, _) = stream.read_u8()?;
 		if table_id != TableID::FileTable as u8 {
-			panic!("Did not get expected table");
+			return Err(Box::new(CartonError::UnexpectedTable));
 		}
 
 		let mut table = FileTable::default();
