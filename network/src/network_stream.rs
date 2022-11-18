@@ -4,6 +4,7 @@ use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 use streams::u8_io::writing::{ write_char, write_string, write_u8, write_u16, write_u32, write_u64, write_vlq, };
 use streams::u8_io::reading::{ read_char, read_string_safe, read_u8, read_u16, read_u32, read_u64, read_vlq, };
 
+/// Describes the type of error encountered while working with a network stream.
 #[derive(Debug)]
 pub enum NetworkStreamError {
 	InvalidDisconnectionReason,
@@ -11,8 +12,21 @@ pub enum NetworkStreamError {
 	InvalidSubPayloadType,
 }
 
+/// Network stream error, for use in generics. In order to interact with the network stream subsystem, stream trait
+/// implementations must use this error generic.
 pub type Error = Box<dyn Debug + 'static>;
 
+/// Used to write data over the network. Network streams encode data into bytes, and have corresponding U8*Stream
+/// implementations. Since network streams are built upon a UDP-based protocol, data is necessarily processed in
+/// discrete chunks. The implementation of `NetworkWriteStream` reflects this, and data is exported in discrete chunks
+/// as well.
+///
+/// The network stream has two primary uses for the client and server:
+/// 1. Encoding/decoding raw data straight into/from a send/recv call.
+/// 2. Not implemented yet: An interface to easily exchange data over the network. Streams will automatically handle
+/// dropped packet resending, packet reordering, along with other standard network protocol features. Network streams
+/// will be created in read/write pairs on both the client and server, and will have an interface reminiscent of other
+/// stream APIs in Rust (see stuff like tokio::sync::mpsc, C++ IO streams, etc).
 #[derive(Debug)]
 pub(crate) struct NetworkWriteStream {
 	buffer: Vec<u8>,
@@ -88,6 +102,10 @@ impl WriteStream<u8, Error> for NetworkWriteStream {
 	}
 }
 
+/// Used to read data over the network. Network streams encode data into bytes, and have corresponding U8*Stream
+/// implementations. Since network streams are built upon a UDP-based protocol, data is necessarily imported in discrete
+/// chunks. The implementation of `NetworkReadStream` reflects this, and gives encode/decode implementations to
+/// determine when the end of a discrete chunk is reached via the `Endable` trait.
 #[derive(Debug)]
 pub(crate) struct NetworkReadStream {
 	buffer: Vec<u8>,
@@ -162,6 +180,7 @@ impl ReadStream<u8, Error> for NetworkReadStream {
 		T::decode(self)
 	}
 
+	// TODO have some sort of checksum/parity bit that determines if whatever we just imported is garbage data or not
 	fn can_decode(&self) -> bool {
 		true
 	}

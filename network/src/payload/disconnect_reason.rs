@@ -5,8 +5,12 @@ use crate::network_stream::{ Error, NetworkStreamError, };
 
 #[derive(Debug, Clone, Copy)]
 pub enum DisconnectionReason {
-	Invalid,
+	/// A client must send a `SubPayload::Disconnect` to the server with the `Requested` variant to be gracefully
+	/// disconnected from the server.
 	Requested,
+	/// The server attempts to send a `Timeout` variant to the client's time-to-live has expired. Since a client that has
+	/// timed out may not even be connected to the internet anymore, it is not expected that the client will receive the
+	/// message.
 	Timeout,
 }
 
@@ -18,7 +22,6 @@ where
 		match *self {
 			DisconnectionReason::Requested => stream.write_u8(1)?,
 			DisconnectionReason::Timeout => stream.write_u8(2)?,
-			DisconnectionReason::Invalid => return Err(Box::new(NetworkStreamError::InvalidDisconnectionReason)),
 		};
 		Ok(())
 	}

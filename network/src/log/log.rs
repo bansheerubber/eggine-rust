@@ -5,12 +5,14 @@ pub enum LogLevel {
 	Info,
 }
 
+/// Used to log network activity.
 #[derive(Debug, Default)]
 pub struct Log {
 	messages: Vec<String>,
 }
 
 impl Log {
+	/// Add a message to the log.
 	pub fn print(&mut self, log_level: LogLevel, message: String, indent: u8) {
 		let log_level_char = match log_level {
 			LogLevel::Blacklist => '@',

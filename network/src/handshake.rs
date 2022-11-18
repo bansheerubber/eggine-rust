@@ -3,7 +3,16 @@ use streams::u8_io::{ U8ReadStringSafeStream, U8WriteStream, U8ReadStream, };
 
 use crate::network_stream::{Error, NetworkStreamError};
 
-/// The eggine's version.
+/// The eggine's version. The version satisfies this regex: v([0-9]+).([0-9]+).([a-zA-Z_][a-zA-Z_0-9]+)#([0-9]+).
+/// 1st group: Major version. Intended for public consumption, and thus incremented arbitrarily.
+/// 2nd group: Minor version. Intended for public consumption, and thus incremented arbitrarily.
+/// 3rd group: Git branch the eggine was built on.
+/// 4th group: Revision number. Number of commits since the last major-minor release. A major-minor version is released
+/// on the eggine's default branch, and resets the revision number.
+///
+/// The versioning system is designed to include a human-readable canonical representation of a commit in the eggine's
+/// game engine repository. This is useful for keeping track of exactly which commit any distributed version of the
+/// eggine is running, helping speed up bug fixing.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Version {
 	pub branch: String,
@@ -54,16 +63,21 @@ pub struct Handshake {
 	/// Checksum of the network API. If the checksum between a client and server do not match, then they would be unable
 	/// to communicate with each other.
 	pub checksum: [u8; 16],
+	/// Used to instantiate packet sequence numbers between the client and server. The server initializes all sequence
+	/// numbers.
 	pub sequences: (u32, u32),
 	/// Version of the eggine that the client/server is running on.
 	pub version: Version,
 }
+
+// TODO add custom handshake equality check
 
 impl<T> Encode<u8, T, Error> for Handshake
 where
 	T: WriteStream<u8, Error> + U8WriteStream<Error>
 {
 	fn encode(&self, stream: &mut T) -> Result<(), Error> {
+		// write magic number
 		stream.write_char('E')?;
 		stream.write_char('G')?;
 		stream.write_char('G')?;
@@ -71,9 +85,11 @@ where
 		stream.write_char('N')?;
 		stream.write_char('E')?;
 
+		// write sequences
 		stream.write_u32(self.sequences.0)?;
 		stream.write_u32(self.sequences.1)?;
 
+		// write network checksum
 		for byte in self.checksum {
 			stream.write_u8(byte)?;
 		}

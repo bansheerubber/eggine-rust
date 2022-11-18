@@ -54,19 +54,27 @@ impl From<network_stream::Error> for ClientError {
 	}
 }
 
+/// A client connection in the eggine network stack. Clients connect to servers, which are treated as a trusted source
+/// of information. The two communicate using a packet format built upon the streams library.
 #[derive(Debug)]
 pub struct Client {
 	address: SocketAddr,
 	/// True if the server accepted our handshake and we're in a state where we are ready to exchange packets.
 	connection_initialized: bool,
+	/// The handshake we send to the server upon connection initialization.
 	handshake: Handshake,
 	/// The last time we received data from the server.
 	last_activity: Instant,
 	log: Log,
+	/// We place all outgoing data into this packet.
 	outgoing_packet: Packet,
+	/// The buffer we write into when we receive data.
 	receive_buffer: [u8; MAX_PACKET_SIZE],
+	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
+	/// The stream we use to export data so we can sent it to a client.
 	send_stream: NetworkWriteStream,
+	/// The socket the client is connected to the server on.
 	socket: UdpSocket,
 }
 

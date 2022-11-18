@@ -59,23 +59,24 @@ impl From<network_stream::Error> for ServerError {
 	}
 }
 
+/// Represents a server host in the eggine network stack. Serves many clients, which are considered untrusted sources of
+/// information. The two communicate using a packet format built upon the streams library.
 #[derive(Debug)]
 pub struct Server {
 	/// The address the server is bound to
 	address: SocketAddr,
 	client_table: ClientTable,
-	/// Handshae we compare client handshakes against.
+	/// Handshake we compare client handshakes against.
 	handshake: Handshake,
 	log: Log,
 	/// The buffer we write into when we receive data.
 	receive_buffer: [u8; MAX_PACKET_SIZE],
+	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
+	/// The stream we use to export data so we can sent it to a client.
 	send_stream: NetworkWriteStream,
+	/// The socket the server is being hosted on.
 	socket: UdpSocket,
-}
-
-pub enum ReceiveResult {
-	None,
 }
 
 impl Server {
@@ -183,7 +184,7 @@ impl Server {
 	}
 
 	/// Attempt to receive data from the socket.
-	fn recv(&mut self) -> Result<ReceiveResult, ServerError> {
+	fn recv(&mut self) -> Result<(), ServerError> {
 		let (read_bytes, source) = match self.socket.recv_from(&mut self.receive_buffer) {
 			Ok(a) => a,
 			Err(error) => {
@@ -231,7 +232,7 @@ impl Server {
 			));
 		}
 
-		Ok(ReceiveResult::None)
+		Ok(())
 	}
 
 	/// Decode a packet from an already connected IP address.

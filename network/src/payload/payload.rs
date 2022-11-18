@@ -5,16 +5,21 @@ use crate::network_stream::{ Error, NetworkStreamError, };
 
 use super::DisconnectionReason;
 
+/// Describes everything sent in a packet after the header. A payload is broken up into sub-payloads, which are
+/// identified using a `SubPayloadType`. Since multiple sub-payloads can be sent in each payload, multiple pieces of
+/// data from different contexts can be sent in a packet.
 #[derive(Debug, Default)]
 pub struct Payload {
 	sub_payloads: Vec<SubPayload>,
 }
 
 impl Payload {
+	/// Add a sub-payload to our sub-payload list.
 	pub fn add(&mut self, sub_payload: SubPayload) {
 		self.sub_payloads.push(sub_payload);
 	}
 
+	/// Get a reference to our sub-payload list.
 	pub fn get_all(&self) -> &Vec<SubPayload> {
 		&self.sub_payloads
 	}
@@ -50,6 +55,7 @@ where
 	}
 }
 
+/// Represents a piece of the payload. Used to encode data exchanged between both client and server.
 #[derive(Debug)]
 pub enum SubPayload {
 	Disconnect(DisconnectionReason),
@@ -57,8 +63,8 @@ pub enum SubPayload {
 	Pong(u64),
 }
 
+/// Used to identify sub-payloads in payload encode/decode.
 pub enum SubPayloadType {
-	Invalid,
 	Stream					= 1,
 	CreateStream		= 2,
 	Ping						= 3,
@@ -77,7 +83,6 @@ where
 			SubPayloadType::Ping => SubPayloadType::Ping as u8,
 			SubPayloadType::Pong => SubPayloadType::Pong as u8,
 			SubPayloadType::Stream => SubPayloadType::Stream as u8,
-			SubPayloadType::Invalid => return Err(Box::new(NetworkStreamError::InvalidSubPayloadType)),
 		};
 
 		stream.write_u8(value)
@@ -147,7 +152,6 @@ where
 				Ok((SubPayload::Pong(time), position))
 			},
 			SubPayloadType::Stream => todo!(),
-			SubPayloadType::Invalid => Err(Box::new(NetworkStreamError::InvalidSubPayloadType)),
 		}
 	}
 }

@@ -5,19 +5,25 @@ use crate::network_stream::Error;
 
 use super::{ Payload, SubPayload, };
 
+/// Packets are the format used by the client and server to communicate information. They are synchronized using
+/// sequence numbers that is not revealed to any other clients connected to the server.
 #[derive(Debug)]
 pub struct Packet {
+	/// Used to determine which out of the last 128 sent packets were received correctly.
 	pub acknowledge_mask: [u64; 2],
-	pub last_sequence_number: u32,
+	/// The highest acknowledged sequence we received from someone.
+	pub highest_acknowledged_sequence: u32,
+	/// The sequence number identifying this packet on the connection that sent it.
 	pub sequence_number: u32,
+	/// Packet contents.
 	payload: Payload,
 }
 
 impl Packet {
-	pub fn new(sequence_number: u32, last_sequence_number: u32) -> Self {
+	pub fn new(sequence_number: u32, highest_acknowledged_sequence: u32) -> Self {
 		Packet {
 			acknowledge_mask: [0; 2],
-			last_sequence_number,
+			highest_acknowledged_sequence,
 			sequence_number,
 			payload: Payload::default(),
 		}
@@ -27,7 +33,7 @@ impl Packet {
 	pub fn next(&mut self, last_sequence_number: u32) {
 		// TODO acknowledge mask
 		self.sequence_number += 1; // TODO overflow
-		self.last_sequence_number = last_sequence_number;
+		self.highest_acknowledged_sequence = last_sequence_number;
 		self.payload = Payload::default();
 	}
 
@@ -46,7 +52,7 @@ where
 {
 	fn encode(&self, stream: &mut T) -> Result<(), Error> {
 		stream.write_u32(self.sequence_number)?;
-		stream.write_u32(self.last_sequence_number)?;
+		stream.write_u32(self.highest_acknowledged_sequence)?;
 
 		for part in self.acknowledge_mask {
 			stream.write_u64(part)?;
@@ -65,13 +71,13 @@ where
 	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
 		let mut packet = Packet {
 			acknowledge_mask: [0; 2],
-			last_sequence_number: 0,
+			highest_acknowledged_sequence: 0,
 			sequence_number: 0,
 			payload: Payload::default(),
 		};
 
 		packet.sequence_number = stream.read_u32()?.0;
-		packet.last_sequence_number = stream.read_u32()?.0;
+		packet.highest_acknowledged_sequence = stream.read_u32()?.0;
 
 		for i in 0..packet.acknowledge_mask.len() {
 			packet.acknowledge_mask[i] = stream.read_u64()?.0;
