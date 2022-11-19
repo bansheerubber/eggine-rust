@@ -1,8 +1,22 @@
+use std::any::Any;
 use std::fmt::Debug;
 use streams::{ Decode, Encode, Endable,EncodeMut, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 use streams::u8_io::writing::{ write_char, write_string, write_u8, write_u16, write_u32, write_u64, write_vlq, };
-use streams::u8_io::reading::{ read_char, read_string_safe, read_u8, read_u16, read_u32, read_u64, read_vlq, };
+use streams::u8_io::reading::{
+	ReadStringSafeError,
+	read_char,
+	read_string_safe,
+	read_u8,
+	read_u16,
+	read_u32,
+	read_u64,
+	read_vlq,
+};
+
+pub trait NetworkStreamErrorTrait {
+	fn as_any(&self) -> &dyn Any;
+}
 
 /// Describes the type of error encountered while working with a network stream.
 #[derive(Debug)]
@@ -12,9 +26,27 @@ pub enum NetworkStreamError {
 	InvalidSubPayloadType,
 }
 
+impl NetworkStreamErrorTrait for NetworkStreamError {
+	fn as_any(&self) -> &dyn Any {
+		todo!()
+	}
+}
+
+impl Debug for dyn NetworkStreamErrorTrait {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		todo!()
+	}
+}
+
+impl NetworkStreamErrorTrait for ReadStringSafeError {
+	fn as_any(&self) -> &dyn Any {
+		self
+	}
+}
+
 /// Network stream error, for use in generics. In order to interact with the network stream subsystem, stream trait
 /// implementations must use this error generic.
-pub type Error = Box<dyn Debug + 'static>;
+pub type Error = Box<dyn NetworkStreamErrorTrait + 'static>;
 
 /// Used to write data over the network. Network streams encode data into bytes, and have corresponding U8*Stream
 /// implementations. Since network streams are built upon a UDP-based protocol, data is necessarily processed in
