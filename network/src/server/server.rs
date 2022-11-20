@@ -2,11 +2,12 @@ use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
-use crate::MAX_PACKET_SIZE;
+use crate::error::{ BoxedNetworkError, NetworkError, };
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
-use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, self, };
+use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
+use crate::MAX_PACKET_SIZE;
 
 use super::{ ClientConnection, ClientTable, };
 
@@ -21,7 +22,7 @@ pub enum ServerError {
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
 	Create(std::io::Error),
 	/// Emitted if we encounter a program with decoding received data.
-	EncodeDecodeError(network_stream::Error),
+	EncodeDecodeError(BoxedNetworkError),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
 	InvalidIP,
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -53,8 +54,14 @@ impl ServerError {
 	}
 }
 
-impl From<network_stream::Error> for ServerError {
-	fn from(error: network_stream::Error) -> Self {
+impl NetworkError for ServerError {
+	fn as_any(&self) -> &dyn std::any::Any {
+		self
+	}
+}
+
+impl From<BoxedNetworkError> for ServerError {
+	fn from(error: BoxedNetworkError) -> Self {
 		ServerError::EncodeDecodeError(error)
 	}
 }

@@ -1,7 +1,8 @@
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStringSafeStream, U8WriteStream, U8ReadStream, };
 
-use crate::network_stream::{Error, NetworkStreamError};
+use crate::error::BoxedNetworkError;
+use crate::network_stream::NetworkStreamError;
 
 /// The eggine's version. The version satisfies this regex: v([0-9]+).([0-9]+).([a-zA-Z_][a-zA-Z_0-9]+)#([0-9]+).
 /// 1st group: Major version. Intended for public consumption, and thus incremented arbitrarily.
@@ -21,11 +22,11 @@ pub struct Version {
 	pub revision: u16,
 }
 
-impl<T> Encode<u8, T, Error> for Version
+impl<T> Encode<u8, T, BoxedNetworkError> for Version
 where
-	T: WriteStream<u8, Error> + U8WriteStream<Error>
+	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), Error> {
+	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
 		stream.write_u16(self.major)?;
 		stream.write_u16(self.minor)?;
 		stream.write_u16(self.revision)?;
@@ -34,11 +35,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, Error> for Version
+impl<T> Decode<u8, T, BoxedNetworkError> for Version
 where
-T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringSafeStream<Error>
+T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
 		let (major, _) = stream.read_u16()?;
 		let (minor, _) = stream.read_u16()?;
 		let (revision, _) = stream.read_u16()?;
@@ -77,11 +78,11 @@ impl Handshake {
 	}
 }
 
-impl<T> Encode<u8, T, Error> for Handshake
+impl<T> Encode<u8, T, BoxedNetworkError> for Handshake
 where
-	T: WriteStream<u8, Error> + U8WriteStream<Error>
+	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), Error> {
+	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
 		// write magic number
 		stream.write_char('E')?;
 		stream.write_char('G')?;
@@ -105,11 +106,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, Error> for Handshake
+impl<T> Decode<u8, T, BoxedNetworkError> for Handshake
 where
-	T: ReadStream<u8, Error> + U8ReadStream<Error> + U8ReadStringSafeStream<Error>
+	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
 		// read the "EGGINE" magic number
 		let mut magic_number = String::new();
 		for _ in 0..6 {

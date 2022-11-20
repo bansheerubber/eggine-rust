@@ -1,4 +1,5 @@
 pub mod client;
+pub mod error;
 pub mod handshake;
 pub mod log;
 pub mod network_stream;

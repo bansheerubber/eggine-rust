@@ -1,7 +1,8 @@
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
-use crate::network_stream::{ Error, NetworkStreamError, };
+use crate::error::BoxedNetworkError;
+use crate::network_stream::NetworkStreamError;
 
 #[derive(Debug, Clone, Copy)]
 pub enum DisconnectionReason {
@@ -14,11 +15,11 @@ pub enum DisconnectionReason {
 	Timeout,
 }
 
-impl<T> Encode<u8, T, Error> for DisconnectionReason
+impl<T> Encode<u8, T, BoxedNetworkError> for DisconnectionReason
 where
-	T: WriteStream<u8, Error> + U8WriteStream<Error>
+	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), Error> {
+	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
 		match *self {
 			DisconnectionReason::Requested => stream.write_u8(1)?,
 			DisconnectionReason::Timeout => stream.write_u8(2)?,
@@ -27,11 +28,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, Error> for DisconnectionReason
+impl<T> Decode<u8, T, BoxedNetworkError> for DisconnectionReason
 where
-	T: ReadStream<u8, Error> + U8ReadStream<Error>
+	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), Error> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
 		let (byte, position) = stream.read_u8()?;
 		let reason = match byte {
 			1 => DisconnectionReason::Requested,

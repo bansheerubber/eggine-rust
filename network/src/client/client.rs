@@ -2,11 +2,12 @@ use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
-use crate::MAX_PACKET_SIZE;
+use crate::error::{ BoxedNetworkError, NetworkError, };
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
-use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, self, };
+use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
+use crate::MAX_PACKET_SIZE;
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -17,7 +18,7 @@ pub enum ClientError {
 	/// Emitted if we were disconnected by the server. Fatal.
 	Disconnected(DisconnectionReason),
 	/// Emitted if we encounter a program with decoding received data.
-	EncodeDecodeError(network_stream::Error),
+	EncodeDecodeError(BoxedNetworkError),
 	/// Received an invalid handshake. We likely talked to a random UDP server. Fatal.
 	Handshake,
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -48,8 +49,14 @@ impl ClientError {
 	}
 }
 
-impl From<network_stream::Error> for ClientError {
-	fn from(error: network_stream::Error) -> Self {
+impl NetworkError for ClientError {
+	fn as_any(&self) -> &dyn std::any::Any {
+		self
+	}
+}
+
+impl From<BoxedNetworkError> for ClientError {
+	fn from(error: BoxedNetworkError) -> Self {
 		ClientError::EncodeDecodeError(error)
 	}
 }
