@@ -58,34 +58,38 @@ pub struct Packet {
 	/// Packet contents.
 	payload: Payload,
 	/// The sequence number identifying this packet on the connection that sent it.
-	sequence_number: u32,
+	sequence: u32,
 }
 
 #[derive(Debug, Default)]
-pub struct HandledResult {
-	acknowledged_sequence_numbers: Vec<u32>,
-	dropped_sequence_numbers: Vec<u32>,
-	remote_sequence_number: u32,
-	new_highest_acknowledged_sequence: u32,
-	new_acknowledge_mask: AcknowledgeMask,
+pub(crate) struct HandledResult {
+	pub(crate) acknowledged_sequences: Vec<u32>,
+	pub(crate) dropped_sequences: Vec<u32>,
+	pub(crate) remote_sequence: u32,
+	pub(crate) new_highest_acknowledged_sequence: u32,
+	pub(crate) new_acknowledge_mask: AcknowledgeMask,
 }
 
 impl Packet {
-	pub fn new(sequence_number: u32, highest_acknowledged_sequence: u32) -> Self {
+	pub fn new(sequence: u32, highest_acknowledged_sequence: u32) -> Self {
 		Packet {
 			acknowledge_mask: AcknowledgeMask::default(),
 			extensions: HashSet::new(),
 			highest_acknowledged_sequence,
-			sequence_number,
+			sequence,
 			payload: Payload::default(),
 		}
 	}
 
-	/// Resets the payload and configures the sequence numbers/acknowledgement mask for the next send.
-	pub fn next(&mut self, last_sequence_number: u32) {
-		// TODO acknowledge mask
-		self.sequence_number += 1; // TODO overflow
-		self.highest_acknowledged_sequence = last_sequence_number;
+	/// Prepares the sequence numbers/acknowledgement mask for the next send
+	pub fn prepare(&mut self, acknowledge_mask: AcknowledgeMask, sequence: u32, last_sequence: u32) {
+		self.acknowledge_mask = acknowledge_mask;
+		self.sequence = sequence;
+		self.highest_acknowledged_sequence = last_sequence;
+	}
+
+	/// Resets the payload.
+	pub fn next(&mut self) {
 		self.payload = Payload::default();
 	}
 
@@ -100,7 +104,7 @@ impl Packet {
 	/// Calculate what the local network stack should do next based on a packet received from the remote machine. The
 	/// `self` packet is assumed to be a packet from the remote machine, and this function is fed state from the local
 	/// machine in order to correctly calculate what the local machine needs to do next.
-	pub fn handle_sequence_numbers(
+	pub(crate) fn handle_sequences(
 		&self,
 		local_highest_acknowledge_received: Option<u32>,
 		local_last_sequence_received: Option<u32>,
@@ -108,29 +112,44 @@ impl Packet {
 	) -> HandledResult {
 		let mut result = HandledResult::default();
 
-		let mut new_acknowledge_mask = local_acknowledge_mask;
+		result.new_acknowledge_mask = local_acknowledge_mask;
 
 		let remote_acknowledge_mask = &self.acknowledge_mask;
-		let remote_sequence_number = self.sequence_number;
+		result.remote_sequence = self.sequence;
 
 		// the sequence the remote acknowledged last
-		let remote_highest_acknowledge_received = self.highest_acknowledged_sequence;
+		result.new_highest_acknowledged_sequence = self.highest_acknowledged_sequence;
+
+		println!(
+			"packet info: {} {} {:?}",
+			result.remote_sequence,
+			result.new_highest_acknowledged_sequence,
+			remote_acknowledge_mask
+		);
+		println!(
+			"our info: {:?} {:?} {:?}",
+			local_last_sequence_received,
+			local_highest_acknowledge_received,
+			local_acknowledge_mask
+		);
 
 		// update the acknowledge mask
 		if let Some(local_last_sequence_received) = local_last_sequence_received {
-			new_acknowledge_mask.shift(remote_sequence_number - local_last_sequence_received);
+			result.new_acknowledge_mask.shift(result.remote_sequence - local_last_sequence_received);
 		}
 
-		new_acknowledge_mask.set_first();
+		result.new_acknowledge_mask.set_first();
 
 		// check remote acknowledge mask for packets that the remote may have not received
 		if let Some(local_highest_acknowledge_received) = local_highest_acknowledge_received {
-			for i in (local_highest_acknowledge_received + 1)..=remote_highest_acknowledge_received {
-				let tested = remote_acknowledge_mask.test(remote_highest_acknowledge_received - i);
+			for i in (local_highest_acknowledge_received + 1)..=result.new_highest_acknowledged_sequence {
+				let tested = remote_acknowledge_mask.test(result.new_highest_acknowledged_sequence - i);
 				if tested.is_some() && tested.unwrap() == true {
-					result.acknowledged_sequence_numbers.push(i);
+					result.acknowledged_sequences.push(i);
+					println!("client acknowledged: {}", i);
 				} else {
-					result.dropped_sequence_numbers.push(i);
+					result.dropped_sequences.push(i);
+					println!("client dropped: {}", i);
 				}
 			}
 		}
@@ -163,7 +182,7 @@ where
 	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
 {
 	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
-		stream.write_u32(self.sequence_number)?;
+		stream.write_u32(self.sequence)?;
 		stream.write_u32(self.highest_acknowledged_sequence)?;
 
 		stream.encode(&self.acknowledge_mask)?;
@@ -219,11 +238,11 @@ where
 			acknowledge_mask: AcknowledgeMask::default(),
 			extensions: HashSet::new(),
 			highest_acknowledged_sequence: 0,
-			sequence_number: 0,
+			sequence: 0,
 			payload: Payload::default(),
 		};
 
-		packet.sequence_number = stream.read_u32()?.0;
+		packet.sequence = stream.read_u32()?.0;
 		packet.highest_acknowledged_sequence = stream.read_u32()?.0;
 
 		packet.acknowledge_mask = stream.decode::<AcknowledgeMask>()?.0;

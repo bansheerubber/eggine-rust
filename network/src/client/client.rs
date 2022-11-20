@@ -6,7 +6,7 @@ use crate::error::{ BoxedNetworkError, NetworkError, };
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
-use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
+use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
 #[derive(Debug)]
@@ -62,13 +62,20 @@ impl From<ClientError> for BoxedNetworkError {
 /// of information. The two communicate using a packet format built upon the streams library.
 #[derive(Debug)]
 pub struct Client {
+	/// Acknowledge mask for this client.
+	acknowledge_mask: AcknowledgeMask,
 	address: SocketAddr,
 	/// True if the server accepted our handshake and we're in a state where we are ready to exchange packets.
 	connection_initialized: bool,
 	/// The handshake we send to the server upon connection initialization.
 	handshake: Handshake,
+	/// The highest sequence number that the server said it had acknowledged. This is initialized as `None`, since the
+	/// server starts off having acknowledged nothing.
+	highest_acknowledge_received: Option<u32>,
 	/// The last time we received data from the server.
 	last_activity: Instant,
+	/// The last sequence we received from the server.
+	last_sequence_received: Option<u32>,
 	log: Log,
 	/// We place all outgoing data into this packet.
 	outgoing_packet: Packet,
@@ -78,6 +85,8 @@ pub struct Client {
 	receive_stream: NetworkReadStream,
 	/// The stream we use to export data so we can sent it to a client.
 	send_stream: NetworkWriteStream,
+	/// The client-side sequence number. Client -> server packets will be identified using this sequence number.
+	sequence: u32,
 	/// The socket the client is connected to the server on.
 	socket: UdpSocket,
 }
@@ -98,6 +107,7 @@ impl Client {
 		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
 
 		Ok(Client {
+			acknowledge_mask: AcknowledgeMask::default(),
 			address: socket.local_addr().unwrap(),
 			connection_initialized: false,
 			handshake: Handshake {
@@ -110,7 +120,9 @@ impl Client {
 					revision: 0,
 				}
 			},
+			highest_acknowledge_received: None,
 			last_activity: Instant::now(),
+			last_sequence_received: None,
 			log: Log::default(),
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
@@ -120,6 +132,7 @@ impl Client {
 			receive_buffer: [0; MAX_PACKET_SIZE],
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
+			sequence: 0,
 			socket,
 		})
 	}
@@ -128,16 +141,77 @@ impl Client {
 	/// out our time-to-live.
 	pub fn tick(&mut self) -> Result<(), BoxedNetworkError> {
 		// send the packet we worked on constructing to the server, then reset it
-		if self.outgoing_packet.get_sub_payloads().len() > 0 {
+		if self.outgoing_packet.get_sub_payloads().len() > 0 && self.is_connection_valid() {
+			self.sequence += 1;
+			self.outgoing_packet.prepare(
+				self.acknowledge_mask,
+				self.sequence,
+				self.last_sequence_received.unwrap_or(0)
+			);
+
 			self.send_stream.encode(&self.outgoing_packet)?;
 
 			let bytes = self.send_stream.export()?;
 			self.send_bytes(&bytes)?;
 
-			self.outgoing_packet.next(0); // TODO last sequence number
+			self.outgoing_packet.next();
 		}
 
-		// read a packet from the server
+		loop {
+			match self.recv() {
+				Ok(_) => {},
+				Err(error) => {
+					if let Some(error2) = error.as_any().downcast_ref::<ClientError>() {
+						if error2.is_fatal() {
+							return Err(error);
+						} else if let ClientError::WouldBlock = error2 {
+							break;
+						}
+					} else {
+						return Err(error);
+					}
+				},
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Initializes a connection with the specified server. Done by sending a handshake, and receiving a sequence ID pair
+	/// used for exchanging packets.
+	pub fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), BoxedNetworkError> {
+		if let Err(error) = self.socket.connect(address) {
+			return Err(ClientError::Connect(error).into());
+		}
+
+		self.log.print(LogLevel::Info, format!("establishing connection to {:?}...", self.socket.peer_addr().unwrap()), 0);
+		self.send_stream.encode(&self.handshake)?;
+		let bytes = self.send_stream.export()?;
+
+		self.send_bytes(&bytes)?;
+
+		Ok(())
+	}
+
+	pub fn is_connection_valid(&self) -> bool {
+		self.connection_initialized
+	}
+
+	/// Ping the server.
+	pub fn ping(&mut self) -> Result<(), BoxedNetworkError> {
+		if !self.is_connection_valid() {
+			return Ok(());
+		}
+
+		self.outgoing_packet.add_sub_payload(SubPayload::Ping(
+			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+		));
+
+		Ok(())
+	}
+
+	/// Attempt to receive data from the socket.
+	fn recv(&mut self) -> Result<(), BoxedNetworkError> {
 		let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
 			Ok(a) => a,
 			Err(error) => {
@@ -174,6 +248,10 @@ impl Client {
 				return Err(ClientError::Handshake.into());
 			}
 
+			// set our sequence numbers
+			self.last_sequence_received = Some(handshake.sequences.0);
+			self.sequence = handshake.sequences.1;
+
 			self.log.print(LogLevel::Info, format!("connection established"), 0);
 			self.connection_initialized = true;
 
@@ -182,6 +260,17 @@ impl Client {
 
 		// figure out what to do with the packet we just got
 		let packet = self.receive_stream.decode::<Packet>()?.0;
+
+		let result = packet.handle_sequences(
+			self.highest_acknowledge_received,
+			self.last_sequence_received,
+			self.acknowledge_mask
+		);
+
+		self.acknowledge_mask = result.new_acknowledge_mask;
+		self.last_sequence_received = Some(result.remote_sequence);
+		self.highest_acknowledge_received = Some(result.new_highest_acknowledged_sequence);
+
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
 				SubPayload::Disconnect(reason) => {
@@ -203,26 +292,6 @@ impl Client {
 		}
 
 		Ok(())
-	}
-
-	/// Initializes a connection with the specified server. Done by sending a handshake, and receiving a sequence ID pair
-	/// used for exchanging packets.
-	pub fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), BoxedNetworkError> {
-		if let Err(error) = self.socket.connect(address) {
-			return Err(ClientError::Connect(error).into());
-		}
-
-		self.log.print(LogLevel::Info, format!("establishing connection to {:?}...", self.socket.peer_addr().unwrap()), 0);
-		self.send_stream.encode(&self.handshake)?;
-		let bytes = self.send_stream.export()?;
-
-		self.send_bytes(&bytes)?;
-
-		Ok(())
-	}
-
-	pub fn is_connection_valid(&self) -> bool {
-		self.connection_initialized
 	}
 
 	/// Send a byte vector to the server.

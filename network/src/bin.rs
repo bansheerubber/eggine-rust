@@ -29,8 +29,16 @@ fn main() {
 	} else {
 		let mut client = Client::new("[::]:0").unwrap();
 		client.initialize_connection(last_argument).expect("Could not initialize connection to the server");
+		std::thread::sleep(std::time::Duration::from_secs(1));
+
+		let mut last_ping = std::time::Instant::now();
 
 		loop {
+			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
+				client.ping().unwrap();
+				last_ping = std::time::Instant::now();
+			}
+
 			if let Err(error) = client.tick() {
 				if let Some(error) = error.as_any().downcast_ref::<ClientError>() {
 					if error.is_fatal() {
@@ -40,6 +48,7 @@ fn main() {
 					panic!("{:?}", error);
 				}
 			}
+
 			std::thread::sleep(std::time::Duration::from_millis(1));
 		}
 	}

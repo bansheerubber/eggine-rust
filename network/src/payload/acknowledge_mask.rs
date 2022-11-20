@@ -44,7 +44,7 @@ impl AcknowledgeMask {
 
 	/// Tests a bit.
 	pub fn test(&self, bit: u32) -> Option<bool> {
-		if bit as usize > ACKNOWLEDGE_MASK_SIZE * 64 {
+		if bit as usize >= ACKNOWLEDGE_MASK_SIZE * 64 {
 			None
 		} else {
 			Some((self.mask[(bit / 64) as usize] & (1 << (bit % 64))) != 0)
@@ -56,7 +56,7 @@ impl Debug for AcknowledgeMask {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		// f.debug_struct("AcknowledgeMask").field("mask", &self.mask).finish()
 
-		f.write_str("Acknowledge mask: [")?;
+		f.write_char('[')?;
 		for i in (0..ACKNOWLEDGE_MASK_SIZE).rev() {
 			for bit in (0..64).rev() {
 				let character = if (self.mask[i] & (1 << bit)) != 0 {

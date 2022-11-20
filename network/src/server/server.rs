@@ -127,8 +127,15 @@ impl Server {
 			let sources = self.client_table.client_iter().map(|(source, _)| *source).collect::<Vec<SocketAddr>>();
 			let mut reset_sources = Vec::new();
 			for source in sources {
-				let client = self.client_table.get_client(&source)?;
+				let client = self.client_table.get_client_mut(&source)?;
 				if client.outgoing_packet.get_sub_payloads().len() > 0 { // only send packets if we have information to send
+					client.sequence += 1;
+					client.outgoing_packet.prepare(
+						client.acknowledge_mask,
+						client.sequence,
+						client.last_sequence_received.unwrap_or(0)
+					);
+
 					self.send_stream.encode(&client.outgoing_packet)?;
 
 					let bytes = self.send_stream.export()?;
@@ -140,7 +147,7 @@ impl Server {
 			// reset client outgoing packets so we can write new information into them
 			for source in reset_sources {
 				let client = self.client_table.get_client_mut(&source)?;
-				client.outgoing_packet.next(0); // TODO last sequence number
+				client.outgoing_packet.next();
 			}
 		}
 
@@ -227,12 +234,17 @@ impl Server {
 			self.decode_packet(source, buffer)?;
 		} else {
 			self.initialize_client(source, &address, buffer)?;
-
-			let client = self.client_table.get_client_mut(&source)?;
-			client.outgoing_packet.add_sub_payload(SubPayload::Ping(
-				SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
-			));
 		}
+
+		Ok(())
+	}
+
+	// Ping a client at the specified address.
+	pub fn ping(&mut self, source: SocketAddr) -> Result<(), BoxedNetworkError> {
+		let client = self.client_table.get_client_mut(&source)?;
+		client.outgoing_packet.add_sub_payload(SubPayload::Ping(
+			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+		));
 
 		Ok(())
 	}
@@ -254,6 +266,16 @@ impl Server {
 			},
 		};
 
+		let result = packet.handle_sequences(
+			client.highest_acknowledge_received,
+			client.last_sequence_received,
+			client.acknowledge_mask
+		);
+
+		client.acknowledge_mask = result.new_acknowledge_mask;
+		client.last_sequence_received = Some(result.remote_sequence);
+		client.highest_acknowledge_received = Some(result.new_highest_acknowledged_sequence);
+
 		// handle sub-payloads
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
@@ -264,6 +286,11 @@ impl Server {
 				},
 				SubPayload::Ping(time) => {
 					self.log.print(LogLevel::Info, format!("got ping with time {}", time), 0);
+
+					// send a pong to the client
+					client.outgoing_packet.add_sub_payload(SubPayload::Pong(
+						SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+					));
 				},
 				SubPayload::Pong(time) => {
 					self.log.print(
@@ -327,17 +354,21 @@ impl Server {
 		}
 
 		// we're home free, add the client to the client list
+		let sequence = 500;
+		let their_sequence = 1000;
 		self.log.print(LogLevel::Info, format!("established client connection successfully"), 1);
 		self.client_table.add_client(source, ClientConnection {
 			acknowledge_mask: AcknowledgeMask::default(),
 			address: source,
-			highest_acknowledge_received: None,
+			highest_acknowledge_received: Some(sequence),
 			last_activity: Instant::now(),
 			last_ping_time: Instant::now(),
 			last_sequence_received: None,
-			outgoing_packet: Packet::new(0, 0),
-			sequence: 0,
+			outgoing_packet: Packet::new(sequence, 0),
+			sequence,
 		});
+
+		self.handshake.sequences = (sequence, their_sequence);
 
 		// send our handshake to the client
 		self.send_stream.encode(&self.handshake)?;
