@@ -6,7 +6,7 @@ use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
 use crate::error::{ BoxedNetworkError, NetworkError, };
 
-use super::{ Payload, SubPayload, };
+use super::{ AcknowledgeMask, Payload, SubPayload, };
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum PacketError {
@@ -50,21 +50,30 @@ impl TryInto<PacketExtension> for usize {
 #[derive(Debug)]
 pub struct Packet {
 	/// Used to determine which out of the last 128 sent packets were received correctly.
-	pub acknowledge_mask: [u64; 2],
+	acknowledge_mask: AcknowledgeMask,
 	/// The extensions enabled on the packet.
 	extensions: HashSet<PacketExtension>,
+	/// The highest acknowledged sequence
+	highest_acknowledged_sequence: u32,
 	/// Packet contents.
 	payload: Payload,
-	/// The highest acknowledged sequence we received from someone.
-	pub highest_acknowledged_sequence: u32,
 	/// The sequence number identifying this packet on the connection that sent it.
-	pub sequence_number: u32,
+	sequence_number: u32,
+}
+
+#[derive(Debug, Default)]
+pub struct HandledResult {
+	acknowledged_sequence_numbers: Vec<u32>,
+	dropped_sequence_numbers: Vec<u32>,
+	remote_sequence_number: u32,
+	new_highest_acknowledged_sequence: u32,
+	new_acknowledge_mask: AcknowledgeMask,
 }
 
 impl Packet {
 	pub fn new(sequence_number: u32, highest_acknowledged_sequence: u32) -> Self {
 		Packet {
-			acknowledge_mask: [0; 2],
+			acknowledge_mask: AcknowledgeMask::default(),
 			extensions: HashSet::new(),
 			highest_acknowledged_sequence,
 			sequence_number,
@@ -86,6 +95,47 @@ impl Packet {
 
 	pub fn get_sub_payloads(&self) -> &Vec<SubPayload> {
 		self.payload.get_all()
+	}
+
+	/// Calculate what the local network stack should do next based on a packet received from the remote machine. The
+	/// `self` packet is assumed to be a packet from the remote machine, and this function is fed state from the local
+	/// machine in order to correctly calculate what the local machine needs to do next.
+	pub fn handle_sequence_numbers(
+		&self,
+		local_highest_acknowledge_received: Option<u32>,
+		local_last_sequence_received: Option<u32>,
+		local_acknowledge_mask: AcknowledgeMask
+	) -> HandledResult {
+		let mut result = HandledResult::default();
+
+		let mut new_acknowledge_mask = local_acknowledge_mask;
+
+		let remote_acknowledge_mask = &self.acknowledge_mask;
+		let remote_sequence_number = self.sequence_number;
+
+		// the sequence the remote acknowledged last
+		let remote_highest_acknowledge_received = self.highest_acknowledged_sequence;
+
+		// update the acknowledge mask
+		if let Some(local_last_sequence_received) = local_last_sequence_received {
+			new_acknowledge_mask.shift(remote_sequence_number - local_last_sequence_received);
+		}
+
+		new_acknowledge_mask.set_first();
+
+		// check remote acknowledge mask for packets that the remote may have not received
+		if let Some(local_highest_acknowledge_received) = local_highest_acknowledge_received {
+			for i in (local_highest_acknowledge_received + 1)..=remote_highest_acknowledge_received {
+				let tested = remote_acknowledge_mask.test(remote_highest_acknowledge_received - i);
+				if tested.is_some() && tested.unwrap() == true {
+					result.acknowledged_sequence_numbers.push(i);
+				} else {
+					result.dropped_sequence_numbers.push(i);
+				}
+			}
+		}
+
+		return result;
 	}
 }
 
@@ -116,9 +166,7 @@ where
 		stream.write_u32(self.sequence_number)?;
 		stream.write_u32(self.highest_acknowledged_sequence)?;
 
-		for part in self.acknowledge_mask {
-			stream.write_u64(part)?;
-		}
+		stream.encode(&self.acknowledge_mask)?;
 
 		for number in encode_extensions(&self.extensions) {
 			stream.write_u32(number)?;
@@ -168,7 +216,7 @@ where
 {
 	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
 		let mut packet = Packet {
-			acknowledge_mask: [0; 2],
+			acknowledge_mask: AcknowledgeMask::default(),
 			extensions: HashSet::new(),
 			highest_acknowledged_sequence: 0,
 			sequence_number: 0,
@@ -178,9 +226,7 @@ where
 		packet.sequence_number = stream.read_u32()?.0;
 		packet.highest_acknowledged_sequence = stream.read_u32()?.0;
 
-		for i in 0..packet.acknowledge_mask.len() {
-			packet.acknowledge_mask[i] = stream.read_u64()?.0;
-		}
+		packet.acknowledge_mask = stream.decode::<AcknowledgeMask>()?.0;
 
 		packet.extensions = decode_extensions(stream)?;
 

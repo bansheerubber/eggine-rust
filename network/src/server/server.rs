@@ -6,7 +6,7 @@ use crate::error::{ BoxedNetworkError, NetworkError, };
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
-use crate::payload::{ DisconnectionReason, Packet, SubPayload, };
+use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
 use super::{ ClientConnection, ClientTable, };
@@ -254,6 +254,7 @@ impl Server {
 			},
 		};
 
+		// handle sub-payloads
 		for sub_payload in packet.get_sub_payloads() {
 			match sub_payload {
 				SubPayload::Disconnect(reason) => {
@@ -328,10 +329,14 @@ impl Server {
 		// we're home free, add the client to the client list
 		self.log.print(LogLevel::Info, format!("established client connection successfully"), 1);
 		self.client_table.add_client(source, ClientConnection {
+			acknowledge_mask: AcknowledgeMask::default(),
 			address: source,
+			highest_acknowledge_received: None,
 			last_activity: Instant::now(),
 			last_ping_time: Instant::now(),
+			last_sequence_received: None,
 			outgoing_packet: Packet::new(0, 0),
+			sequence: 0,
 		});
 
 		// send our handshake to the client
