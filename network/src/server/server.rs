@@ -1,4 +1,6 @@
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
+use std::sync::{ Arc, Mutex, };
+use std::thread;
 use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
@@ -9,11 +11,12 @@ use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
-use super::{ ClientConnection, ClientTable, };
+use super::ntp_server::NtpServerWhitelist;
+use super::{ ClientConnection, ClientTable, NtpServer, };
 
 #[derive(Debug)]
 pub enum ServerError {
-	/// Emitted ff we receive data from a blacklisted IP. Non-fatal.
+	/// Emitted if we receive data from a blacklisted IP. Non-fatal.
 	Blacklisted(SocketAddr),
 	/// Emitted if we encountered a problem during client connection creation. Non-fatal.
 	ClientCreation,
@@ -73,8 +76,9 @@ pub struct Server {
 	/// Handshake we compare client handshakes against.
 	handshake: Handshake,
 	log: Log,
+	ntp_server_whitelist: Arc<Mutex<NtpServerWhitelist>>,
 	/// The buffer we write into when we receive data.
-	receive_buffer: [u8; MAX_PACKET_SIZE],
+	receive_buffer: [u8; MAX_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
 	/// The stream we use to export data so we can sent it to a client.
@@ -93,6 +97,15 @@ impl Server {
 
 		socket.set_nonblocking(true).unwrap();
 
+		let mut address = socket.local_addr().unwrap();
+		address.set_port(address.port() + 1);
+
+		let whitelist = Arc::new(Mutex::new(NtpServerWhitelist::default()));
+		let mut ntp_server = NtpServer::new(address, whitelist.clone())?;
+		thread::spawn(move || {
+			ntp_server.recv_loop();
+		});
+
 		Ok(Server {
 			address: socket.local_addr().unwrap(),
 			client_table: ClientTable::default(),
@@ -107,14 +120,15 @@ impl Server {
 				},
 			},
 			log: Log::default(),
+			ntp_server_whitelist: whitelist,
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
 			// `0..MAX_PACKET_SIZE`.
-			receive_buffer: [0; MAX_PACKET_SIZE],
+			receive_buffer: [0; MAX_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
-			socket,
 			send_stream: NetworkWriteStream::new(),
+			socket,
 		})
 	}
 
@@ -368,6 +382,9 @@ impl Server {
 			sequence,
 		});
 
+		// add the client to the NTP server whitelist so they can get accurate times
+		self.ntp_server_whitelist.lock().unwrap().list.insert(address.clone());
+
 		self.handshake.sequences = (sequence, their_sequence);
 
 		// send our handshake to the client
@@ -388,7 +405,13 @@ impl Server {
 
 		self.log.print(LogLevel::Info, format!("disconnected client with reason {:?}", reason), 0);
 
-		self.client_table.remove_client(&source); // remove the client before we have a chance of erroring out during the send
+		// remove the client to the NTP server whitelist
+		if let SocketAddr::V6(address) = source {
+			self.ntp_server_whitelist.lock().unwrap().list.insert(address.ip().clone());
+		}
+
+		// remove the client before we have a chance of erroring out during the send
+		self.client_table.remove_client(&source);
 
 		let bytes = self.send_stream.export()?;
 		self.send_bytes_to(source, &bytes)?;

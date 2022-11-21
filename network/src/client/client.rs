@@ -80,7 +80,7 @@ pub struct Client {
 	/// We place all outgoing data into this packet.
 	outgoing_packet: Packet,
 	/// The buffer we write into when we receive data.
-	receive_buffer: [u8; MAX_PACKET_SIZE],
+	receive_buffer: [u8; MAX_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
 	/// The stream we use to export data so we can sent it to a client.
@@ -102,9 +102,6 @@ impl Client {
 		if let Err(error) = socket.set_nonblocking(true) {
 			return Err(ClientError::Create(error).into());
 		}
-
-		let mut receive_buffer = Vec::new();
-		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
 
 		Ok(Client {
 			acknowledge_mask: AcknowledgeMask::default(),
@@ -129,7 +126,7 @@ impl Client {
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
 			// `0..MAX_PACKET_SIZE`.
-			receive_buffer: [0; MAX_PACKET_SIZE],
+			receive_buffer: [0; MAX_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
 			sequence: 0,
