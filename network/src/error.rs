@@ -3,11 +3,12 @@ use std::fmt::Debug;
 
 pub trait NetworkError {
 	fn as_any(&self) -> &dyn Any;
+	fn as_debug(&self) -> &dyn Debug;
 }
 
 impl Debug for Box<dyn NetworkError> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let casted = self.as_any().downcast_ref::<Box<dyn Debug>>();
+		let casted = self.as_debug();
 		casted.fmt(f)
 	}
 }

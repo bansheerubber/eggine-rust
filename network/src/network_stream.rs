@@ -28,10 +28,18 @@ impl NetworkError for NetworkStreamError {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
+		self
+	}
 }
 
 impl NetworkError for ReadStringSafeError {
 	fn as_any(&self) -> &dyn Any {
+		self
+	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
 		self
 	}
 }

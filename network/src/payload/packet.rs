@@ -17,6 +17,10 @@ impl NetworkError for PacketError {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
+		self
+	}
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]

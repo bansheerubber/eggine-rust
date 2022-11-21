@@ -58,6 +58,10 @@ impl NetworkError for ServerError {
 	fn as_any(&self) -> &dyn std::any::Any {
 		self
 	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
+		self
+	}
 }
 
 impl From<ServerError> for BoxedNetworkError {
