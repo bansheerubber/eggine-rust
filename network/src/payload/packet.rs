@@ -21,7 +21,7 @@ impl NetworkError for PacketError {
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum PacketExtension {
-	MegaPacket = 0,
+	Reserved = 0,
 }
 
 /// The amount of extensions there are. There can be up to `ceil(EXTENSIONS_COUNT / 32)` extension `u32`s in a packet
@@ -39,7 +39,7 @@ impl TryInto<PacketExtension> for usize {
 
 	fn try_into(self) -> Result<PacketExtension, Self::Error> {
 		match self {
-			0 => Ok(PacketExtension::MegaPacket),
+			0 => Ok(PacketExtension::Reserved),
 			_ => Err(PacketExtensionError::InvalidConversion),
 		}
 	}

@@ -26,7 +26,7 @@ pub enum NetworkStreamError {
 
 impl NetworkError for NetworkStreamError {
 	fn as_any(&self) -> &dyn Any {
-		todo!()
+		self
 	}
 }
 
