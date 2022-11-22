@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::sync::{ Arc, Mutex, };
-use std::time::{ SystemTime, UNIX_EPOCH, };
+use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::ReadStream;
 
 use crate::error::NetworkStreamError;
@@ -9,7 +9,7 @@ use crate::log::{ Log, LogLevel, };
 use crate::network_stream::NetworkReadStream;
 use crate::payload::NtpClientPacket;
 
-pub const MAX_NTP_PACKET_SIZE: usize = 32;
+pub const MAX_NTP_PACKET_SIZE: usize = 40;
 pub const NTP_MAGIC_NUMBER: &str = "EGGINENTP";
 
 #[derive(Debug)]
@@ -68,6 +68,8 @@ pub struct NtpServer {
 	address_whitelist: Arc<Mutex<NtpServerWhitelist>>,
 	expected_client_packet: NtpClientPacket,
 	log: Log,
+	/// Amount of time it takes to read system time, in nanoseconds.
+	precision: u64,
 	/// The buffer we write into when we receive data.
 	receive_buffer: [u8; MAX_NTP_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
@@ -84,12 +86,25 @@ impl NtpServer {
 			Err(error) => return Err(NtpServerError::Create(error)),
 		};
 
+		// benchmark precision
+		const BENCHMARK_TIMES: u128 = 10000;
+		let mut total = 0;
+		for _ in 0..BENCHMARK_TIMES {
+			let start = Instant::now();
+			#[allow(unused_must_use)] {
+				SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+			}
+
+			total += (Instant::now() - start).as_nanos();
+		}
+
 		Ok(NtpServer {
 			address: socket.local_addr().unwrap(),
 			address_whitelist,
 			expected_client_packet: NtpClientPacket {
 				magic_number: String::from(NTP_MAGIC_NUMBER),
 			},
+			precision: (total / BENCHMARK_TIMES) as u64,
 			log: Log::default(),
 			receive_buffer: [0; MAX_NTP_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
@@ -153,7 +168,7 @@ impl NtpServer {
 		}
 
 		// send the server time back
-		let mut buffer: [u8; 32] = [0; 32];
+		let mut buffer: [u8; 40] = [0; 40];
 		let send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
 
 		// we need to send the times as quick as possible since the longer we take, the more inaccurate the `send_time` is
@@ -192,6 +207,16 @@ impl NtpServer {
 		buffer[29] = ((send_time >> 104) & 0xFF) as u8;
 		buffer[30] = ((send_time >> 112) & 0xFF) as u8;
 		buffer[31] = ((send_time >> 120) & 0xFF) as u8;
+
+		// send precision
+		buffer[32] = (self.precision & 0xFF) as u8;
+		buffer[33] = ((self.precision >> 8) & 0xFF) as u8;
+		buffer[34] = ((self.precision >> 16) & 0xFF) as u8;
+		buffer[35] = ((self.precision >> 24) & 0xFF) as u8;
+		buffer[36] = ((self.precision >> 32) & 0xFF) as u8;
+		buffer[37] = ((self.precision >> 40) & 0xFF) as u8;
+		buffer[38] = ((self.precision >> 48) & 0xFF) as u8;
+		buffer[39] = ((self.precision >> 56) & 0xFF) as u8;
 
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
 		if let Err(error) = self.socket.send_to(&buffer, source) {

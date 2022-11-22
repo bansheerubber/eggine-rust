@@ -35,6 +35,7 @@ where
 
 #[derive(Debug)]
 pub struct NtpServerPacket {
+	pub precision: u64,
 	pub receive_time: i128,
 	pub send_time: i128,
 }
@@ -48,7 +49,9 @@ where
 		stream.write_u64((self.receive_time & 0xFFFF_FFFF_FFFF_FFFF) as u64)?;
 
 		stream.write_u64((self.send_time >> 64) as u64)?;
-		stream.write_u64((self.send_time & 0xFFFF_FFFF_FFFF_FFFF) as u64)
+		stream.write_u64((self.send_time & 0xFFFF_FFFF_FFFF_FFFF) as u64)?;
+
+		stream.write_u64(self.precision)
 	}
 }
 
@@ -65,7 +68,10 @@ where
 		let (upper_half, position) = stream.read_u64()?;
 		let send_time = ((upper_half as u128) << 64 | lower_half as u128) as i128;
 
+		let (precision, _) = stream.read_u64()?;
+
 		Ok((NtpServerPacket {
+			precision,
 			receive_time,
 			send_time,
 		}, position))

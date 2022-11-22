@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ SystemTime, UNIX_EPOCH, Instant, };
+use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
 use crate::error::NetworkStreamError;
@@ -90,20 +90,27 @@ impl Into<u128> for CorrectedTime {
 #[derive(Debug)]
 pub struct TimesShiftRegister {
 	/// How long it takes to measure system time, in nanoseconds.
-	precision: i128,
+	precision: u64,
 	max_amount: usize,
 	times: VecDeque<Times>,
 }
 
 impl TimesShiftRegister {
 	pub fn new(max_amount: usize) -> Self {
-		let start = Instant::now();
-		#[allow(unused_must_use)] {
-			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+		// benchmark precision
+		const BENCHMARK_TIMES: u128 = 1000;
+		let mut total = 0;
+		for _ in 0..BENCHMARK_TIMES {
+			let start = Instant::now();
+			#[allow(unused_must_use)] {
+				SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+			}
+
+			total += (Instant::now() - start).as_nanos();
 		}
 
 		TimesShiftRegister {
-			precision: (Instant::now() - start).as_nanos() as i128,
+			precision: (total / BENCHMARK_TIMES) as u64,
 			max_amount,
 			times: VecDeque::new(),
 		}
@@ -157,7 +164,7 @@ impl TimesShiftRegister {
 
 		// sum of client and server precisions, sum grows at 15 microseconds per second
 		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
-		let epsilon = self.precision as f64 / 1000.0 + self.precision as f64 / 1000.0
+		let epsilon = self.precision as f64 / 1000.0 + best.server_precision as f64 / 1000.0
 			+ 15.0 * (current_time - best.client_send_time) as f64 / 1_000_000.0;
 
 		Some(epsilon + best.delay() as f64 / 2.0)
@@ -172,6 +179,8 @@ pub struct Times {
 	client_receive_time: i128,
 	/// The time we sent our time request to the server.
 	client_send_time: i128,
+	/// The precision of the server.
+	server_precision: u64,
 	/// The time the server received our time request.
 	server_receive_time: i128,
 	/// The time the server sent its response to us.
@@ -301,6 +310,7 @@ impl NtpClient {
 			self.shift_register.add_time(Times {
 				client_receive_time: recv_time.system_time(),
 				client_send_time: send_time.system_time(),
+				server_precision: packet.precision,
 				server_receive_time: packet.receive_time,
 				server_send_time: packet.send_time,
 			});
