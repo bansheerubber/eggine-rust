@@ -2,7 +2,7 @@ use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::time::{ SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
-use crate::error::{ BoxedNetworkError, NetworkError, };
+use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ NtpClientPacket, NtpServerPacket, };
@@ -15,6 +15,8 @@ pub enum NtpClientError {
 	Create(std::io::Error),
 	/// Emitted if we encountered a problem connecting to a server socket. Fatal.
 	Connect(std::io::Error),
+	/// Emitted if we encountered a problem with network streams.
+	NetworkStreamError(NetworkStreamError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig,
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
@@ -29,6 +31,7 @@ impl NtpClientError {
 		match *self {
 			NtpClientError::Create(_) => true,
 			NtpClientError::Connect(_) => true,
+			NtpClientError::NetworkStreamError(_) => false,
 			NtpClientError::PacketTooBig => false,
 			NtpClientError::Receive(_) => true,
 			NtpClientError::Send(_) => true,
@@ -36,19 +39,9 @@ impl NtpClientError {
 	}
 }
 
-impl NetworkError for NtpClientError {
-	fn as_any(&self) -> &dyn std::any::Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
-		self
-	}
-}
-
-impl From<NtpClientError> for BoxedNetworkError {
-	fn from(error: NtpClientError) -> Self {
-		Box::new(error)
+impl From<NetworkStreamError> for NtpClientError {
+	fn from(error: NetworkStreamError) -> Self {
+		NtpClientError::NetworkStreamError(error)
 	}
 }
 
@@ -148,14 +141,14 @@ pub struct NtpClient {
 
 impl NtpClient {
 	/// Initialize the a client socket bound to the specified address.
-	pub fn new<T: ToSocketAddrs>(address: T, host_address: T) -> Result<Self, BoxedNetworkError> {
+	pub fn new<T: ToSocketAddrs>(address: T, host_address: T) -> Result<Self, NtpClientError> {
 		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
-			Err(error) => return Err(NtpClientError::Create(error).into()),
+			Err(error) => return Err(NtpClientError::Create(error)),
 		};
 
 		if let Err(error) = socket.connect(host_address) {
-			return Err(NtpClientError::Create(error).into());
+			return Err(NtpClientError::Create(error));
 		}
 
 		let mut receive_buffer = Vec::new();
@@ -181,7 +174,7 @@ impl NtpClient {
 		})
 	}
 
-	pub fn sync_time(&mut self) -> Result<(), BoxedNetworkError> {
+	pub fn sync_time(&mut self) -> Result<(), NtpClientError> {
 		// send the time request
 		let send_time;
 		{
@@ -194,7 +187,7 @@ impl NtpClient {
 			send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
 
 			if let Err(error) = self.socket.send(&self.send_stream.export()?) {
-				return Err(NtpClientError::Send(error).into());
+				return Err(NtpClientError::Send(error));
 			}
 		}
 
@@ -203,7 +196,7 @@ impl NtpClient {
 			let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
 				Ok(a) => a,
 				Err(error) => {
-					return Err(NtpClientError::Receive(error).into());
+					return Err(NtpClientError::Receive(error));
 				},
 			};
 
@@ -212,7 +205,7 @@ impl NtpClient {
 			// make sure what we just read is not too big to be an eggine packet
 			if read_bytes > MAX_PACKET_SIZE {
 				self.log.print(LogLevel::Error, format!("received too big of a packet"), 0);
-				return Err(NtpClientError::PacketTooBig.into());
+				return Err(NtpClientError::PacketTooBig);
 			}
 
 			// import raw bytes into the receive stream

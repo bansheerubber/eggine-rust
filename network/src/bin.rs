@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use network::client::ntp_client::NtpClient;
 use network::{ Client, Server, };
-use network::client::client::ClientError;
-use network::server::server::ServerError;
 
 fn main() {
 	let mut arguments = HashSet::new();
@@ -17,10 +14,8 @@ fn main() {
 		let mut server = Server::new(last_argument).unwrap();
 		loop {
 			if let Err(error) = server.tick() {
-				if let Some(error) = error.as_any().downcast_ref::<ServerError>() {
-					if error.is_fatal() {
-						panic!("{:?}", error);
-					}
+				if error.is_fatal() {
+					panic!("{:?}", error);
 				} else {
 					panic!("{:?}", error);
 				}
@@ -41,11 +36,7 @@ fn main() {
 			}
 
 			if let Err(error) = client.tick() {
-				if let Some(error) = error.as_any().downcast_ref::<ClientError>() {
-					if error.is_fatal() {
-						panic!("{:?}", error);
-					}
-				} else {
+				if error.is_fatal() {
 					panic!("{:?}", error);
 				}
 			}

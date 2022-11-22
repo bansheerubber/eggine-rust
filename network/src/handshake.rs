@@ -1,8 +1,22 @@
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStringSafeStream, U8WriteStream, U8ReadStream, };
 
-use crate::error::BoxedNetworkError;
-use crate::network_stream::NetworkStreamError;
+use crate::error::{ NetworkStreamError, NetworkStreamErrorTrait, };
+
+#[derive(Debug, Clone, Copy)]
+pub enum HandshakeError {
+	InvalidMagicNumber,
+}
+
+impl NetworkStreamErrorTrait for HandshakeError {
+	fn as_any(&self) -> &dyn std::any::Any {
+		self
+	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
+		self
+	}
+}
 
 /// The eggine's version. The version satisfies this regex: v([0-9]+).([0-9]+).([a-zA-Z_][a-zA-Z_0-9]+)#([0-9]+).
 /// 1st group: Major version. Intended for public consumption, and thus incremented arbitrarily.
@@ -22,11 +36,11 @@ pub struct Version {
 	pub revision: u16,
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for Version
+impl<T> Encode<u8, T, NetworkStreamError> for Version
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		stream.write_u16(self.major)?;
 		stream.write_u16(self.minor)?;
 		stream.write_u16(self.revision)?;
@@ -35,11 +49,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for Version
+impl<T> Decode<u8, T, NetworkStreamError> for Version
 where
-T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError>
+T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let (major, _) = stream.read_u16()?;
 		let (minor, _) = stream.read_u16()?;
 		let (revision, _) = stream.read_u16()?;
@@ -78,11 +92,11 @@ impl Handshake {
 	}
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for Handshake
+impl<T> Encode<u8, T, NetworkStreamError> for Handshake
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		// write magic number
 		stream.write_char('E')?;
 		stream.write_char('G')?;
@@ -106,11 +120,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for Handshake
+impl<T> Decode<u8, T, NetworkStreamError> for Handshake
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		// read the "EGGINE" magic number
 		let mut magic_number = String::new();
 		for _ in 0..6 {
@@ -118,7 +132,7 @@ where
 		}
 
 		if magic_number != "EGGINE" {
-			return Err(Box::new(NetworkStreamError::InvalidMagicNumber));
+			return Err(Box::new(HandshakeError::InvalidMagicNumber));
 		}
 
 		// read the sequence numbers

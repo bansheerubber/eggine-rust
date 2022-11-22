@@ -1,10 +1,24 @@
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
-use crate::error::BoxedNetworkError;
-use crate::network_stream::NetworkStreamError;
+use crate::error::{ NetworkStreamError, NetworkStreamErrorTrait, };
 
 use super::DisconnectionReason;
+
+#[derive(Debug, Clone, Copy)]
+pub enum PayloadError {
+	InvalidSubPayloadType,
+}
+
+impl NetworkStreamErrorTrait for PayloadError {
+	fn as_any(&self) -> &dyn std::any::Any {
+		self
+	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
+		self
+	}
+}
 
 /// Describes everything sent in a packet after the header. A payload is broken up into sub-payloads, which are
 /// identified using a `SubPayloadType`. Since multiple sub-payloads can be sent in each payload, multiple pieces of
@@ -26,11 +40,11 @@ impl Payload {
 	}
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for Payload
+impl<T> Encode<u8, T, NetworkStreamError> for Payload
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		for sub_payload in &self.sub_payloads {
 			stream.encode(sub_payload)?;
 		}
@@ -38,11 +52,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for Payload
+impl<T> Decode<u8, T, NetworkStreamError> for Payload
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError> + Endable<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError> + Endable<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let mut payload = Payload::default();
 		let mut position = 0;
 		while !stream.is_at_end()? {
@@ -73,11 +87,11 @@ pub enum SubPayloadType {
 	Disconnect			= 5,
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for SubPayloadType
+impl<T> Encode<u8, T, NetworkStreamError> for SubPayloadType
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		let value = match *self {
 			SubPayloadType::CreateStream => SubPayloadType::CreateStream as u8,
 			SubPayloadType::Disconnect => SubPayloadType::Disconnect as u8,
@@ -90,11 +104,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for SubPayloadType
+impl<T> Decode<u8, T, NetworkStreamError> for SubPayloadType
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let (byte, position) = stream.read_u8()?;
 		let sub_payload_type = match byte {
 			1 => SubPayloadType::Stream,
@@ -102,18 +116,18 @@ where
 			3 => SubPayloadType::Ping,
 			4 => SubPayloadType::Pong,
 			5 => SubPayloadType::Disconnect,
-			_ => return Err(Box::new(NetworkStreamError::InvalidSubPayloadType)),
+			_ => return Err(Box::new(PayloadError::InvalidSubPayloadType)),
 		};
 
 		Ok((sub_payload_type, position))
 	}
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for SubPayload
+impl<T> Encode<u8, T, NetworkStreamError> for SubPayload
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		match self {
 			SubPayload::Disconnect(reason) => {
 				stream.encode(&SubPayloadType::Disconnect)?;
@@ -132,11 +146,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for SubPayload
+impl<T> Decode<u8, T, NetworkStreamError> for SubPayload
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let (sub_payload_type, _) = stream.decode::<SubPayloadType>()?;
 		match sub_payload_type {
 			SubPayloadType::CreateStream => todo!(),

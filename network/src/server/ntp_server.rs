@@ -4,7 +4,7 @@ use std::sync::{ Arc, Mutex, };
 use std::time::{ SystemTime, UNIX_EPOCH, };
 use streams::ReadStream;
 
-use crate::error::{ BoxedNetworkError, NetworkError, };
+use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::NetworkReadStream;
 use crate::payload::NtpClientPacket;
@@ -20,6 +20,8 @@ pub enum NtpServerError {
 	InvalidIP,
 	/// Emitted if the client did not send us the expected magic number.
 	InvalidMagicNumber(SocketAddr),
+	/// Emitted if we encountered a problem with network streams.
+	NetworkStreamError(NetworkStreamError),
 	/// Emitted if we receive data from a non-whitelisted IP. Non-fatal.
 	NotWhitelisted(SocketAddr),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -37,6 +39,7 @@ impl NtpServerError {
 			NtpServerError::Create(_) => true,
 			NtpServerError::InvalidIP => false,
 			NtpServerError::InvalidMagicNumber(_) => false,
+			NtpServerError::NetworkStreamError(_) => false,
 			NtpServerError::NotWhitelisted(_) => false,
 			NtpServerError::PacketTooBig(_) => false,
 			NtpServerError::Receive(_) => true,
@@ -45,19 +48,9 @@ impl NtpServerError {
 	}
 }
 
-impl NetworkError for NtpServerError {
-	fn as_any(&self) -> &dyn std::any::Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
-		self
-	}
-}
-
-impl From<NtpServerError> for BoxedNetworkError {
-	fn from(error: NtpServerError) -> Self {
-		Box::new(error)
+impl From<NetworkStreamError> for NtpServerError {
+	fn from(error: NetworkStreamError) -> Self {
+		NtpServerError::NetworkStreamError(error)
 	}
 }
 
@@ -85,10 +78,10 @@ pub struct NtpServer {
 impl NtpServer {
 	pub fn new<T: ToSocketAddrs>(
 		address: T, address_whitelist: Arc<Mutex<NtpServerWhitelist>>
-	) -> Result<Self, BoxedNetworkError> {
+	) -> Result<Self, NtpServerError> {
 		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
-			Err(error) => return Err(NtpServerError::Create(error).into()),
+			Err(error) => return Err(NtpServerError::Create(error)),
 		};
 
 		Ok(NtpServer {
@@ -104,17 +97,13 @@ impl NtpServer {
 		})
 	}
 
-	pub fn recv_loop(&mut self) -> Result<(), BoxedNetworkError> {
+	pub fn recv_loop(&mut self) -> Result<(), NtpServerError> {
 		loop {
 			match self.recv() {
 				Ok(_) => {},
 				Err(error) => {
 					println!("{:?}", error);
-					if let Some(error2) = error.as_any().downcast_ref::<NtpServerError>() {
-						if error2.is_fatal() {
-							return Err(error);
-						}
-					} else {
+					if error.is_fatal() {
 						return Err(error);
 					}
 				},
@@ -122,11 +111,11 @@ impl NtpServer {
 		}
 	}
 
-	fn recv(&mut self) -> Result<(), BoxedNetworkError> {
+	fn recv(&mut self) -> Result<(), NtpServerError> {
 		let (read_bytes, source) = match self.socket.recv_from(&mut self.receive_buffer) {
 			Ok(a) => a,
 			Err(error) => {
-				return Err(NtpServerError::Receive(error).into());
+				return Err(NtpServerError::Receive(error));
 			},
 		};
 
@@ -137,18 +126,18 @@ impl NtpServer {
 		let address = if let SocketAddr::V6(address) = source {
 			address.ip().clone()
 		} else {
-			return Err(NtpServerError::InvalidIP.into());
+			return Err(NtpServerError::InvalidIP);
 		};
 
 		// stop non-whitelisted data from continuing
 		if !self.address_whitelist.lock().unwrap().list.contains(&address) {
-			return Err(NtpServerError::NotWhitelisted(source).into());
+			return Err(NtpServerError::NotWhitelisted(source));
 		}
 
 		// make sure what we just read is not too big to be an eggine packet
 		if read_bytes > MAX_NTP_PACKET_SIZE {
 			self.log.print(LogLevel::Error, format!("received too big of a packet from {:?}", source), 0);
-			return Err(NtpServerError::PacketTooBig(source).into());
+			return Err(NtpServerError::PacketTooBig(source));
 		}
 
 		// TODO optimize this
@@ -160,7 +149,7 @@ impl NtpServer {
 		let client_packet = self.receive_stream.decode::<NtpClientPacket>()?.0;
 		if client_packet != self.expected_client_packet {
 			self.log.print(LogLevel::Error, format!("received invalid magic number from {:?}", source), 0);
-			return Err(NtpServerError::InvalidMagicNumber(source).into());
+			return Err(NtpServerError::InvalidMagicNumber(source));
 		}
 
 		// send the server time back
@@ -206,7 +195,7 @@ impl NtpServer {
 
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
 		if let Err(error) = self.socket.send_to(&buffer, source) {
-			return Err(NtpServerError::Send(error).into());
+			return Err(NtpServerError::Send(error));
 		}
 
 		Ok(())

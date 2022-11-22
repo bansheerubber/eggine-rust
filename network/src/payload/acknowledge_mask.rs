@@ -2,7 +2,7 @@ use std::fmt::{ Debug, Write, };
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
-use crate::error::BoxedNetworkError;
+use crate::error::NetworkStreamError;
 
 const ACKNOWLEDGE_MASK_SIZE: usize = 2;
 
@@ -73,11 +73,11 @@ impl Debug for AcknowledgeMask {
 	}
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for AcknowledgeMask
+impl<T> Encode<u8, T, NetworkStreamError> for AcknowledgeMask
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		for part in self.mask {
 			stream.write_u64(part)?;
 		}
@@ -86,11 +86,11 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for AcknowledgeMask
+impl<T> Decode<u8, T, NetworkStreamError> for AcknowledgeMask
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError> + Endable<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError> + Endable<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let mut mask = [0; ACKNOWLEDGE_MASK_SIZE];
 
 		let mut position = 0;

@@ -14,17 +14,9 @@ use streams::u8_io::reading::{
 	read_vlq,
 };
 
-use crate::error::{ BoxedNetworkError, NetworkError, };
+use crate::error::{ NetworkStreamError, NetworkStreamErrorTrait, };
 
-/// Describes the type of error encountered while working with a network stream.
-#[derive(Debug)]
-pub enum NetworkStreamError {
-	InvalidDisconnectionReason,
-	InvalidMagicNumber,
-	InvalidSubPayloadType,
-}
-
-impl NetworkError for NetworkStreamError {
+impl NetworkStreamErrorTrait for NetworkStreamError {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
@@ -34,7 +26,7 @@ impl NetworkError for NetworkStreamError {
 	}
 }
 
-impl NetworkError for ReadStringSafeError {
+impl NetworkStreamErrorTrait for ReadStringSafeError {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
@@ -68,60 +60,60 @@ impl NetworkWriteStream {
 	}
 }
 
-impl U8WriteStream<BoxedNetworkError> for NetworkWriteStream {
-	fn write_u8(&mut self, byte: u8) -> Result<(), BoxedNetworkError> {
+impl U8WriteStream<NetworkStreamError> for NetworkWriteStream {
+	fn write_u8(&mut self, byte: u8) -> Result<(), NetworkStreamError> {
 		write_u8(byte, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_char(&mut self, character: char) -> Result<(), BoxedNetworkError> {
+	fn write_char(&mut self, character: char) -> Result<(), NetworkStreamError> {
 		write_char(character, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_u16(&mut self, number: u16) -> Result<(), BoxedNetworkError> {
+	fn write_u16(&mut self, number: u16) -> Result<(), NetworkStreamError> {
 		write_u16(number, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_u32(&mut self, number: u32) -> Result<(), BoxedNetworkError> {
+	fn write_u32(&mut self, number: u32) -> Result<(), NetworkStreamError> {
 		write_u32(number, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_u64(&mut self, number: u64) -> Result<(), BoxedNetworkError> {
+	fn write_u64(&mut self, number: u64) -> Result<(), NetworkStreamError> {
 		write_u64(number, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_vlq(&mut self, number: u64) -> Result<(), BoxedNetworkError> {
+	fn write_vlq(&mut self, number: u64) -> Result<(), NetworkStreamError> {
 		write_vlq(number, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_string(&mut self, string: &str) -> Result<(), BoxedNetworkError> {
+	fn write_string(&mut self, string: &str) -> Result<(), NetworkStreamError> {
 		write_string(string, &mut self.buffer);
 		Ok(())
 	}
 
-	fn write_vector(&mut self, vector: &Vec<u8>) -> Result<(), BoxedNetworkError> {
+	fn write_vector(&mut self, vector: &Vec<u8>) -> Result<(), NetworkStreamError> {
 		self.buffer.extend(vector);
 		Ok(())
 	}
 }
 
-impl WriteStream<u8, BoxedNetworkError> for NetworkWriteStream {
+impl WriteStream<u8, NetworkStreamError> for NetworkWriteStream {
 	type Export = Vec<u8>;
 
-	fn encode_mut<T: EncodeMut<u8, Self, BoxedNetworkError>>(&mut self, object: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode_mut<T: EncodeMut<u8, Self, NetworkStreamError>>(&mut self, object: &mut T) -> Result<(), NetworkStreamError> {
 		object.encode_mut(self)
 	}
 
-	fn encode<T: Encode<u8, Self, BoxedNetworkError>>(&mut self, object: &T) -> Result<(), BoxedNetworkError> {
+	fn encode<T: Encode<u8, Self, NetworkStreamError>>(&mut self, object: &T) -> Result<(), NetworkStreamError> {
 		object.encode(self)
 	}
 
-	fn export(&mut self) -> Result<Self::Export, BoxedNetworkError> {
+	fn export(&mut self) -> Result<Self::Export, NetworkStreamError> {
 		Ok(std::mem::replace(&mut self.buffer, Vec::new()))
 	}
 
@@ -149,47 +141,47 @@ impl NetworkReadStream {
 	}
 }
 
-impl U8ReadStream<BoxedNetworkError> for NetworkReadStream {
-	fn read_u8(&mut self) -> Result<(u8, StreamPosition), BoxedNetworkError> {
+impl U8ReadStream<NetworkStreamError> for NetworkReadStream {
+	fn read_u8(&mut self) -> Result<(u8, StreamPosition), NetworkStreamError> {
 		let (byte, delta) = read_u8(&self.buffer[(self.position as usize)..]);
 		self.position += delta;
 		Ok((byte, self.position))
 	}
 
-	fn read_char(&mut self) -> Result<(char, StreamPosition), BoxedNetworkError> {
+	fn read_char(&mut self) -> Result<(char, StreamPosition), NetworkStreamError> {
 		let (character, delta) = read_char(&self.buffer[(self.position as usize)..]);
 		self.position += delta;
 		Ok((character, self.position))
 	}
 
-	fn read_u16(&mut self) -> Result<(u16, StreamPosition), BoxedNetworkError> {
+	fn read_u16(&mut self) -> Result<(u16, StreamPosition), NetworkStreamError> {
 		let (number, delta) = read_u16(&self.buffer[(self.position as usize)..]);
 		self.position += delta;
 		Ok((number, self.position))
 	}
 
-	fn read_u32(&mut self) -> Result<(u32, StreamPosition), BoxedNetworkError> {
+	fn read_u32(&mut self) -> Result<(u32, StreamPosition), NetworkStreamError> {
 		let (number, delta) = read_u32(&self.buffer[(self.position as usize)..]);
 		self.position += delta;
 		Ok((number, self.position))
 	}
 
-	fn read_u64(&mut self) -> Result<(u64, StreamPosition), BoxedNetworkError> {
+	fn read_u64(&mut self) -> Result<(u64, StreamPosition), NetworkStreamError> {
 		let (number, delta) = read_u64(&self.buffer[(self.position as usize)..]);
 		self.position += delta;
 		Ok((number, self.position))
 	}
 
-	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), BoxedNetworkError> {
+	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), NetworkStreamError> {
 		let (number, delta) = read_vlq(&self.buffer[(self.position as usize)..]);
 		self.position += delta;
 		Ok((number, self.position))
 	}
 }
 
-impl U8ReadStringSafeStream<BoxedNetworkError> for NetworkReadStream {
+impl U8ReadStringSafeStream<NetworkStreamError> for NetworkReadStream {
 	fn read_string_safe(&mut self, minimum_length: u64, maximum_length: u64)
-		-> Result<(String, StreamPosition), BoxedNetworkError>
+		-> Result<(String, StreamPosition), NetworkStreamError>
 	{
 		match read_string_safe(&self.buffer[(self.position as usize)..], minimum_length, maximum_length) {
 			Ok((string, delta)) => {
@@ -201,10 +193,10 @@ impl U8ReadStringSafeStream<BoxedNetworkError> for NetworkReadStream {
 	}
 }
 
-impl ReadStream<u8, BoxedNetworkError> for NetworkReadStream {
+impl ReadStream<u8, NetworkStreamError> for NetworkReadStream {
 	type Import = Vec<u8>;
 
-	fn decode<T: Decode<u8, Self, BoxedNetworkError>>(&mut self) -> Result<(T, StreamPosition), BoxedNetworkError> {
+	fn decode<T: Decode<u8, Self, NetworkStreamError>>(&mut self) -> Result<(T, StreamPosition), NetworkStreamError> {
 		T::decode(self)
 	}
 
@@ -213,7 +205,7 @@ impl ReadStream<u8, BoxedNetworkError> for NetworkReadStream {
 		true
 	}
 
-	fn import(&mut self, vector: Self::Import) -> Result<(), BoxedNetworkError> {
+	fn import(&mut self, vector: Self::Import) -> Result<(), NetworkStreamError> {
 		self.buffer = vector;
 		self.position = 0;
 
@@ -221,8 +213,8 @@ impl ReadStream<u8, BoxedNetworkError> for NetworkReadStream {
 	}
 }
 
-impl Endable<BoxedNetworkError> for NetworkReadStream {
-	fn is_at_end(&mut self) -> Result<bool, BoxedNetworkError> {
+impl Endable<NetworkStreamError> for NetworkReadStream {
+	fn is_at_end(&mut self) -> Result<bool, NetworkStreamError> {
 		Ok(self.position >= self.buffer.len() as StreamPosition)
 	}
 }

@@ -4,7 +4,7 @@ use std::hash::Hash;
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
-use crate::error::{ BoxedNetworkError, NetworkError, };
+use crate::error::{ NetworkStreamError, NetworkStreamErrorTrait, };
 
 use super::{ AcknowledgeMask, Payload, SubPayload, };
 
@@ -13,7 +13,7 @@ pub enum PacketError {
 	InvalidContinueBit,
 }
 
-impl NetworkError for PacketError {
+impl NetworkStreamErrorTrait for PacketError {
 	fn as_any(&self) -> &dyn Any {
 		self
 	}
@@ -181,11 +181,11 @@ fn encode_extensions(extensions: &HashSet<PacketExtension>) -> [u32; EXTENSION_U
 	return u32_array;
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for Packet
+impl<T> Encode<u8, T, NetworkStreamError> for Packet
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		stream.write_u32(self.sequence)?;
 		stream.write_u32(self.highest_acknowledged_sequence)?;
 
@@ -201,9 +201,9 @@ where
 	}
 }
 
-fn decode_extensions<T>(stream: &mut T) -> Result<HashSet<PacketExtension>, BoxedNetworkError>
+fn decode_extensions<T>(stream: &mut T) -> Result<HashSet<PacketExtension>, NetworkStreamError>
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError> + Endable<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError> + Endable<NetworkStreamError>
 {
 	let mut extensions: HashSet<PacketExtension> = HashSet::new();
 
@@ -233,11 +233,11 @@ where
 	Ok(extensions)
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for Packet
+impl<T> Decode<u8, T, NetworkStreamError> for Packet
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError> + Endable<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError> + U8ReadStringSafeStream<NetworkStreamError> + Endable<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let mut packet = Packet {
 			acknowledge_mask: AcknowledgeMask::default(),
 			extensions: HashSet::new(),
@@ -267,7 +267,7 @@ mod tests {
 	use streams::{ ReadStream, WriteStream, };
 	use streams::u8_io::{U8WriteStream, U8ReadStream};
 
-	use crate::error::BoxedNetworkError;
+	use crate::error::NetworkStreamError;
 	use crate::network_stream::{ NetworkReadStream, NetworkWriteStream };
 
 	use super::{
@@ -282,7 +282,7 @@ mod tests {
 	// custom encode function that writes flags following the extension flag specification
 	fn generate_flags_stream<T>(stream: &mut T, set_all_continue_bits: bool) -> HashSet<PacketExtension>
 	where
-		T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+		T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 	{
 		let mut flags = HashSet::new();
 		for n in 0..EXTENSION_U32_COUNT {

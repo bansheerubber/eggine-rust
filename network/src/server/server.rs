@@ -4,14 +4,14 @@ use std::thread;
 use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
-use crate::error::{ BoxedNetworkError, NetworkError, };
+use crate::error::NetworkStreamError;
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
-use super::ntp_server::NtpServerWhitelist;
+use super::ntp_server::{ NtpServerError, NtpServerWhitelist, };
 use super::{ ClientConnection, ClientTable, NtpServer, };
 
 #[derive(Debug)]
@@ -26,6 +26,10 @@ pub enum ServerError {
 	Create(std::io::Error),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
 	InvalidIP,
+	/// Emitted if we encountered a problem with network streams.
+	NetworkStreamError(NetworkStreamError),
+	/// Wrapper for an error from the server NTP implementation
+	NtpError(NtpServerError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig(SocketAddr),
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
@@ -46,6 +50,8 @@ impl ServerError {
 			ServerError::CouldNotFindClient => false,
 			ServerError::Create(_) => true,
 			ServerError::InvalidIP => false,
+			ServerError::NetworkStreamError(_) => false,
+			ServerError::NtpError(_) => false,
 			ServerError::PacketTooBig(_) => false,
 			ServerError::Receive(_) => true,
 			ServerError::Send(_) => true,
@@ -54,19 +60,15 @@ impl ServerError {
 	}
 }
 
-impl NetworkError for ServerError {
-	fn as_any(&self) -> &dyn std::any::Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
-		self
+impl From<NetworkStreamError> for ServerError {
+	fn from(error: NetworkStreamError) -> Self {
+		ServerError::NetworkStreamError(error)
 	}
 }
 
-impl From<ServerError> for BoxedNetworkError {
-	fn from(error: ServerError) -> Self {
-		Box::new(error)
+impl From<NtpServerError> for ServerError {
+	fn from(error: NtpServerError) -> Self {
+		ServerError::NtpError(error)
 	}
 }
 
@@ -93,10 +95,10 @@ pub struct Server {
 
 impl Server {
 	/// Initialize the server and listen on the specified address.
-	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, BoxedNetworkError> {
+	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, ServerError> {
 		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
-			Err(error) => return Err(ServerError::Create(error).into()),
+			Err(error) => return Err(ServerError::Create(error)),
 		};
 
 		socket.set_nonblocking(true).unwrap();
@@ -138,7 +140,7 @@ impl Server {
 
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out all `ClientConnection`s' time-to-live.
-	pub fn tick(&mut self) -> Result<(), BoxedNetworkError> {
+	pub fn tick(&mut self) -> Result<(), ServerError> {
 		{
 			// send client outgoing packets
 			// TODO make this a little more efficient, right now this sucks b/c i can't use a &self ref in the for loop source
@@ -174,14 +176,10 @@ impl Server {
 			match self.recv() {
 				Ok(_) => {},
 				Err(error) => {
-					if let Some(error2) = error.as_any().downcast_ref::<ServerError>() {
-						if error2.is_fatal() {
-							return Err(error);
-						} else if let ServerError::WouldBlock = error2 {
-							break;
-						}
-					} else {
+					if error.is_fatal() {
 						return Err(error);
+					} else if let ServerError::WouldBlock = error {
+						break;
 					}
 				},
 			}
@@ -211,14 +209,14 @@ impl Server {
 	}
 
 	/// Attempt to receive data from the socket.
-	fn recv(&mut self) -> Result<(), BoxedNetworkError> {
+	fn recv(&mut self) -> Result<(), ServerError> {
 		let (read_bytes, source) = match self.socket.recv_from(&mut self.receive_buffer) {
 			Ok(a) => a,
 			Err(error) => {
 				if error.raw_os_error().unwrap() == 11 {
-					return Err(ServerError::WouldBlock.into());
+					return Err(ServerError::WouldBlock);
 				} else {
-					return Err(ServerError::Receive(error).into());
+					return Err(ServerError::Receive(error));
 				}
 			},
 		};
@@ -228,19 +226,19 @@ impl Server {
 		let address = if let SocketAddr::V6(address) = source {
 			address.ip().clone()
 		} else {
-			return Err(ServerError::InvalidIP.into());
+			return Err(ServerError::InvalidIP);
 		};
 
 		// stop blacklisted data from continuing
 		if self.client_table.is_in_blacklist(&address) {
-			return Err(ServerError::Blacklisted(source).into());
+			return Err(ServerError::Blacklisted(source));
 		}
 
 		// make sure what we just read is not too big to be an eggine packet
 		if read_bytes > MAX_PACKET_SIZE {
 			self.log.print(LogLevel::Blacklist, format!("received too big of a packet from {:?}", source), 0);
 			self.client_table.add_to_blacklist(address.clone());
-			return Err(ServerError::PacketTooBig(source).into());
+			return Err(ServerError::PacketTooBig(source));
 		}
 
 		// TODO optimize this
@@ -258,7 +256,7 @@ impl Server {
 	}
 
 	// Ping a client at the specified address.
-	pub fn ping(&mut self, source: SocketAddr) -> Result<(), BoxedNetworkError> {
+	pub fn ping(&mut self, source: SocketAddr) -> Result<(), ServerError> {
 		let client = self.client_table.get_client_mut(&source)?;
 		client.outgoing_packet.add_sub_payload(SubPayload::Ping(
 			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
@@ -268,7 +266,7 @@ impl Server {
 	}
 
 	/// Decode a packet from an already connected IP address.
-	fn decode_packet(&mut self, source: SocketAddr, buffer: Vec<u8>) -> Result<(), BoxedNetworkError> {
+	fn decode_packet(&mut self, source: SocketAddr, buffer: Vec<u8>) -> Result<(), ServerError> {
 		let now = Instant::now();
 		let client = self.client_table.get_client_mut(&source)?;
 		client.last_activity = now;
@@ -280,7 +278,7 @@ impl Server {
 			Ok((packet, _)) => packet,
 			Err(error) => {
 				self.log.print(LogLevel::Error, format!("could not decode packet from {:?} for {:?}", source, error), 0);
-				return Err(error);
+				return Err(error.into());
 			},
 		};
 
@@ -329,10 +327,10 @@ impl Server {
 	}
 
 	/// Send a byte vector to the specified client address.
-	fn send_bytes_to(&mut self, source: SocketAddr, bytes: &Vec<u8>) -> Result<(), BoxedNetworkError> {
+	fn send_bytes_to(&mut self, source: SocketAddr, bytes: &Vec<u8>) -> Result<(), ServerError> {
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
 		if let Err(error) = self.socket.send_to(&bytes, source) {
-			return Err(ServerError::Send(error).into());
+			return Err(ServerError::Send(error));
 		}
 
 		Ok(())
@@ -341,7 +339,7 @@ impl Server {
 	/// Attempt to initialize a connection with a new IP address who just talked to us. Test for a handshake, and make
 	/// sure the handshake is compatible with the server's handshake.
 	fn initialize_client(&mut self, source: SocketAddr, address: &Ipv6Addr, handshake_buffer: Vec<u8>)
-		-> Result<(), BoxedNetworkError>
+		-> Result<(), ServerError>
 	{
 		self.receive_stream.import(handshake_buffer)?;
 
@@ -352,7 +350,7 @@ impl Server {
 			Ok((handshake, _)) => handshake,
 			Err(error) => {
 				self.log.print(LogLevel::Error, format!("could not decode handshake from {:?} for {:?}", source, error), 0);
-				return Err(error);
+				return Err(error.into());
 			},
 		};
 
@@ -362,13 +360,13 @@ impl Server {
 				LogLevel::Blacklist, format!("invalid handshake, theirs: {:?}, ours: {:?}", handshake, self.handshake), 1
 			);
 			self.client_table.add_to_blacklist(address.clone());
-			return Err(ServerError::ClientCreation.into());
+			return Err(ServerError::ClientCreation);
 		}
 
 		// figure out if they already joined on this ip/port
 		if self.client_table.has_client(&source) {
 			self.log.print(LogLevel::Error, format!("already connected"), 1);
-			return Err(ServerError::ClientCreation.into());
+			return Err(ServerError::ClientCreation);
 		}
 
 		// we're home free, add the client to the client list
@@ -402,7 +400,7 @@ impl Server {
 
 	/// Disconnect a client from the server. Removes the `ClientConnection` associated with the source address from the
 	/// server connection state. Tell the client that their connection has been closed.
-	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) -> Result<(), BoxedNetworkError> {
+	fn disconnect_client(&mut self, source: SocketAddr, reason: DisconnectionReason) -> Result<(), ServerError> {
 		let client = self.client_table.get_client_mut(&source)?;
 		client.outgoing_packet.add_sub_payload(SubPayload::Disconnect(reason));
 		self.send_stream.encode(&client.outgoing_packet)?;

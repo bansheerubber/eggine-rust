@@ -1,8 +1,22 @@
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
-use crate::error::BoxedNetworkError;
-use crate::network_stream::NetworkStreamError;
+use crate::error::{ NetworkStreamError, NetworkStreamErrorTrait, };
+
+#[derive(Debug, Clone, Copy)]
+pub enum DisconnectionReasonError {
+	InvalidDisconnectionReason,
+}
+
+impl NetworkStreamErrorTrait for DisconnectionReasonError {
+	fn as_any(&self) -> &dyn std::any::Any {
+		self
+	}
+
+	fn as_debug(&self) -> &dyn std::fmt::Debug {
+		self
+	}
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum DisconnectionReason {
@@ -15,11 +29,11 @@ pub enum DisconnectionReason {
 	Timeout,
 }
 
-impl<T> Encode<u8, T, BoxedNetworkError> for DisconnectionReason
+impl<T> Encode<u8, T, NetworkStreamError> for DisconnectionReason
 where
-	T: WriteStream<u8, BoxedNetworkError> + U8WriteStream<BoxedNetworkError>
+	T: WriteStream<u8, NetworkStreamError> + U8WriteStream<NetworkStreamError>
 {
-	fn encode(&self, stream: &mut T) -> Result<(), BoxedNetworkError> {
+	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		match *self {
 			DisconnectionReason::Requested => stream.write_u8(1)?,
 			DisconnectionReason::Timeout => stream.write_u8(2)?,
@@ -28,16 +42,16 @@ where
 	}
 }
 
-impl<T> Decode<u8, T, BoxedNetworkError> for DisconnectionReason
+impl<T> Decode<u8, T, NetworkStreamError> for DisconnectionReason
 where
-	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError>
+	T: ReadStream<u8, NetworkStreamError> + U8ReadStream<NetworkStreamError>
 {
-	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
+	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), NetworkStreamError> {
 		let (byte, position) = stream.read_u8()?;
 		let reason = match byte {
 			1 => DisconnectionReason::Requested,
 			2 => DisconnectionReason::Timeout,
-			_ => return Err(Box::new(NetworkStreamError::InvalidDisconnectionReason))
+			_ => return Err(Box::new(DisconnectionReasonError::InvalidDisconnectionReason))
 		};
 		Ok((reason, position))
 	}
