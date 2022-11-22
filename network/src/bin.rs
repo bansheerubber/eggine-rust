@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use network::client::ntp_client::NtpClient;
 use network::{ Client, Server, };
 use network::client::client::ClientError;
 use network::server::server::ServerError;
@@ -34,7 +35,7 @@ fn main() {
 		let mut last_ping = std::time::Instant::now();
 
 		loop {
-			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
+			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(15) {
 				client.ping().unwrap();
 				last_ping = std::time::Instant::now();
 			}

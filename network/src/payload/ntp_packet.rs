@@ -35,8 +35,8 @@ where
 
 #[derive(Debug)]
 pub struct NtpServerPacket {
-	pub receive_time: u128,
-	pub send_time: u128,
+	pub receive_time: i128,
+	pub send_time: i128,
 }
 
 impl<T> Encode<u8, T, BoxedNetworkError> for NtpServerPacket
@@ -57,13 +57,13 @@ where
 	T: ReadStream<u8, BoxedNetworkError> + U8ReadStream<BoxedNetworkError> + U8ReadStringSafeStream<BoxedNetworkError> + Endable<BoxedNetworkError>
 {
 	fn decode(stream: &mut T) -> Result<(Self, StreamPosition), BoxedNetworkError> {
-		let (upper_half, _) = stream.read_u64()?;
 		let (lower_half, _) = stream.read_u64()?;
-		let receive_time = (upper_half as u128) << 64 | lower_half as u128;
-
 		let (upper_half, _) = stream.read_u64()?;
-		let (lower_half, position) = stream.read_u64()?;
-		let send_time = (upper_half as u128) << 64 | lower_half as u128;
+		let receive_time = ((upper_half as u128) << 64 | lower_half as u128) as i128;
+
+		let (lower_half, _) = stream.read_u64()?;
+		let (upper_half, position) = stream.read_u64()?;
+		let send_time = ((upper_half as u128) << 64 | lower_half as u128) as i128;
 
 		Ok((NtpServerPacket {
 			receive_time,

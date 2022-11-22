@@ -9,6 +9,8 @@ use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
+use super::ntp_client::NtpClient;
+
 #[derive(Debug)]
 pub enum ClientError {
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
@@ -81,6 +83,7 @@ pub struct Client {
 	/// The last sequence we received from the server.
 	last_sequence_received: Option<u32>,
 	log: Log,
+	ntp_client: Option<NtpClient>,
 	/// We place all outgoing data into this packet.
 	outgoing_packet: Packet,
 	/// The buffer we write into when we receive data.
@@ -125,6 +128,7 @@ impl Client {
 			last_activity: Instant::now(),
 			last_sequence_received: None,
 			log: Log::default(),
+			ntp_client: None,
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
@@ -191,6 +195,14 @@ impl Client {
 
 		self.send_bytes(&bytes)?;
 
+		let mut bind_address = self.socket.local_addr().unwrap();
+		bind_address.set_port(bind_address.port() + 1);
+
+		let mut host_address = self.socket.peer_addr().unwrap();
+		host_address.set_port(host_address.port() + 1);
+
+		self.ntp_client = Some(NtpClient::new(bind_address, host_address)?);
+
 		Ok(())
 	}
 
@@ -200,6 +212,8 @@ impl Client {
 
 	/// Ping the server.
 	pub fn ping(&mut self) -> Result<(), BoxedNetworkError> {
+		self.ntp_client.as_mut().unwrap().sync_time()?;
+
 		if !self.is_connection_valid() {
 			return Ok(());
 		}

@@ -124,18 +124,18 @@ impl Packet {
 		// the sequence the remote acknowledged last
 		result.new_highest_acknowledged_sequence = self.highest_acknowledged_sequence;
 
-		println!(
-			"packet info: {} {} {:?}",
-			result.remote_sequence,
-			result.new_highest_acknowledged_sequence,
-			remote_acknowledge_mask
-		);
-		println!(
-			"our info: {:?} {:?} {:?}",
-			local_last_sequence_received,
-			local_highest_acknowledge_received,
-			local_acknowledge_mask
-		);
+		// println!(
+		// 	"packet info: {} {} {:?}",
+		// 	result.remote_sequence,
+		// 	result.new_highest_acknowledged_sequence,
+		// 	remote_acknowledge_mask
+		// );
+		// println!(
+		// 	"our info: {:?} {:?} {:?}",
+		// 	local_last_sequence_received,
+		// 	local_highest_acknowledge_received,
+		// 	local_acknowledge_mask
+		// );
 
 		// update the acknowledge mask
 		if let Some(local_last_sequence_received) = local_last_sequence_received {
@@ -150,10 +150,10 @@ impl Packet {
 				let tested = remote_acknowledge_mask.test(result.new_highest_acknowledged_sequence - i);
 				if tested.is_some() && tested.unwrap() == true {
 					result.acknowledged_sequences.push(i);
-					println!("client acknowledged: {}", i);
+					// println!("client acknowledged: {}", i);
 				} else {
 					result.dropped_sequences.push(i);
-					println!("client dropped: {}", i);
+					// println!("client dropped: {}", i);
 				}
 			}
 		}

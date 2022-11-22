@@ -101,11 +101,11 @@ impl Server {
 
 		socket.set_nonblocking(true).unwrap();
 
-		let mut address = socket.local_addr().unwrap();
-		address.set_port(address.port() + 1);
+		let mut ntp_address = socket.local_addr().unwrap();
+		ntp_address.set_port(ntp_address.port() + 1);
 
 		let whitelist = Arc::new(Mutex::new(NtpServerWhitelist::default()));
-		let mut ntp_server = NtpServer::new(address, whitelist.clone())?;
+		let mut ntp_server = NtpServer::new(ntp_address, whitelist.clone())?;
 		thread::spawn(move || {
 			ntp_server.recv_loop();
 		});

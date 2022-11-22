@@ -52,12 +52,81 @@ impl From<NtpClientError> for BoxedNetworkError {
 	}
 }
 
+pub struct CorrectedTime {
+	offset: i128,
+	system_time: i128,
+}
+
+impl CorrectedTime {
+	pub fn new(system_time: i128, offset: i128) -> Self {
+		CorrectedTime {
+			offset,
+			system_time,
+		}
+	}
+
+	pub fn get_offset(&self) -> i128 {
+		self.offset
+	}
+
+	pub fn get_time(&self) -> i128 {
+		self.system_time + self.offset
+	}
+}
+
+impl Into<i128> for CorrectedTime {
+	fn into(self) -> i128 {
+		self.system_time + self.offset
+	}
+}
+
+impl Into<u128> for CorrectedTime {
+	fn into(self) -> u128 {
+		self.system_time as u128 + self.offset as u128
+	}
+}
+
+/// Used for client-sided time adjustments after syncing to the server's clock. All times are in microseconds. Based on
+/// NTP (https://en.wikipedia.org/wiki/Network_Time_Protocol#Clock_synchronization_algorithm).
 #[derive(Debug)]
 pub struct Times {
-	client_receive_time: u128,
-	client_send_time: u128,
-	server_receive_time: u128,
-	server_send_time: u128,
+	/// The time we received the server's answer.
+	client_receive_time: i128,
+	/// The time we sent our time request to the server.
+	client_send_time: i128,
+	/// The time the server received our time request.
+	server_receive_time: i128,
+	/// The time the server sent its response to us.
+	server_send_time: i128,
+}
+
+impl Times {
+	/// The time between the client sending a time request and receiving the server's response. Based on NTP's round-trip
+	/// delay calculation.
+	pub fn round_trip(&self) -> i128 {
+		(self.client_receive_time - self.client_send_time) - (self.server_send_time - self.server_receive_time)
+	}
+
+	/// Calculate the difference in absolute time between the client and server times. Based on NTP's time offset
+	/// calculation.
+	pub fn time_offset(&self) -> i128 {
+		((self.server_receive_time - self.client_send_time) + (self.server_send_time - self.client_receive_time)) / 2
+	}
+
+	/// The amount of time the server spent processing the client's packet.
+	pub fn server_processing(&self) -> i128 {
+		self.server_send_time - self.server_receive_time
+	}
+
+	/// Estimates the time it took for the client's packet to reach the server.
+	pub fn estimate_first_leg(&self) -> i128 {
+		self.server_receive_time - self.client_send_time
+	}
+
+	/// Estimates the time it took for the server's packet to reach the client.
+	pub fn estimate_second_leg(&self) -> i128 {
+		self.client_receive_time - self.server_send_time
+	}
 }
 
 /// A client connection in the eggine network stack. Clients connect to servers, which are treated as a trusted source
@@ -79,13 +148,13 @@ pub struct NtpClient {
 
 impl NtpClient {
 	/// Initialize the a client socket bound to the specified address.
-	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, BoxedNetworkError> {
+	pub fn new<T: ToSocketAddrs>(address: T, host_address: T) -> Result<Self, BoxedNetworkError> {
 		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
 			Err(error) => return Err(NtpClientError::Create(error).into()),
 		};
 
-		if let Err(error) = socket.set_nonblocking(true) {
+		if let Err(error) = socket.connect(host_address) {
 			return Err(NtpClientError::Create(error).into());
 		}
 
@@ -112,68 +181,58 @@ impl NtpClient {
 		})
 	}
 
-	pub fn recv_loop(&mut self) -> Result<(), BoxedNetworkError> {
-		loop {
-			match self.recv() {
-				Ok(_) => {},
-				Err(error) => {
-					if let Some(error2) = error.as_any().downcast_ref::<NtpClientError>() {
-						if error2.is_fatal() {
-							return Err(error);
-						}
-					} else {
-						return Err(error);
-					}
-				},
+	pub fn sync_time(&mut self) -> Result<(), BoxedNetworkError> {
+		// send the time request
+		let send_time;
+		{
+			let packet = NtpClientPacket {
+				magic_number: String::from(NTP_MAGIC_NUMBER),
+			};
+
+			self.send_stream.encode(&packet)?;
+
+			send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+
+			if let Err(error) = self.socket.send(&self.send_stream.export()?) {
+				return Err(NtpClientError::Send(error).into());
 			}
 		}
-	}
 
-	pub fn send(&mut self) -> Result<(), BoxedNetworkError> {
-		let packet = NtpClientPacket {
-			magic_number: String::from(NTP_MAGIC_NUMBER),
-		};
+		// receive the time
+		{
+			let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
+				Ok(a) => a,
+				Err(error) => {
+					return Err(NtpClientError::Receive(error).into());
+				},
+			};
 
-		self.send_stream.encode(&packet)?;
+			let recv_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
 
-		self.times.client_send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u128;
+			// make sure what we just read is not too big to be an eggine packet
+			if read_bytes > MAX_PACKET_SIZE {
+				self.log.print(LogLevel::Error, format!("received too big of a packet"), 0);
+				return Err(NtpClientError::PacketTooBig.into());
+			}
 
-		if let Err(error) = self.socket.send(&self.send_stream.export()?) {
-			return Err(NtpClientError::Send(error).into());
+			// import raw bytes into the receive stream
+			// TODO optimize this
+			let mut buffer: Vec<u8> = Vec::new();
+			buffer.extend(&self.receive_buffer[0..read_bytes]);
+			self.receive_stream.import(buffer)?;
+
+			// figure out what to do with the packet we just got
+			let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
+
+			self.times.client_receive_time = recv_time;
+			self.times.client_send_time = send_time;
+
+			self.times.server_receive_time = packet.receive_time;
+			self.times.server_send_time = packet.send_time;
+
+			println!("time offset: {}us", self.times.time_offset());
+			println!("round-trip: {}us", self.times.round_trip());
 		}
-
-		Ok(())
-	}
-
-	fn recv(&mut self) -> Result<(), BoxedNetworkError> {
-		let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
-			Ok(a) => a,
-			Err(error) => {
-				return Err(NtpClientError::Receive(error).into());
-			},
-		};
-
-		let recv_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u128;
-
-		// make sure what we just read is not too big to be an eggine packet
-		if read_bytes > MAX_PACKET_SIZE {
-			self.log.print(LogLevel::Error, format!("received too big of a packet"), 0);
-			return Err(NtpClientError::PacketTooBig.into());
-		}
-
-		// import raw bytes into the receive stream
-		// TODO optimize this
-		let mut buffer: Vec<u8> = Vec::new();
-		buffer.extend(&self.receive_buffer[0..read_bytes]);
-		self.receive_stream.import(buffer)?;
-
-		// figure out what to do with the packet we just got
-		let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
-
-		self.times.server_receive_time = packet.receive_time;
-		self.times.server_send_time = packet.send_time;
-
-		self.times.client_receive_time = recv_time;
 
 		Ok(())
 	}
