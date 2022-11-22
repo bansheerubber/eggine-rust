@@ -30,7 +30,7 @@ fn main() {
 		let mut last_ping = std::time::Instant::now();
 
 		loop {
-			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(15) {
+			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
 				client.ping().unwrap();
 				last_ping = std::time::Instant::now();
 			}

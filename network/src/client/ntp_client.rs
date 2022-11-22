@@ -1,5 +1,6 @@
+use std::collections::VecDeque;
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ SystemTime, UNIX_EPOCH, };
+use std::time::{ SystemTime, UNIX_EPOCH, Instant, };
 use streams::{ ReadStream, WriteStream, };
 
 use crate::error::NetworkStreamError;
@@ -45,6 +46,7 @@ impl From<NetworkStreamError> for NtpClientError {
 	}
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct CorrectedTime {
 	offset: i128,
 	system_time: i128,
@@ -58,11 +60,15 @@ impl CorrectedTime {
 		}
 	}
 
-	pub fn get_offset(&self) -> i128 {
+	pub fn offset(&self) -> i128 {
 		self.offset
 	}
 
-	pub fn get_time(&self) -> i128 {
+	pub fn system_time(&self) -> i128 {
+		self.system_time
+	}
+
+	pub fn time(&self) -> i128 {
 		self.system_time + self.offset
 	}
 }
@@ -79,9 +85,88 @@ impl Into<u128> for CorrectedTime {
 	}
 }
 
+/// Collect several `Times` in order to statistically determine the best NTP offset/delay pair to use to correct our
+/// system time.
+#[derive(Debug)]
+pub struct TimesShiftRegister {
+	/// How long it takes to measure system time, in nanoseconds.
+	precision: i128,
+	max_amount: usize,
+	times: VecDeque<Times>,
+}
+
+impl TimesShiftRegister {
+	pub fn new(max_amount: usize) -> Self {
+		let start = Instant::now();
+		#[allow(unused_must_use)] {
+			SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
+		}
+
+		TimesShiftRegister {
+			precision: (Instant::now() - start).as_nanos() as i128,
+			max_amount,
+			times: VecDeque::new(),
+		}
+	}
+
+	/// Add a `Times` to the shift register.
+	pub fn add_time(&mut self, times: Times) {
+		if self.times.len() > self.max_amount {
+			self.times.pop_back();
+		}
+
+		self.times.push_front(times);
+	}
+
+	/// Returns the best `Times` for use in correcting system time.
+	pub fn best(&self) -> Option<&Times> {
+		let mut minimum = (16_000_000, None);
+		for times in self.times.iter() {
+			if times.delay() < minimum.0 {
+				minimum = (times.delay(), Some(times));
+			}
+		}
+
+		minimum.1
+	}
+
+	/// Calculates the jitter in time offsets.
+	pub fn jitter(&self) -> Option<f64> {
+		let Some(best) = self.best() else {
+			return None;
+		};
+
+		let n = self.times.len() as i128 - 1;
+		let mut differences = 0.0;
+		for times in self.times.iter() {
+			if times == best {
+				continue;
+			}
+
+			differences += (1 / n) as f64 + f64::powi(times.time_offset() as f64 - best.time_offset() as f64, 2);
+		}
+
+		Some(f64::sqrt(differences))
+	}
+
+	/// Calculates the synchronization distance. Represents maximum error.
+	pub fn synchronization_distance(&self) -> Option<f64> {
+		let Some(best) = self.best() else {
+			return None;
+		};
+
+		// sum of client and server precisions, sum grows at 15 microseconds per second
+		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+		let epsilon = self.precision as f64 / 1000.0 + self.precision as f64 / 1000.0
+			+ 15.0 * (current_time - best.client_send_time) as f64 / 1_000_000.0;
+
+		Some(epsilon + best.delay() as f64 / 2.0)
+	}
+}
+
 /// Used for client-sided time adjustments after syncing to the server's clock. All times are in microseconds. Based on
 /// NTP (https://en.wikipedia.org/wiki/Network_Time_Protocol#Clock_synchronization_algorithm).
-#[derive(Debug)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct Times {
 	/// The time we received the server's answer.
 	client_receive_time: i128,
@@ -96,7 +181,7 @@ pub struct Times {
 impl Times {
 	/// The time between the client sending a time request and receiving the server's response. Based on NTP's round-trip
 	/// delay calculation.
-	pub fn round_trip(&self) -> i128 {
+	pub fn delay(&self) -> i128 {
 		(self.client_receive_time - self.client_send_time) - (self.server_send_time - self.server_receive_time)
 	}
 
@@ -134,9 +219,10 @@ pub struct NtpClient {
 	receive_stream: NetworkReadStream,
 	/// The stream we use to export data so we can sent it to a client.
 	send_stream: NetworkWriteStream,
+	/// Used for determining the best system time correction.
+	shift_register: TimesShiftRegister,
 	/// The socket the client is connected to the server on.
 	socket: UdpSocket,
-	times: Times,
 }
 
 impl NtpClient {
@@ -164,13 +250,8 @@ impl NtpClient {
 			receive_buffer: [0; MAX_NTP_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
+			shift_register: TimesShiftRegister::new(8),
 			socket,
-			times: Times {
-				client_receive_time: 0,
-				client_send_time: 0,
-				server_receive_time: 0,
-				server_send_time: 0,
-			},
 		})
 	}
 
@@ -184,7 +265,7 @@ impl NtpClient {
 
 			self.send_stream.encode(&packet)?;
 
-			send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+			send_time = self.get_corrected_time();
 
 			if let Err(error) = self.socket.send(&self.send_stream.export()?) {
 				return Err(NtpClientError::Send(error));
@@ -200,7 +281,7 @@ impl NtpClient {
 				},
 			};
 
-			let recv_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+			let recv_time = self.get_corrected_time();
 
 			// make sure what we just read is not too big to be an eggine packet
 			if read_bytes > MAX_PACKET_SIZE {
@@ -217,16 +298,31 @@ impl NtpClient {
 			// figure out what to do with the packet we just got
 			let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
 
-			self.times.client_receive_time = recv_time;
-			self.times.client_send_time = send_time;
+			self.shift_register.add_time(Times {
+				client_receive_time: recv_time.system_time(),
+				client_send_time: send_time.system_time(),
+				server_receive_time: packet.receive_time,
+				server_send_time: packet.send_time,
+			});
 
-			self.times.server_receive_time = packet.receive_time;
-			self.times.server_send_time = packet.send_time;
+			let best = self.shift_register.best().unwrap();
 
-			println!("time offset: {}us", self.times.time_offset());
-			println!("round-trip: {}us", self.times.round_trip());
+			println!("time offset: {}us", best.time_offset());
+			println!("round-trip: {}us", best.delay());
+			println!("jitter: {}us", self.shift_register.jitter().unwrap());
+			println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
 		}
 
 		Ok(())
+	}
+
+	pub fn get_corrected_time(&self) -> CorrectedTime {
+		let offset = if let Some(best) = self.shift_register.best() {
+			best.time_offset()
+		} else {
+			0
+		};
+
+		CorrectedTime::new(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128, offset)
 	}
 }
