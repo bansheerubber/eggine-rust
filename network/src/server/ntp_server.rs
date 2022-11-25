@@ -9,7 +9,7 @@ use crate::log::{ Log, LogLevel, };
 use crate::network_stream::NetworkReadStream;
 use crate::payload::NtpClientPacket;
 
-pub const MAX_NTP_PACKET_SIZE: usize = 40;
+pub const MAX_NTP_PACKET_SIZE: usize = 41;
 pub const NTP_MAGIC_NUMBER: &str = "EGGINENTP";
 
 #[derive(Debug)]
@@ -102,6 +102,7 @@ impl NtpServer {
 			address: socket.local_addr().unwrap(),
 			address_whitelist,
 			expected_client_packet: NtpClientPacket {
+				index: 0,
 				magic_number: String::from(NTP_MAGIC_NUMBER),
 			},
 			precision: (total / BENCHMARK_TIMES) as u64,
@@ -162,51 +163,35 @@ impl NtpServer {
 		self.receive_stream.import(buffer)?;
 
 		let client_packet = self.receive_stream.decode::<NtpClientPacket>()?.0;
+		self.expected_client_packet.index = client_packet.index;
 		if client_packet != self.expected_client_packet {
 			self.log.print(LogLevel::Error, format!("received invalid magic number from {:?}", source), 0);
 			return Err(NtpServerError::InvalidMagicNumber(source));
 		}
 
 		// send the server time back
-		let mut buffer: [u8; 40] = [0; 40];
-		let send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+		let mut buffer: [u8; 41] = [0; 41];
+
+		buffer[0] = client_packet.index;
 
 		// we need to send the times as quick as possible since the longer we take, the more inaccurate the `send_time` is
 		// going to be. sends two 128 bit integers for receive time and send time.
-		buffer[0] = (recv_time & 0xFF) as u8;
-		buffer[1] = ((recv_time >> 8) & 0xFF) as u8;
-		buffer[2] = ((recv_time >> 16) & 0xFF) as u8;
-		buffer[3] = ((recv_time >> 24) & 0xFF) as u8;
-		buffer[4] = ((recv_time >> 32) & 0xFF) as u8;
-		buffer[5] = ((recv_time >> 40) & 0xFF) as u8;
-		buffer[6] = ((recv_time >> 48) & 0xFF) as u8;
-		buffer[7] = ((recv_time >> 56) & 0xFF) as u8;
-		buffer[8] = ((recv_time >> 64) & 0xFF) as u8;
-		buffer[9] = ((recv_time >> 72) & 0xFF) as u8;
-		buffer[10] = ((recv_time >> 80) & 0xFF) as u8;
-		buffer[11] = ((recv_time >> 88) & 0xFF) as u8;
-		buffer[12] = ((recv_time >> 96) & 0xFF) as u8;
-		buffer[13] = ((recv_time >> 104) & 0xFF) as u8;
-		buffer[14] = ((recv_time >> 112) & 0xFF) as u8;
-		buffer[15] = ((recv_time >> 120) & 0xFF) as u8;
-
-		// send time encoding
-		buffer[16] = (send_time & 0xFF) as u8;
-		buffer[17] = ((send_time >> 8) & 0xFF) as u8;
-		buffer[18] = ((send_time >> 16) & 0xFF) as u8;
-		buffer[19] = ((send_time >> 24) & 0xFF) as u8;
-		buffer[20] = ((send_time >> 32) & 0xFF) as u8;
-		buffer[21] = ((send_time >> 40) & 0xFF) as u8;
-		buffer[22] = ((send_time >> 48) & 0xFF) as u8;
-		buffer[23] = ((send_time >> 56) & 0xFF) as u8;
-		buffer[24] = ((send_time >> 64) & 0xFF) as u8;
-		buffer[25] = ((send_time >> 72) & 0xFF) as u8;
-		buffer[26] = ((send_time >> 80) & 0xFF) as u8;
-		buffer[27] = ((send_time >> 88) & 0xFF) as u8;
-		buffer[28] = ((send_time >> 96) & 0xFF) as u8;
-		buffer[29] = ((send_time >> 104) & 0xFF) as u8;
-		buffer[30] = ((send_time >> 112) & 0xFF) as u8;
-		buffer[31] = ((send_time >> 120) & 0xFF) as u8;
+		buffer[1] = (recv_time & 0xFF) as u8;
+		buffer[2] = ((recv_time >> 8) & 0xFF) as u8;
+		buffer[3] = ((recv_time >> 16) & 0xFF) as u8;
+		buffer[4] = ((recv_time >> 24) & 0xFF) as u8;
+		buffer[5] = ((recv_time >> 32) & 0xFF) as u8;
+		buffer[6] = ((recv_time >> 40) & 0xFF) as u8;
+		buffer[7] = ((recv_time >> 48) & 0xFF) as u8;
+		buffer[8] = ((recv_time >> 56) & 0xFF) as u8;
+		buffer[9] = ((recv_time >> 64) & 0xFF) as u8;
+		buffer[10] = ((recv_time >> 72) & 0xFF) as u8;
+		buffer[11] = ((recv_time >> 80) & 0xFF) as u8;
+		buffer[12] = ((recv_time >> 88) & 0xFF) as u8;
+		buffer[13] = ((recv_time >> 96) & 0xFF) as u8;
+		buffer[14] = ((recv_time >> 104) & 0xFF) as u8;
+		buffer[15] = ((recv_time >> 112) & 0xFF) as u8;
+		buffer[16] = ((recv_time >> 120) & 0xFF) as u8;
 
 		// send precision
 		buffer[32] = (self.precision & 0xFF) as u8;
@@ -217,6 +202,26 @@ impl NtpServer {
 		buffer[37] = ((self.precision >> 40) & 0xFF) as u8;
 		buffer[38] = ((self.precision >> 48) & 0xFF) as u8;
 		buffer[39] = ((self.precision >> 56) & 0xFF) as u8;
+
+		let send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+
+		// send time encoding
+		buffer[17] = (send_time & 0xFF) as u8;
+		buffer[18] = ((send_time >> 8) & 0xFF) as u8;
+		buffer[19] = ((send_time >> 16) & 0xFF) as u8;
+		buffer[20] = ((send_time >> 24) & 0xFF) as u8;
+		buffer[21] = ((send_time >> 32) & 0xFF) as u8;
+		buffer[22] = ((send_time >> 40) & 0xFF) as u8;
+		buffer[23] = ((send_time >> 48) & 0xFF) as u8;
+		buffer[24] = ((send_time >> 56) & 0xFF) as u8;
+		buffer[25] = ((send_time >> 64) & 0xFF) as u8;
+		buffer[26] = ((send_time >> 72) & 0xFF) as u8;
+		buffer[27] = ((send_time >> 80) & 0xFF) as u8;
+		buffer[28] = ((send_time >> 88) & 0xFF) as u8;
+		buffer[29] = ((send_time >> 96) & 0xFF) as u8;
+		buffer[30] = ((send_time >> 104) & 0xFF) as u8;
+		buffer[31] = ((send_time >> 112) & 0xFF) as u8;
+		buffer[32] = ((send_time >> 120) & 0xFF) as u8;
 
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
 		if let Err(error) = self.socket.send_to(&buffer, source) {

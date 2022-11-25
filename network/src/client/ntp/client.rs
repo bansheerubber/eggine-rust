@@ -18,6 +18,8 @@ pub enum NtpClientError {
 	Create(std::io::Error),
 	/// Emitted if we encountered a problem connecting to a server socket. Fatal.
 	Connect(std::io::Error),
+	/// Emitted if the server response does not have the correct packet index.
+	InvalidIndex,
 	/// Emitted if we encountered a problem with network streams.
 	NetworkStreamError(NetworkStreamError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
@@ -39,6 +41,7 @@ impl NtpClientError {
 		match *self {
 			NtpClientError::Create(_) => true,
 			NtpClientError::Connect(_) => true,
+			NtpClientError::InvalidIndex => false,
 			NtpClientError::NetworkStreamError(_) => false,
 			NtpClientError::PacketTooBig => false,
 			NtpClientError::Receive(_) => true,
@@ -100,6 +103,7 @@ impl Into<u128> for CorrectedTime {
 pub struct NtpClient {
 	address: SocketAddr,
 	log: Log,
+	packet_index: u8,
 	/// The buffer we write into when we receive data.
 	receive_buffer: [u8; MAX_NTP_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
@@ -134,6 +138,7 @@ impl NtpClient {
 		Ok(NtpClient {
 			address: socket.local_addr().unwrap(),
 			log: Log::default(),
+			packet_index: 0,
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
@@ -156,7 +161,9 @@ impl NtpClient {
 		// send the time request
 		let send_time;
 		{
+			self.packet_index = u8::overflowing_add(self.packet_index, 1).0;
 			let packet = NtpClientPacket {
+				index: self.packet_index,
 				magic_number: String::from(NTP_MAGIC_NUMBER),
 			};
 
@@ -199,6 +206,10 @@ impl NtpClient {
 
 			// figure out what to do with the packet we just got
 			let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
+
+			if packet.packet_index != self.packet_index {
+				return Err(NtpClientError::InvalidIndex);
+			}
 
 			self.shift_register.add_time(Some(Times::new(
 				recv_time.system_time(),
