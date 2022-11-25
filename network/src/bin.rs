@@ -20,7 +20,7 @@ fn main() {
 					panic!("{:?}", error);
 				}
 			}
-			std::thread::sleep(std::time::Duration::from_millis(1));
+			std::thread::sleep(std::time::Duration::from_millis(33));
 		}
 	} else {
 		let mut client = Client::new("[::]:0").unwrap();
@@ -30,10 +30,10 @@ fn main() {
 		let mut last_ping = std::time::Instant::now();
 
 		loop {
-			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
+			// if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
 				client.ping().unwrap();
-				last_ping = std::time::Instant::now();
-			}
+				// last_ping = std::time::Instant::now();
+			// }
 
 			if let Err(error) = client.tick() {
 				if error.is_fatal() {
@@ -41,7 +41,7 @@ fn main() {
 				}
 			}
 
-			std::thread::sleep(std::time::Duration::from_millis(1));
+			std::thread::sleep(std::time::Duration::from_millis(16));
 		}
 	}
 }

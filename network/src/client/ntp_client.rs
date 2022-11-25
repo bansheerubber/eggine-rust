@@ -178,6 +178,16 @@ impl TimesShiftRegister {
 
 		Some(epsilon + best.delay() as f64 / 2.0)
 	}
+
+	/// Calculates delay variance.
+	pub fn delay_std(&self) -> Option<f64> {
+		let mean = self.times.iter().fold(0.0, |accum, times| accum + times.delay() as f64) / (self.times.len() as f64);
+
+		Some(f64::sqrt(
+			self.times.iter()
+				.fold(0.0, |accum, times| accum + f64::powi(times.delay() as f64 - mean, 2)) / (self.times.len() as f64)
+		))
+	}
 }
 
 /// Used for client-sided time adjustments after syncing to the server's clock. All times are in microseconds. Based on
@@ -329,6 +339,11 @@ impl NtpClient {
 			println!("time offset: {}us", best.time_offset());
 			println!("round-trip: {}us", best.delay());
 			println!("jitter: {}us", self.shift_register.jitter().unwrap());
+
+			if self.shift_register.delay_std().is_some() {
+				println!("delay variance: {}", self.shift_register.delay_std().unwrap());
+			}
+
 			println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
 
 			if self.shift_register.last_best.is_some() {
