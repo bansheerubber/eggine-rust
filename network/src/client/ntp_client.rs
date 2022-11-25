@@ -90,6 +90,7 @@ impl Into<u128> for CorrectedTime {
 #[derive(Debug)]
 pub struct TimesShiftRegister {
 	/// How long it takes to measure system time, in nanoseconds.
+	last_best: Option<Times>,
 	precision: u64,
 	max_amount: usize,
 	times: VecDeque<Times>,
@@ -110,6 +111,7 @@ impl TimesShiftRegister {
 		}
 
 		TimesShiftRegister {
+			last_best: None,
 			precision: (total / BENCHMARK_TIMES) as u64,
 			max_amount,
 			times: VecDeque::new(),
@@ -118,11 +120,18 @@ impl TimesShiftRegister {
 
 	/// Add a `Times` to the shift register.
 	pub fn add_time(&mut self, times: Times) {
+		let last_best = self.best().cloned();
+
 		if self.times.len() > self.max_amount {
 			self.times.pop_back();
 		}
-
 		self.times.push_front(times);
+
+		let best = self.best().cloned();
+
+		if last_best.is_some() && last_best != best {
+			self.last_best = Some(last_best.unwrap().clone());
+		}
 	}
 
 	/// Returns the best `Times` for use in correcting system time.
@@ -173,7 +182,7 @@ impl TimesShiftRegister {
 
 /// Used for client-sided time adjustments after syncing to the server's clock. All times are in microseconds. Based on
 /// NTP (https://en.wikipedia.org/wiki/Network_Time_Protocol#Clock_synchronization_algorithm).
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Times {
 	/// The time we received the server's answer.
 	client_receive_time: i128,
@@ -321,6 +330,10 @@ impl NtpClient {
 			println!("round-trip: {}us", best.delay());
 			println!("jitter: {}us", self.shift_register.jitter().unwrap());
 			println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
+
+			if self.shift_register.last_best.is_some() {
+				println!("distance from last best: {}", best.time_offset() - self.shift_register.last_best.unwrap().time_offset());
+			}
 		}
 
 		Ok(())
