@@ -268,7 +268,7 @@ impl NtpClient {
 			receive_buffer: [0; MAX_NTP_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
-			shift_register: TimesShiftRegister::new(8),
+			shift_register: TimesShiftRegister::new(300),
 			socket,
 		})
 	}
