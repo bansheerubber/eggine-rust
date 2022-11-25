@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
+use std::time::{ Instant, SystemTime, UNIX_EPOCH, Duration, };
 use streams::{ ReadStream, WriteStream, };
 
 use crate::error::NetworkStreamError;
@@ -24,6 +24,9 @@ pub enum NtpClientError {
 	Receive(std::io::Error),
 	/// Emitted if we encountered an OS socket error during a send. Fatal.
 	Send(std::io::Error),
+	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
+	/// available packets from the socket at the moment. Non-fatal.
+	WouldBlock,
 }
 
 impl NtpClientError {
@@ -36,6 +39,7 @@ impl NtpClientError {
 			NtpClientError::PacketTooBig => false,
 			NtpClientError::Receive(_) => true,
 			NtpClientError::Send(_) => true,
+			NtpClientError::WouldBlock => false,
 		}
 	}
 }
@@ -265,6 +269,10 @@ impl NtpClient {
 			return Err(NtpClientError::Create(error));
 		}
 
+		if let Err(error) = socket.set_read_timeout(Some(Duration::from_secs(5))) {
+			return Err(NtpClientError::Create(error));
+		}
+
 		let mut receive_buffer = Vec::new();
 		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
 
@@ -305,7 +313,11 @@ impl NtpClient {
 			let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
 				Ok(a) => a,
 				Err(error) => {
-					return Err(NtpClientError::Receive(error));
+					if error.raw_os_error().unwrap() == 11 {
+						return Err(NtpClientError::WouldBlock);
+					} else {
+						return Err(NtpClientError::Receive(error));
+					}
 				},
 			};
 

@@ -31,13 +31,21 @@ fn main() {
 
 		loop {
 			// if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
-				client.ping().unwrap();
+				if let Err(error) = client.ping() {
+					if error.is_fatal() {
+						panic!("{:?}", error);
+					} else {
+						println!("{:?}", error);
+					}
+				}
 				// last_ping = std::time::Instant::now();
 			// }
 
 			if let Err(error) = client.tick() {
 				if error.is_fatal() {
 					panic!("{:?}", error);
+				} else {
+					println!("{:?}", error);
 				}
 			}
 
