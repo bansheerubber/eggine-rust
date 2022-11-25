@@ -1,6 +1,5 @@
-use std::collections::VecDeque;
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ Instant, SystemTime, UNIX_EPOCH, Duration, };
+use std::time::{ SystemTime, UNIX_EPOCH, Duration, };
 use streams::{ ReadStream, WriteStream, };
 
 use crate::error::NetworkStreamError;
@@ -9,6 +8,9 @@ use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ NtpClientPacket, NtpServerPacket, };
 use crate::server::ntp_server::{ NTP_MAGIC_NUMBER, MAX_NTP_PACKET_SIZE, };
 use crate::MAX_PACKET_SIZE;
+
+use super::times::Times;
+use super::times_shift_register::TimesShiftRegister;
 
 #[derive(Debug)]
 pub enum NtpClientError {
@@ -86,156 +88,6 @@ impl Into<i128> for CorrectedTime {
 impl Into<u128> for CorrectedTime {
 	fn into(self) -> u128 {
 		self.system_time as u128 + self.offset as u128
-	}
-}
-
-/// Collect several `Times` in order to statistically determine the best NTP offset/delay pair to use to correct our
-/// system time.
-#[derive(Debug)]
-pub struct TimesShiftRegister {
-	/// How long it takes to measure system time, in nanoseconds.
-	last_best: Option<Times>,
-	precision: u64,
-	max_amount: usize,
-	times: VecDeque<Times>,
-}
-
-impl TimesShiftRegister {
-	pub fn new(max_amount: usize) -> Self {
-		// benchmark precision
-		const BENCHMARK_TIMES: u128 = 1000;
-		let mut total = 0;
-		for _ in 0..BENCHMARK_TIMES {
-			let start = Instant::now();
-			#[allow(unused_must_use)] {
-				SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-			}
-
-			total += (Instant::now() - start).as_nanos();
-		}
-
-		TimesShiftRegister {
-			last_best: None,
-			precision: (total / BENCHMARK_TIMES) as u64,
-			max_amount,
-			times: VecDeque::new(),
-		}
-	}
-
-	/// Add a `Times` to the shift register.
-	pub fn add_time(&mut self, times: Times) {
-		let last_best = self.best().cloned();
-
-		if self.times.len() > self.max_amount {
-			self.times.pop_back();
-		}
-		self.times.push_front(times);
-
-		let best = self.best().cloned();
-
-		if last_best.is_some() && last_best != best {
-			self.last_best = Some(last_best.unwrap().clone());
-		}
-	}
-
-	/// Returns the best `Times` for use in correcting system time.
-	pub fn best(&self) -> Option<&Times> {
-		let mut minimum = (16_000_000, None);
-		for times in self.times.iter() {
-			if times.delay() < minimum.0 {
-				minimum = (times.delay(), Some(times));
-			}
-		}
-
-		minimum.1
-	}
-
-	/// Calculates the jitter in time offsets.
-	pub fn jitter(&self) -> Option<f64> {
-		let Some(best) = self.best() else {
-			return None;
-		};
-
-		let n = self.times.len() as i128 - 1;
-		let mut differences = 0.0;
-		for times in self.times.iter() {
-			if times == best {
-				continue;
-			}
-
-			differences += (1.0 / n as f64) * f64::powi(times.time_offset() as f64 - best.time_offset() as f64, 2);
-		}
-
-		Some(f64::sqrt(differences))
-	}
-
-	/// Calculates the synchronization distance. Represents maximum error.
-	pub fn synchronization_distance(&self) -> Option<f64> {
-		let Some(best) = self.best() else {
-			return None;
-		};
-
-		// sum of client and server precisions, sum grows at 15 microseconds per second
-		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
-		let epsilon = self.precision as f64 / 1000.0 + best.server_precision as f64 / 1000.0
-			+ 15.0 * (current_time - best.client_send_time) as f64 / 1_000_000.0;
-
-		Some(epsilon + best.delay() as f64 / 2.0)
-	}
-
-	/// Calculates delay variance.
-	pub fn delay_std(&self) -> Option<f64> {
-		let mean = self.times.iter().fold(0.0, |accum, times| accum + times.delay() as f64) / (self.times.len() as f64);
-
-		Some(f64::sqrt(
-			self.times.iter()
-				.fold(0.0, |accum, times| accum + f64::powi(times.delay() as f64 - mean, 2)) / (self.times.len() as f64)
-		))
-	}
-}
-
-/// Used for client-sided time adjustments after syncing to the server's clock. All times are in microseconds. Based on
-/// NTP (https://en.wikipedia.org/wiki/Network_Time_Protocol#Clock_synchronization_algorithm).
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct Times {
-	/// The time we received the server's answer.
-	client_receive_time: i128,
-	/// The time we sent our time request to the server.
-	client_send_time: i128,
-	/// The precision of the server.
-	server_precision: u64,
-	/// The time the server received our time request.
-	server_receive_time: i128,
-	/// The time the server sent its response to us.
-	server_send_time: i128,
-}
-
-impl Times {
-	/// The time between the client sending a time request and receiving the server's response. Based on NTP's round-trip
-	/// delay calculation.
-	pub fn delay(&self) -> i128 {
-		(self.client_receive_time - self.client_send_time) - (self.server_send_time - self.server_receive_time)
-	}
-
-	/// Calculate the difference in absolute time between the client and server times. Based on NTP's time offset
-	/// calculation.
-	pub fn time_offset(&self) -> i128 {
-		((self.server_receive_time - self.client_send_time) + (self.server_send_time - self.client_receive_time)) / 2
-	}
-
-	/// The amount of time the server spent processing the client's packet.
-	pub fn server_processing(&self) -> i128 {
-		self.server_send_time - self.server_receive_time
-	}
-
-	/// Estimates the time it took for the client's packet to reach the server.
-	pub fn estimate_first_leg(&self) -> i128 {
-		self.server_receive_time - self.client_send_time
-	}
-
-	/// Estimates the time it took for the server's packet to reach the client.
-	pub fn estimate_second_leg(&self) -> i128 {
-		self.client_receive_time - self.server_send_time
 	}
 }
 
@@ -338,13 +190,13 @@ impl NtpClient {
 			// figure out what to do with the packet we just got
 			let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
 
-			self.shift_register.add_time(Times {
-				client_receive_time: recv_time.system_time(),
-				client_send_time: send_time.system_time(),
-				server_precision: packet.precision,
-				server_receive_time: packet.receive_time,
-				server_send_time: packet.send_time,
-			});
+			self.shift_register.add_time(Times::new(
+				recv_time.system_time(),
+				send_time.system_time(),
+				packet.precision,
+				packet.receive_time,
+				packet.send_time,
+			));
 
 			let best = self.shift_register.best().unwrap();
 
@@ -358,8 +210,8 @@ impl NtpClient {
 
 			println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
 
-			if self.shift_register.last_best.is_some() {
-				println!("distance from last best: {}", best.time_offset() - self.shift_register.last_best.unwrap().time_offset());
+			if self.shift_register.last_best().is_some() {
+				println!("distance from last best: {}", best.time_offset() - self.shift_register.last_best().unwrap().time_offset());
 			}
 		}
 

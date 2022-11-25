@@ -9,7 +9,7 @@ use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
-use super::ntp_client::{ NtpClient, NtpClientError, };
+use super::ntp::{ NtpClient, NtpClientError, };
 
 #[derive(Debug)]
 pub enum ClientError {

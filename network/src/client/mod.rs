@@ -1,2 +1,2 @@
 pub mod client;
-pub mod ntp_client;
+pub mod ntp;
