@@ -24,6 +24,8 @@ pub enum NtpClientError {
 	PacketTooBig,
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
 	Receive(std::io::Error),
+	/// Emitted if we encountered an OS socket error during setting the read timeout
+	ReadTimeout(std::io::Error),
 	/// Emitted if we encountered an OS socket error during a send. Fatal.
 	Send(std::io::Error),
 	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
@@ -40,6 +42,7 @@ impl NtpClientError {
 			NtpClientError::NetworkStreamError(_) => false,
 			NtpClientError::PacketTooBig => false,
 			NtpClientError::Receive(_) => true,
+			NtpClientError::ReadTimeout(_) => true,
 			NtpClientError::Send(_) => true,
 			NtpClientError::WouldBlock => false,
 		}
@@ -122,7 +125,7 @@ impl NtpClient {
 		}
 
 		if let Err(error) = socket.set_read_timeout(Some(Duration::from_secs(5))) {
-			return Err(NtpClientError::Create(error));
+			return Err(NtpClientError::ReadTimeout(error));
 		}
 
 		let mut receive_buffer = Vec::new();
@@ -144,6 +147,12 @@ impl NtpClient {
 	}
 
 	pub fn sync_time(&mut self) -> Result<(), NtpClientError> {
+		if let Err(error) = self.socket.set_read_timeout(
+			Some(Duration::from_micros(self.shift_register.read_timeout() as u64))
+		) {
+			return Err(NtpClientError::ReadTimeout(error));
+		}
+
 		// send the time request
 		let send_time;
 		{
@@ -166,6 +175,7 @@ impl NtpClient {
 				Ok(a) => a,
 				Err(error) => {
 					if error.raw_os_error().unwrap() == 11 {
+						println!("would've blocked");
 						return Err(NtpClientError::WouldBlock);
 					} else {
 						return Err(NtpClientError::Receive(error));
@@ -190,25 +200,23 @@ impl NtpClient {
 			// figure out what to do with the packet we just got
 			let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
 
-			self.shift_register.add_time(Times::new(
+			self.shift_register.add_time(Some(Times::new(
 				recv_time.system_time(),
 				send_time.system_time(),
 				packet.precision,
 				packet.receive_time,
 				packet.send_time,
-			));
+			)));
 
 			let best = self.shift_register.best().unwrap();
 
+			// println!("read timeout: {}us", self.shift_register.read_timeout());
 			println!("time offset: {}us", best.time_offset());
 			println!("round-trip: {}us", best.delay());
 			println!("jitter: {}us", self.shift_register.jitter().unwrap());
-
-			if self.shift_register.delay_std().is_some() {
-				println!("delay variance: {}", self.shift_register.delay_std().unwrap());
-			}
-
+			println!("delay std: {}", self.shift_register.delay_std());
 			println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
+			println!("read timeout: {}us", self.shift_register.read_timeout());
 
 			if self.shift_register.last_best().is_some() {
 				println!("distance from last best: {}", best.time_offset() - self.shift_register.last_best().unwrap().time_offset());
