@@ -159,7 +159,7 @@ impl TimesShiftRegister {
 				continue;
 			}
 
-			differences += (1 / n) as f64 + f64::powi(times.time_offset() as f64 - best.time_offset() as f64, 2);
+			differences += (1.0 / n as f64) * f64::powi(times.time_offset() as f64 - best.time_offset() as f64, 2);
 		}
 
 		Some(f64::sqrt(differences))
