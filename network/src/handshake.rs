@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStringSafeStream, U8WriteStream, U8ReadStream, };
 
@@ -10,10 +12,6 @@ pub enum HandshakeError {
 
 impl NetworkStreamErrorTrait for HandshakeError {
 	fn as_any(&self) -> &dyn std::any::Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
 		self
 	}
 }

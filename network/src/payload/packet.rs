@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::hash::Hash;
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
@@ -15,10 +16,6 @@ pub enum PacketError {
 
 impl NetworkStreamErrorTrait for PacketError {
 	fn as_any(&self) -> &dyn Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
 		self
 	}
 }

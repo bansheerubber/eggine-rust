@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use streams::{ Decode, Encode, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8WriteStream, };
 
@@ -10,10 +12,6 @@ pub enum DisconnectionReasonError {
 
 impl NetworkStreamErrorTrait for DisconnectionReasonError {
 	fn as_any(&self) -> &dyn std::any::Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
 		self
 	}
 }

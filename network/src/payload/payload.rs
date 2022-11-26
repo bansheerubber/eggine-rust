@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
@@ -12,10 +14,6 @@ pub enum PayloadError {
 
 impl NetworkStreamErrorTrait for PayloadError {
 	fn as_any(&self) -> &dyn std::any::Any {
-		self
-	}
-
-	fn as_debug(&self) -> &dyn std::fmt::Debug {
 		self
 	}
 }
