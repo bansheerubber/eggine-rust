@@ -9,7 +9,7 @@ use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
-use super::ntp::{ NtpServer, NtpServerError, };
+use crate::ntp::{ NtpServer, NtpServerError, };
 use super::{ ClientConnection, ClientTable, };
 
 #[derive(Debug)]
@@ -118,7 +118,7 @@ impl Server {
 				},
 			},
 			log: Log::default(),
-			ntp_server: NtpServer::new(ntp_address).await?,
+			ntp_server: NtpServer::new(ntp_address, None).await?,
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range

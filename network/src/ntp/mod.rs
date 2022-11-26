@@ -2,6 +2,8 @@ pub mod server;
 pub mod times;
 pub mod times_shift_register;
 
+pub use server::NtpServer;
+pub use server::NtpServerError;
 pub use times::Times;
 pub use times_shift_register::TimesShiftRegister;
 

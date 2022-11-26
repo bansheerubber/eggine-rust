@@ -6,10 +6,9 @@ use crate::error::NetworkStreamError;
 use crate::handshake::{ Handshake, Version, };
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
+use crate::ntp::{NtpServerError, NtpServer};
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
-
-use super::ntp::{ NtpClient, NtpClientError, };
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -24,7 +23,7 @@ pub enum ClientError {
 	/// Emitted if we encountered a problem with network streams.
 	NetworkStreamError(NetworkStreamError),
 	/// Wrapper for an error from the client NTP implementation
-	NtpError(NtpClientError),
+	NtpError(NtpServerError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig,
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
@@ -60,8 +59,8 @@ impl From<NetworkStreamError> for ClientError {
 	}
 }
 
-impl From<NtpClientError> for ClientError {
-	fn from(error: NtpClientError) -> Self {
+impl From<NtpServerError> for ClientError {
+	fn from(error: NtpServerError) -> Self {
 		ClientError::NtpError(error)
 	}
 }
@@ -85,7 +84,7 @@ pub struct Client {
 	/// The last sequence we received from the server.
 	last_sequence_received: Option<u32>,
 	log: Log,
-	ntp_client: Option<NtpClient>,
+	ntp_server: Option<NtpServer>,
 	/// We place all outgoing data into this packet.
 	outgoing_packet: Packet,
 	/// The buffer we write into when we receive data.
@@ -130,7 +129,7 @@ impl Client {
 			last_activity: Instant::now(),
 			last_sequence_received: None,
 			log: Log::default(),
-			ntp_client: None,
+			ntp_server: None,
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
@@ -179,9 +178,9 @@ impl Client {
 		}
 
 		// process NTP packets from the server
-		if let Some(ntp_client) = self.ntp_client.as_mut() {
-			ntp_client.sync_time().await?;
-			ntp_client.process_all().await?;
+		if let Some(ntp_server) = self.ntp_server.as_mut() {
+			ntp_server.sync_time(None).await?;
+			ntp_server.process_all().await?;
 		}
 
 		Ok(())
@@ -206,7 +205,14 @@ impl Client {
 		let mut host_address = self.socket.peer_addr().unwrap();
 		host_address.set_port(host_address.port() + 1);
 
-		self.ntp_client = Some(NtpClient::new(bind_address, host_address).await?);
+		self.ntp_server = Some(NtpServer::new(bind_address, Some(host_address)).await?);
+		let address = if let SocketAddr::V6(address) = host_address {
+			address.ip().clone()
+		} else {
+			return Err(ClientError::NtpError(NtpServerError::InvalidIP));
+		};
+
+		self.ntp_server.as_mut().unwrap().address_whitelist.insert(address);
 
 		Ok(())
 	}

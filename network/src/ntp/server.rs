@@ -1,14 +1,14 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{ HashMap, HashSet, };
 use std::net::{ Ipv6Addr, SocketAddr, };
 use std::sync::Arc;
 use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
-use streams::ReadStream;
+use streams::{ ReadStream, WriteStream, };
 use tokio::sync::mpsc;
 use tokio::net::{ ToSocketAddrs, UdpSocket, };
 
 use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
-use crate::network_stream::NetworkReadStream;
+use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ NtpPacketHeader, NtpRequestPacket, NtpResponsePacket, };
 
 use super::{ Times, TimesShiftRegister, MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, };
@@ -81,11 +81,15 @@ pub struct NtpServer {
 	address: SocketAddr,
 	/// The IPV6 addresses that are allowed to communicate with the NTP server.
 	pub address_whitelist: HashSet<Ipv6Addr>,
+	host_address: Option<SocketAddr>,
 	log: Log,
+	packet_indexes: HashMap<SocketAddr, u8>,
 	/// Amount of time it takes to read system time, in nanoseconds.
 	precision: u64,
 	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
+	/// The stream we use to export data so we can sent it to a client.
+	send_stream: NetworkWriteStream,
 	/// The last time we sent a packet to the NTP server.
 	send_times: HashMap<(SocketAddr, u8), i128>,
 	/// Used for determining the best system time correction.
@@ -95,11 +99,17 @@ pub struct NtpServer {
 }
 
 impl NtpServer {
-	pub async fn new<T: ToSocketAddrs>(address: T) -> Result<Self, NtpServerError> {
+	pub async fn new<T: ToSocketAddrs>(address: T, host_address: Option<T>) -> Result<Self, NtpServerError> {
 		let socket = match UdpSocket::bind(address).await {
 			Ok(socket) => socket,
 			Err(error) => return Err(NtpServerError::Create(error)),
 		};
+
+		if let Some(host_address) = host_address {
+			if let Err(error) = socket.connect(host_address).await {
+				return Err(NtpServerError::Create(error));
+			}
+		}
 
 		// benchmark precision
 		const BENCHMARK_TIMES: u128 = 10000;
@@ -127,17 +137,73 @@ impl NtpServer {
 			}
 		});
 
+		let host_address = if let Ok(address) = socket.peer_addr() {
+			Some(address)
+		} else {
+			None
+		};
+
 		Ok(NtpServer {
 			address: socket.local_addr().unwrap(),
 			address_whitelist: HashSet::new(),
+			host_address,
+			packet_indexes: HashMap::new(),
 			precision: (total / BENCHMARK_TIMES) as u64,
 			log: Log::default(),
 			receive_stream: NetworkReadStream::new(),
+			send_stream: NetworkWriteStream::new(),
 			send_times: HashMap::new(),
 			shift_register: HashMap::new(),
 			socket,
 			rx,
 		})
+	}
+
+	/// Send a time synchronization request to the server.
+	pub async fn sync_time(&mut self, address: Option<SocketAddr>) -> Result<(), NtpServerError> {
+		// determine the address
+		let address = if let Some(address) = address {
+			address
+		} else {
+			self.host_address.unwrap()
+		};
+
+		if !self.packet_indexes.contains_key(&address) {
+			self.packet_indexes.insert(address, 0);
+		}
+
+		// encode packet header
+		let header = NtpPacketHeader {
+			magic_number: String::from(NTP_MAGIC_NUMBER),
+			packet_type: 0,
+		};
+
+		self.send_stream.encode(&header)?;
+
+		// encode request packet
+		let packet_index = u8::overflowing_add(self.packet_indexes[&address], 1).0;
+		self.packet_indexes.insert(address, packet_index);
+		let packet = NtpRequestPacket {
+			index: packet_index,
+		};
+
+		self.send_stream.encode(&packet)?;
+
+		// wait for socket to become writable
+		if let Err(error) = self.socket.writable().await {
+			return Err(NtpServerError::Send(error));
+		}
+
+		let time = Self::get_micros();
+		let result = if let Err(error) = self.socket.send_to(&self.send_stream.export()?, address).await {
+			Err(NtpServerError::Send(error))
+		} else {
+			Ok(())
+		};
+
+		self.send_times.insert((address, packet_index), time);
+
+		return result;
 	}
 
 	/// Consume all messages that the tokio UDP socket sent us.
@@ -151,6 +217,7 @@ impl NtpServer {
 		}
 	}
 
+	/// Filter bad packets, then read the packet header and figure out what to do with the packet.
 	async fn process(&mut self, message: Message) -> Result<(), NtpServerError> {
 		let (source, receive_buffer, read_bytes, recv_time) = message;
 
@@ -277,6 +344,7 @@ impl NtpServer {
 		Ok(())
 	}
 
+	/// Process the response sent. Update internal state using the timing information received.
 	fn process_response(&mut self, source: SocketAddr, recv_time: i128) -> Result<(), NtpServerError> {
 		if !self.shift_register.contains_key(&source) {
 			self.shift_register.insert(source, TimesShiftRegister::new(300));

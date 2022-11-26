@@ -2,7 +2,7 @@ use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream,
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
 use crate::error::NetworkStreamError;
-use crate::server::ntp::NTP_MAGIC_NUMBER;
+use crate::ntp::NTP_MAGIC_NUMBER;
 
 /// Header of a NTP packet.
 #[derive(Debug, Eq, PartialEq)]
