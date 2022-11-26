@@ -10,7 +10,7 @@ use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ NtpClientPacket, NtpServerPacket, };
-use crate::server::ntp_server::{ NTP_MAGIC_NUMBER, MAX_NTP_PACKET_SIZE, };
+use crate::server::ntp::{ NTP_MAGIC_NUMBER, MAX_NTP_PACKET_SIZE, };
 use crate::MAX_PACKET_SIZE;
 
 use super::times::Times;

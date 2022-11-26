@@ -2,7 +2,7 @@ use streams::{ Decode, Encode, Endable, ReadStream, StreamPosition, WriteStream,
 use streams::u8_io::{ U8ReadStream, U8ReadStringSafeStream, U8WriteStream, };
 
 use crate::error::NetworkStreamError;
-use crate::server::ntp_server::NTP_MAGIC_NUMBER;
+use crate::server::ntp::NTP_MAGIC_NUMBER;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct NtpClientPacket {

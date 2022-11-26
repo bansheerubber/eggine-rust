@@ -9,8 +9,7 @@ use crate::log::{ Log, LogLevel, };
 use crate::network_stream::NetworkReadStream;
 use crate::payload::NtpClientPacket;
 
-pub const MAX_NTP_PACKET_SIZE: usize = 41;
-pub const NTP_MAGIC_NUMBER: &str = "EGGINENTP";
+use super::{ MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, };
 
 #[derive(Debug)]
 pub enum NtpServerError {
@@ -54,18 +53,12 @@ impl From<NetworkStreamError> for NtpServerError {
 	}
 }
 
-#[derive(Debug, Default)]
-pub struct NtpServerWhitelist {
-	/// The IPV6 addresses that are allowed to communicate with the NTP server.
-	pub list: HashSet<Ipv6Addr>,
-}
-
 #[derive(Debug)]
 pub struct NtpServer {
 	/// The address the server is bound to
 	address: SocketAddr,
 	/// The IPV6 addresses that are allowed to communicate with the NTP server.
-	address_whitelist: Arc<Mutex<NtpServerWhitelist>>,
+	pub address_whitelist: HashSet<Ipv6Addr>,
 	expected_client_packet: NtpClientPacket,
 	log: Log,
 	/// Amount of time it takes to read system time, in nanoseconds.
@@ -78,9 +71,7 @@ pub struct NtpServer {
 }
 
 impl NtpServer {
-	pub fn new<T: ToSocketAddrs>(
-		address: T, address_whitelist: Arc<Mutex<NtpServerWhitelist>>
-	) -> Result<Self, NtpServerError> {
+	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, NtpServerError> {
 		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
 			Err(error) => return Err(NtpServerError::Create(error)),
@@ -100,7 +91,7 @@ impl NtpServer {
 
 		Ok(NtpServer {
 			address: socket.local_addr().unwrap(),
-			address_whitelist,
+			address_whitelist: HashSet::new(),
 			expected_client_packet: NtpClientPacket {
 				index: 0,
 				magic_number: String::from(NTP_MAGIC_NUMBER),
@@ -146,7 +137,7 @@ impl NtpServer {
 		};
 
 		// stop non-whitelisted data from continuing
-		if !self.address_whitelist.lock().unwrap().list.contains(&address) {
+		if !self.address_whitelist.contains(&address) {
 			return Err(NtpServerError::NotWhitelisted(source));
 		}
 

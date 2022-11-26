@@ -11,8 +11,8 @@ use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ AcknowledgeMask, DisconnectionReason, Packet, SubPayload, };
 use crate::MAX_PACKET_SIZE;
 
-use super::ntp_server::{ NtpServerError, NtpServerWhitelist, };
-use super::{ ClientConnection, ClientTable, NtpServer, };
+use super::ntp::{ NtpServer, NtpServerError, };
+use super::{ ClientConnection, ClientTable, };
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -82,7 +82,7 @@ pub struct Server {
 	/// Handshake we compare client handshakes against.
 	handshake: Handshake,
 	log: Log,
-	ntp_server_whitelist: Arc<Mutex<NtpServerWhitelist>>,
+	ntp_server: NtpServer,
 	/// The buffer we write into when we receive data.
 	receive_buffer: [u8; MAX_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
@@ -106,11 +106,10 @@ impl Server {
 		let mut ntp_address = socket.local_addr().unwrap();
 		ntp_address.set_port(ntp_address.port() + 1);
 
-		let whitelist = Arc::new(Mutex::new(NtpServerWhitelist::default()));
-		let mut ntp_server = NtpServer::new(ntp_address, whitelist.clone())?;
-		thread::spawn(move || {
-			ntp_server.recv_loop();
-		});
+		let mut ntp_server = NtpServer::new(ntp_address)?;
+		// thread::spawn(move || {
+		// 	ntp_server.recv_loop();
+		// });
 
 		Ok(Server {
 			address: socket.local_addr().unwrap(),
@@ -126,7 +125,7 @@ impl Server {
 				},
 			},
 			log: Log::default(),
-			ntp_server_whitelist: whitelist,
+			ntp_server,
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
@@ -385,7 +384,7 @@ impl Server {
 		});
 
 		// add the client to the NTP server whitelist so they can get accurate times
-		self.ntp_server_whitelist.lock().unwrap().list.insert(address.clone());
+		self.ntp_server.address_whitelist.insert(address.clone());
 
 		self.handshake.sequences = (sequence, their_sequence);
 
@@ -409,7 +408,7 @@ impl Server {
 
 		// remove the client to the NTP server whitelist
 		if let SocketAddr::V6(address) = source {
-			self.ntp_server_whitelist.lock().unwrap().list.insert(address.ip().clone());
+			self.ntp_server.address_whitelist.insert(address.ip().clone());
 		}
 
 		// remove the client before we have a chance of erroring out during the send
