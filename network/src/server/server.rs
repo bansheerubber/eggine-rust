@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
@@ -109,6 +110,7 @@ impl Server {
 			client_table: ClientTable::default(),
 			handshake: Handshake {
 				checksum: [0; 16],
+				ntp_id: 0,
 				sequences: (0, 0),
 				version: Version {
 					branch: String::from("master"),
@@ -375,10 +377,15 @@ impl Server {
 		// we're home free, add the client to the client list
 		let sequence = 500;
 		let their_sequence = 1000;
+
+		let their_ntp_id = rand::thread_rng().gen::<u32>();
+
 		self.log.print(LogLevel::Info, format!("established client connection successfully"), 1);
 		self.client_table.add_client(source, ClientConnection {
 			acknowledge_mask: AcknowledgeMask::default(),
 			address: source,
+			ntp_id_client: their_ntp_id,
+			ntp_id_server: handshake.ntp_id,
 			highest_acknowledge_received: Some(sequence),
 			last_activity: Instant::now(),
 			last_ping_time: Instant::now(),
@@ -391,6 +398,7 @@ impl Server {
 		self.ntp_server.address_whitelist.insert(address.clone());
 
 		self.handshake.sequences = (sequence, their_sequence);
+		self.handshake.ntp_id = their_ntp_id; // tell the client to use this ID
 
 		// send our handshake to the client
 		self.send_stream.encode(&self.handshake)?;

@@ -76,6 +76,8 @@ pub struct Handshake {
 	/// Checksum of the network API. If the checksum between a client and server do not match, then they would be unable
 	/// to communicate with each other.
 	pub checksum: [u8; 16],
+	/// The identifier that can uniquely identify clients in NTP packets.
+	pub ntp_id: u32,
 	/// Used to instantiate packet sequence numbers between the client and server. The server initializes all sequence
 	/// numbers.
 	pub sequences: (u32, u32),
@@ -102,6 +104,9 @@ where
 		stream.write_char('I')?;
 		stream.write_char('N')?;
 		stream.write_char('E')?;
+
+		// write ntp id
+		stream.write_u32(self.ntp_id)?;
 
 		// write sequences
 		stream.write_u32(self.sequences.0)?;
@@ -133,6 +138,9 @@ where
 			return Err(Box::new(HandshakeError::InvalidMagicNumber));
 		}
 
+		// read ntp id
+		let (ntp_id, _) = stream.read_u32()?;
+
 		// read the sequence numbers
 		let (sequence1, _) = stream.read_u32()?;
 		let (sequence2, _) = stream.read_u32()?;
@@ -148,6 +156,7 @@ where
 		Ok((
 			Handshake {
 				checksum,
+				ntp_id,
 				sequences: (sequence1, sequence2),
 				version,
 			},

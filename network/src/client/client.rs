@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
 use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
@@ -84,6 +85,10 @@ pub struct Client {
 	/// The last sequence we received from the server.
 	last_sequence_received: Option<u32>,
 	log: Log,
+	/// The NTP id that we use to talk to the server.
+	ntp_id_client: u32,
+	/// The NTP id that the server uses to talk to us.
+	ntp_id_server: u32,
 	ntp_server: Option<NtpServer>,
 	/// We place all outgoing data into this packet.
 	outgoing_packet: Packet,
@@ -111,12 +116,15 @@ impl Client {
 			return Err(ClientError::Create(error));
 		}
 
+		let ntp_id_server = rand::thread_rng().gen::<u32>();
+
 		Ok(Client {
 			acknowledge_mask: AcknowledgeMask::default(),
 			address: socket.local_addr().unwrap(),
 			connection_initialized: false,
 			handshake: Handshake {
 				checksum: [0; 16],
+				ntp_id: ntp_id_server,
 				sequences: (0, 0),
 				version: Version {
 					branch: String::from("master"),
@@ -129,6 +137,8 @@ impl Client {
 			last_activity: Instant::now(),
 			last_sequence_received: None,
 			log: Log::default(),
+			ntp_id_client: 0,
+			ntp_id_server,
 			ntp_server: None,
 			outgoing_packet: Packet::new(0, 0),
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
@@ -275,6 +285,7 @@ impl Client {
 			// set our sequence numbers
 			self.last_sequence_received = Some(handshake.sequences.0);
 			self.sequence = handshake.sequences.1;
+			self.ntp_id_client = handshake.ntp_id;
 
 			self.log.print(LogLevel::Info, format!("connection established"), 0);
 			self.connection_initialized = true;
