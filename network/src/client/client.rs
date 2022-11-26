@@ -216,13 +216,7 @@ impl Client {
 		host_address.set_port(host_address.port() + 1);
 
 		self.ntp_server = Some(NtpServer::new(bind_address, Some(host_address)).await?);
-		let address = if let SocketAddr::V6(address) = host_address {
-			address.ip().clone()
-		} else {
-			return Err(ClientError::NtpError(NtpServerError::InvalidIP));
-		};
-
-		self.ntp_server.as_mut().unwrap().address_whitelist.insert(address);
+		self.ntp_server.as_mut().unwrap().address_to_id.insert(host_address, self.ntp_id_server);
 
 		Ok(())
 	}
@@ -286,6 +280,7 @@ impl Client {
 			self.last_sequence_received = Some(handshake.sequences.0);
 			self.sequence = handshake.sequences.1;
 			self.ntp_id_client = handshake.ntp_id;
+			self.ntp_server.as_mut().unwrap().id_to_host_id.insert(self.ntp_id_server, self.ntp_id_client);
 
 			self.log.print(LogLevel::Info, format!("connection established"), 0);
 			self.connection_initialized = true;

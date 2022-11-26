@@ -7,6 +7,8 @@ use crate::ntp::NTP_MAGIC_NUMBER;
 /// Header of a NTP packet.
 #[derive(Debug, Eq, PartialEq)]
 pub struct NtpPacketHeader {
+	/// Used to identify the user behind the connection.
+	pub id: u32,
 	pub magic_number: String,
 	pub packet_type: u8,
 }
@@ -17,6 +19,7 @@ where
 {
 	fn encode(&self, stream: &mut T) -> Result<(), NetworkStreamError> {
 		stream.write_string(&self.magic_number)?;
+		stream.write_u32(self.id)?;
 		stream.write_u8(self.packet_type)
 	}
 }
@@ -30,9 +33,12 @@ where
 			NTP_MAGIC_NUMBER.len() as u64, NTP_MAGIC_NUMBER.len() as u64
 		)?;
 
+		let (id, _) = stream.read_u32()?;
+
 		let (packet_type, position) = stream.read_u8()?;
 
 		Ok((NtpPacketHeader {
+			id,
 			packet_type,
 			magic_number,
 		}, position))

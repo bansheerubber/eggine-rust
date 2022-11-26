@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
+use std::time::{ SystemTime, UNIX_EPOCH, };
 
 use super::Times;
 
@@ -8,30 +8,18 @@ use super::Times;
 #[derive(Debug)]
 pub struct TimesShiftRegister {
 	last_best: Option<Times>,
+	max_amount: usize,
 	/// How long it takes to measure system time, in nanoseconds.
 	precision: u64,
-	max_amount: usize,
 	read_timeout: f64,
 	times: VecDeque<Times>,
 }
 
 impl TimesShiftRegister {
-	pub fn new(max_amount: usize) -> Self {
-		// benchmark precision
-		const BENCHMARK_TIMES: u128 = 1000;
-		let mut total = 0;
-		for _ in 0..BENCHMARK_TIMES {
-			let start = Instant::now();
-			#[allow(unused_must_use)] {
-				SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
-			}
-
-			total += (Instant::now() - start).as_nanos();
-		}
-
+	pub fn new(max_amount: usize, precision: u64) -> Self {
 		TimesShiftRegister {
 			last_best: None,
-			precision: (total / BENCHMARK_TIMES) as u64,
+			precision,
 			max_amount,
 			read_timeout: 16_000_000.0,
 			times: VecDeque::new(),
