@@ -1,8 +1,10 @@
 use std::collections::HashSet;
+use tokio;
 
 use network::{ Client, Server, };
 
-fn main() {
+#[tokio::main]
+async fn main() {
 	let mut arguments = HashSet::new();
 	let mut last_argument = String::new();
 	for argument in std::env::args() {
@@ -24,13 +26,13 @@ fn main() {
 		}
 	} else {
 		let mut client = Client::new("[::]:0").unwrap();
-		client.initialize_connection(last_argument).expect("Could not initialize connection to the server");
+		client.initialize_connection(last_argument).await.expect("Could not initialize connection to the server");
 		std::thread::sleep(std::time::Duration::from_secs(1));
 
 		let mut last_ping = std::time::Instant::now();
 
 		loop {
-			// if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
+			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(10) {
 				if let Err(error) = client.ping() {
 					if error.is_fatal() {
 						panic!("{:?}", error);
@@ -38,10 +40,10 @@ fn main() {
 						println!("{:?}", error);
 					}
 				}
-				// last_ping = std::time::Instant::now();
-			// }
+				last_ping = std::time::Instant::now();
+			}
 
-			if let Err(error) = client.tick() {
+			if let Err(error) = client.tick().await {
 				if error.is_fatal() {
 					panic!("{:?}", error);
 				} else {
@@ -49,7 +51,7 @@ fn main() {
 				}
 			}
 
-			std::thread::sleep(std::time::Duration::from_millis(16));
+			std::thread::sleep(std::time::Duration::from_millis(33));
 		}
 	}
 }

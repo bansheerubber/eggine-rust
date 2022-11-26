@@ -1,6 +1,10 @@
-use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::time::{ SystemTime, UNIX_EPOCH, Duration, };
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::{ SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
+use tokio::sync::mpsc;
+use tokio::net::{ ToSocketAddrs, UdpSocket, };
 
 use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
@@ -15,21 +19,21 @@ use super::times_shift_register::TimesShiftRegister;
 #[derive(Debug)]
 pub enum NtpClientError {
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
-	Create(std::io::Error),
+	Create(tokio::io::Error),
 	/// Emitted if we encountered a problem connecting to a server socket. Fatal.
-	Connect(std::io::Error),
+	Connect(tokio::io::Error),
 	/// Emitted if the server response does not have the correct packet index.
 	InvalidIndex,
+	/// Emitted if we encountered a problem with the tokio mpsc UDP socket communication.
+	MpscError(mpsc::error::TryRecvError),
 	/// Emitted if we encountered a problem with network streams.
 	NetworkStreamError(NetworkStreamError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig,
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
-	Receive(std::io::Error),
-	/// Emitted if we encountered an OS socket error during setting the read timeout
-	ReadTimeout(std::io::Error),
+	Receive(tokio::io::Error),
 	/// Emitted if we encountered an OS socket error during a send. Fatal.
-	Send(std::io::Error),
+	Send(tokio::io::Error),
 	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
 	/// available packets from the socket at the moment. Non-fatal.
 	WouldBlock,
@@ -42,10 +46,16 @@ impl NtpClientError {
 			NtpClientError::Create(_) => true,
 			NtpClientError::Connect(_) => true,
 			NtpClientError::InvalidIndex => false,
+			NtpClientError::MpscError(error) => {
+				if let mpsc::error::TryRecvError::Disconnected = error {
+					return true;
+				} else {
+					return false;
+				}
+			},
 			NtpClientError::NetworkStreamError(_) => false,
 			NtpClientError::PacketTooBig => false,
 			NtpClientError::Receive(_) => true,
-			NtpClientError::ReadTimeout(_) => true,
 			NtpClientError::Send(_) => true,
 			NtpClientError::WouldBlock => false,
 		}
@@ -55,6 +65,12 @@ impl NtpClientError {
 impl From<NetworkStreamError> for NtpClientError {
 	fn from(error: NetworkStreamError) -> Self {
 		NtpClientError::NetworkStreamError(error)
+	}
+}
+
+impl From<mpsc::error::TryRecvError> for NtpClientError {
+	fn from(error: mpsc::error::TryRecvError) -> Self {
+		NtpClientError::MpscError(error)
 	}
 }
 
@@ -97,6 +113,8 @@ impl Into<u128> for CorrectedTime {
 	}
 }
 
+type Message = ([u8; MAX_NTP_PACKET_SIZE + 1], usize, i128);
+
 /// A client connection in the eggine network stack. Clients connect to servers, which are treated as a trusted source
 /// of information. The two communicate using a packet format built upon the streams library.
 #[derive(Debug)]
@@ -104,137 +122,81 @@ pub struct NtpClient {
 	address: SocketAddr,
 	log: Log,
 	packet_index: u8,
-	/// The buffer we write into when we receive data.
-	receive_buffer: [u8; MAX_NTP_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
 	/// The stream we use to export data so we can sent it to a client.
 	send_stream: NetworkWriteStream,
+	/// The last time we sent a packet to the NTP server.
+	send_times: HashMap<u8, i128>,
 	/// Used for determining the best system time correction.
 	shift_register: TimesShiftRegister,
 	/// The socket the client is connected to the server on.
-	socket: UdpSocket,
+	socket: Arc<UdpSocket>,
+	rx: mpsc::Receiver<Message>,
 }
 
 impl NtpClient {
 	/// Initialize the a client socket bound to the specified address.
-	pub fn new<T: ToSocketAddrs>(address: T, host_address: T) -> Result<Self, NtpClientError> {
-		let socket = match UdpSocket::bind(address) {
+	pub async fn new<T: ToSocketAddrs>(address: T, host_address: T) -> Result<Self, NtpClientError> {
+		let socket = match UdpSocket::bind(address).await {
 			Ok(socket) => socket,
 			Err(error) => return Err(NtpClientError::Create(error)),
 		};
 
-		if let Err(error) = socket.connect(host_address) {
+		if let Err(error) = socket.connect(host_address).await {
 			return Err(NtpClientError::Create(error));
 		}
 
-		if let Err(error) = socket.set_read_timeout(Some(Duration::from_secs(5))) {
-			return Err(NtpClientError::ReadTimeout(error));
-		}
+		let (tx, rx) = mpsc::channel::<Message>(100);
 
-		let mut receive_buffer = Vec::new();
-		receive_buffer.resize(MAX_PACKET_SIZE + 1, 0);
+		// set up the read thread
+		let socket = Arc::new(socket);
+		let receive_socket = socket.clone();
+		tokio::spawn(async move {
+			loop {
+				let mut receive_buffer = [0; MAX_NTP_PACKET_SIZE + 1];
+				let read_bytes = receive_socket.recv(&mut receive_buffer).await.expect("Could not receive");
+				let recv_time = Self::get_micros();
+
+				tx.send((receive_buffer, read_bytes, recv_time)).await.expect("Could not send");
+			}
+		});
 
 		Ok(NtpClient {
 			address: socket.local_addr().unwrap(),
 			log: Log::default(),
 			packet_index: 0,
-			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
-			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
-			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
-			// `0..MAX_PACKET_SIZE`.
-			receive_buffer: [0; MAX_NTP_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
+			send_times: HashMap::new(),
 			shift_register: TimesShiftRegister::new(300),
 			socket,
+			rx,
 		})
 	}
 
-	pub fn sync_time(&mut self) -> Result<(), NtpClientError> {
-		if let Err(error) = self.socket.set_read_timeout(
-			Some(Duration::from_micros(self.shift_register.read_timeout() as u64))
-		) {
-			return Err(NtpClientError::ReadTimeout(error));
+	/// Send a time synchronization request to the server.
+	pub async fn sync_time(&mut self) -> Result<(), NtpClientError> {
+		self.packet_index = u8::overflowing_add(self.packet_index, 1).0;
+		let packet = NtpClientPacket {
+			index: self.packet_index,
+			magic_number: String::from(NTP_MAGIC_NUMBER),
+		};
+
+		self.send_stream.encode(&packet)?;
+
+		// wait for socket to become writable
+		if let Err(error) = self.socket.writable().await {
+			return Err(NtpClientError::Receive(error));
 		}
 
-		// send the time request
-		let send_time;
-		{
-			self.packet_index = u8::overflowing_add(self.packet_index, 1).0;
-			let packet = NtpClientPacket {
-				index: self.packet_index,
-				magic_number: String::from(NTP_MAGIC_NUMBER),
-			};
+		self.send_times.insert(self.packet_index, Self::get_micros());
 
-			self.send_stream.encode(&packet)?;
-
-			send_time = self.get_corrected_time();
-
-			if let Err(error) = self.socket.send(&self.send_stream.export()?) {
-				return Err(NtpClientError::Send(error));
-			}
+		if let Err(error) = self.socket.send(&self.send_stream.export()?).await {
+			Err(NtpClientError::Send(error))
+		} else {
+			Ok(())
 		}
-
-		// receive the time
-		{
-			let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
-				Ok(a) => a,
-				Err(error) => {
-					if error.raw_os_error().unwrap() == 11 {
-						println!("would've blocked");
-						return Err(NtpClientError::WouldBlock);
-					} else {
-						return Err(NtpClientError::Receive(error));
-					}
-				},
-			};
-
-			let recv_time = self.get_corrected_time();
-
-			// make sure what we just read is not too big to be an eggine packet
-			if read_bytes > MAX_PACKET_SIZE {
-				self.log.print(LogLevel::Error, format!("received too big of a packet"), 0);
-				return Err(NtpClientError::PacketTooBig);
-			}
-
-			// import raw bytes into the receive stream
-			// TODO optimize this
-			let mut buffer: Vec<u8> = Vec::new();
-			buffer.extend(&self.receive_buffer[0..read_bytes]);
-			self.receive_stream.import(buffer)?;
-
-			// figure out what to do with the packet we just got
-			let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
-
-			if packet.packet_index != self.packet_index {
-				return Err(NtpClientError::InvalidIndex);
-			}
-
-			self.shift_register.add_time(Some(Times::new(
-				recv_time.system_time(),
-				send_time.system_time(),
-				packet.precision,
-				packet.receive_time,
-				packet.send_time,
-			)));
-
-			let best = self.shift_register.best().unwrap();
-
-			// println!("read timeout: {}us", self.shift_register.read_timeout());
-			println!("time offset: {}us", best.time_offset());
-			println!("round-trip: {}us", best.delay());
-			println!("jitter: {}us", self.shift_register.jitter().unwrap());
-			println!("delay std: {}", self.shift_register.delay_std());
-			println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
-			println!("read timeout: {}us", self.shift_register.read_timeout());
-
-			if self.shift_register.last_best().is_some() {
-				println!("distance from last best: {}", best.time_offset() - self.shift_register.last_best().unwrap().time_offset());
-			}
-		}
-
-		Ok(())
 	}
 
 	pub fn get_corrected_time(&self) -> CorrectedTime {
@@ -245,5 +207,63 @@ impl NtpClient {
 		};
 
 		CorrectedTime::new(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128, offset)
+	}
+
+	/// Consume all messages that the tokio UDP socket sent us.
+	pub async fn process_all(&mut self) -> Result<(), NtpClientError> {
+		loop {
+			match self.rx.try_recv() {
+				Ok(message) => self.process(message)?,
+				Err(mpsc::error::TryRecvError::Empty) => return Ok(()),
+				Err(error) => return Err(error.into()),
+			}
+		}
+	}
+
+	/// Process data from a message.
+	fn process(&mut self, message: Message) -> Result<(), NtpClientError> {
+		let (receive_buffer, read_bytes, recv_time) = message;
+
+		// make sure what we just read is not too big to be an eggine packet
+		if read_bytes > MAX_PACKET_SIZE {
+			self.log.print(LogLevel::Error, format!("received too big of a packet"), 0);
+			return Err(NtpClientError::PacketTooBig);
+		}
+
+		// import raw bytes into the receive stream
+		// TODO optimize this
+		let mut buffer: Vec<u8> = Vec::new();
+		buffer.extend(&receive_buffer[0..read_bytes]);
+		self.receive_stream.import(buffer)?;
+
+		// figure out what to do with the packet we just got
+		let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
+		let send_time = self.send_times[&packet.packet_index];
+		self.shift_register.add_time(Some(Times::new(
+			recv_time,
+			send_time,
+			packet.precision,
+			packet.receive_time,
+			packet.send_time,
+		)));
+
+		let best = self.shift_register.best().unwrap();
+
+		println!("time offset: {}us", best.time_offset());
+		println!("round-trip: {}us", best.delay());
+		println!("jitter: {}us", self.shift_register.jitter().unwrap());
+		println!("delay std: {}", self.shift_register.delay_std());
+		println!("synchronization distance: {}us", self.shift_register.synchronization_distance().unwrap());
+
+		if self.shift_register.last_best().is_some() {
+			println!("distance from last best: {}", best.time_offset() - self.shift_register.last_best().unwrap().time_offset());
+		}
+
+		Ok(())
+	}
+
+	/// Get time in microseconds.
+	fn get_micros() -> i128 {
+		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128
 	}
 }

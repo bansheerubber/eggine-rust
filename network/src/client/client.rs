@@ -146,7 +146,7 @@ impl Client {
 
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out our time-to-live.
-	pub fn tick(&mut self) -> Result<(), ClientError> {
+	pub async fn tick(&mut self) -> Result<(), ClientError> {
 		// send the packet we worked on constructing to the server, then reset it
 		if self.outgoing_packet.get_sub_payloads().len() > 0 && self.is_connection_valid() {
 			self.sequence += 1;
@@ -164,6 +164,7 @@ impl Client {
 			self.outgoing_packet.next();
 		}
 
+		// receive packets from the server
 		loop {
 			match self.recv() {
 				Ok(_) => {},
@@ -177,12 +178,18 @@ impl Client {
 			}
 		}
 
+		// process NTP packets from the server
+		if let Some(ntp_client) = self.ntp_client.as_mut() {
+			ntp_client.sync_time().await?;
+			ntp_client.process_all().await?;
+		}
+
 		Ok(())
 	}
 
 	/// Initializes a connection with the specified server. Done by sending a handshake, and receiving a sequence ID pair
 	/// used for exchanging packets.
-	pub fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), ClientError> {
+	pub async fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), ClientError> {
 		if let Err(error) = self.socket.connect(address) {
 			return Err(ClientError::Connect(error));
 		}
@@ -199,7 +206,7 @@ impl Client {
 		let mut host_address = self.socket.peer_addr().unwrap();
 		host_address.set_port(host_address.port() + 1);
 
-		self.ntp_client = Some(NtpClient::new(bind_address, host_address)?);
+		self.ntp_client = Some(NtpClient::new(bind_address, host_address).await?);
 
 		Ok(())
 	}
@@ -210,8 +217,6 @@ impl Client {
 
 	/// Ping the server.
 	pub fn ping(&mut self) -> Result<(), ClientError> {
-		self.ntp_client.as_mut().unwrap().sync_time()?;
-
 		if !self.is_connection_valid() {
 			return Ok(());
 		}
