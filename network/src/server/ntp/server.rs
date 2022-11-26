@@ -145,84 +145,6 @@ impl NtpServer {
 		}
 	}
 
-	/// Process a NTP timing information request. Send the timing information back to the socket.
-	async fn process_request(&mut self, source: SocketAddr, recv_time: i128) -> Result<(), NtpServerError> {
-		let client_packet = self.receive_stream.decode::<NtpRequestPacket>()?.0;
-
-		// send the server time back
-		let mut buffer: [u8; 51] = [0; 51];
-
-		// write the NTP packet header
-		buffer[0] = 'E' as u8;
-		buffer[1] = 'G' as u8;
-		buffer[2] = 'G' as u8;
-		buffer[3] = 'I' as u8;
-		buffer[4] = 'N' as u8;
-		buffer[5] = 'E' as u8;
-		buffer[6] = 'N' as u8;
-		buffer[7] = 'T' as u8;
-		buffer[8] = 'P' as u8;
-		buffer[9] = 1;
-
-		buffer[10] = client_packet.index;
-
-		// we need to send the times as quick as possible since the longer we take, the more inaccurate the `send_time` is
-		// going to be. sends two 128 bit integers for receive time and send time.
-		buffer[11] = (recv_time & 0xFF) as u8;
-		buffer[12] = ((recv_time >> 8) & 0xFF) as u8;
-		buffer[13] = ((recv_time >> 16) & 0xFF) as u8;
-		buffer[14] = ((recv_time >> 24) & 0xFF) as u8;
-		buffer[15] = ((recv_time >> 32) & 0xFF) as u8;
-		buffer[16] = ((recv_time >> 40) & 0xFF) as u8;
-		buffer[17] = ((recv_time >> 48) & 0xFF) as u8;
-		buffer[18] = ((recv_time >> 56) & 0xFF) as u8;
-		buffer[19] = ((recv_time >> 64) & 0xFF) as u8;
-		buffer[20] = ((recv_time >> 72) & 0xFF) as u8;
-		buffer[21] = ((recv_time >> 80) & 0xFF) as u8;
-		buffer[22] = ((recv_time >> 88) & 0xFF) as u8;
-		buffer[23] = ((recv_time >> 96) & 0xFF) as u8;
-		buffer[24] = ((recv_time >> 104) & 0xFF) as u8;
-		buffer[25] = ((recv_time >> 112) & 0xFF) as u8;
-		buffer[26] = ((recv_time >> 120) & 0xFF) as u8;
-
-		// send precision
-		buffer[27] = (self.precision & 0xFF) as u8;
-		buffer[28] = ((self.precision >> 8) & 0xFF) as u8;
-		buffer[29] = ((self.precision >> 16) & 0xFF) as u8;
-		buffer[30] = ((self.precision >> 24) & 0xFF) as u8;
-		buffer[31] = ((self.precision >> 32) & 0xFF) as u8;
-		buffer[32] = ((self.precision >> 40) & 0xFF) as u8;
-		buffer[33] = ((self.precision >> 48) & 0xFF) as u8;
-		buffer[34] = ((self.precision >> 56) & 0xFF) as u8;
-
-		let send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
-
-		// send time encoding
-		buffer[35] = (send_time & 0xFF) as u8;
-		buffer[36] = ((send_time >> 8) & 0xFF) as u8;
-		buffer[37] = ((send_time >> 16) & 0xFF) as u8;
-		buffer[38] = ((send_time >> 24) & 0xFF) as u8;
-		buffer[39] = ((send_time >> 32) & 0xFF) as u8;
-		buffer[40] = ((send_time >> 40) & 0xFF) as u8;
-		buffer[41] = ((send_time >> 48) & 0xFF) as u8;
-		buffer[42] = ((send_time >> 56) & 0xFF) as u8;
-		buffer[43] = ((send_time >> 64) & 0xFF) as u8;
-		buffer[44] = ((send_time >> 72) & 0xFF) as u8;
-		buffer[45] = ((send_time >> 80) & 0xFF) as u8;
-		buffer[46] = ((send_time >> 88) & 0xFF) as u8;
-		buffer[47] = ((send_time >> 96) & 0xFF) as u8;
-		buffer[48] = ((send_time >> 104) & 0xFF) as u8;
-		buffer[49] = ((send_time >> 112) & 0xFF) as u8;
-		buffer[50] = ((send_time >> 120) & 0xFF) as u8;
-
-		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send_to(&buffer, source).await {
-			return Err(NtpServerError::Send(error));
-		}
-
-		Ok(())
-	}
-
 	async fn process(&mut self, message: Message) -> Result<(), NtpServerError> {
 		let (source, receive_buffer, read_bytes, recv_time) = message;
 
@@ -264,6 +186,86 @@ impl NtpServer {
 				self.log.print(LogLevel::Error, format!("received invalid packet type from {:?}", source), 0);
 				return Err(NtpServerError::InvalidPacketType(source));
 			}
+		}
+
+		Ok(())
+	}
+
+	/// Process a NTP timing information request. Send the timing information back to the socket.
+	async fn process_request(&mut self, source: SocketAddr, recv_time: i128) -> Result<(), NtpServerError> {
+		let client_packet = self.receive_stream.decode::<NtpRequestPacket>()?.0;
+
+		// send the server time back
+		let mut buffer: [u8; 53] = [0; 53];
+
+		// write the NTP packet header
+		buffer[0] = 9;
+		buffer[1] = 0;
+		buffer[2] = 'E' as u8;
+		buffer[3] = 'G' as u8;
+		buffer[4] = 'G' as u8;
+		buffer[5] = 'I' as u8;
+		buffer[6] = 'N' as u8;
+		buffer[7] = 'E' as u8;
+		buffer[8] = 'N' as u8;
+		buffer[9] = 'T' as u8;
+		buffer[10] = 'P' as u8;
+		buffer[11] = 1;
+
+		buffer[12] = client_packet.index;
+
+		// we need to send the times as quick as possible since the longer we take, the more inaccurate the `send_time` is
+		// going to be. sends two 128 bit integers for receive time and send time.
+		buffer[13] = (recv_time & 0xFF) as u8;
+		buffer[14] = ((recv_time >> 8) & 0xFF) as u8;
+		buffer[15] = ((recv_time >> 16) & 0xFF) as u8;
+		buffer[16] = ((recv_time >> 24) & 0xFF) as u8;
+		buffer[17] = ((recv_time >> 32) & 0xFF) as u8;
+		buffer[18] = ((recv_time >> 40) & 0xFF) as u8;
+		buffer[19] = ((recv_time >> 48) & 0xFF) as u8;
+		buffer[20] = ((recv_time >> 56) & 0xFF) as u8;
+		buffer[21] = ((recv_time >> 64) & 0xFF) as u8;
+		buffer[22] = ((recv_time >> 72) & 0xFF) as u8;
+		buffer[23] = ((recv_time >> 80) & 0xFF) as u8;
+		buffer[24] = ((recv_time >> 88) & 0xFF) as u8;
+		buffer[25] = ((recv_time >> 96) & 0xFF) as u8;
+		buffer[26] = ((recv_time >> 104) & 0xFF) as u8;
+		buffer[27] = ((recv_time >> 112) & 0xFF) as u8;
+		buffer[28] = ((recv_time >> 120) & 0xFF) as u8;
+
+		// send precision
+		buffer[29] = (self.precision & 0xFF) as u8;
+		buffer[30] = ((self.precision >> 8) & 0xFF) as u8;
+		buffer[31] = ((self.precision >> 16) & 0xFF) as u8;
+		buffer[32] = ((self.precision >> 24) & 0xFF) as u8;
+		buffer[33] = ((self.precision >> 32) & 0xFF) as u8;
+		buffer[34] = ((self.precision >> 40) & 0xFF) as u8;
+		buffer[35] = ((self.precision >> 48) & 0xFF) as u8;
+		buffer[36] = ((self.precision >> 56) & 0xFF) as u8;
+
+		let send_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+
+		// send time encoding
+		buffer[37] = (send_time & 0xFF) as u8;
+		buffer[38] = ((send_time >> 8) & 0xFF) as u8;
+		buffer[39] = ((send_time >> 16) & 0xFF) as u8;
+		buffer[40] = ((send_time >> 24) & 0xFF) as u8;
+		buffer[41] = ((send_time >> 32) & 0xFF) as u8;
+		buffer[42] = ((send_time >> 40) & 0xFF) as u8;
+		buffer[43] = ((send_time >> 48) & 0xFF) as u8;
+		buffer[44] = ((send_time >> 56) & 0xFF) as u8;
+		buffer[45] = ((send_time >> 64) & 0xFF) as u8;
+		buffer[46] = ((send_time >> 72) & 0xFF) as u8;
+		buffer[47] = ((send_time >> 80) & 0xFF) as u8;
+		buffer[48] = ((send_time >> 88) & 0xFF) as u8;
+		buffer[49] = ((send_time >> 96) & 0xFF) as u8;
+		buffer[50] = ((send_time >> 104) & 0xFF) as u8;
+		buffer[51] = ((send_time >> 112) & 0xFF) as u8;
+		buffer[52] = ((send_time >> 120) & 0xFF) as u8;
+
+		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
+		if let Err(error) = self.socket.send_to(&buffer, source).await {
+			return Err(NtpServerError::Send(error));
 		}
 
 		Ok(())

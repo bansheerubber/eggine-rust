@@ -9,7 +9,7 @@ use tokio::net::{ ToSocketAddrs, UdpSocket, };
 use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
-use crate::payload::{ NtpClientPacket, NtpServerPacket, };
+use crate::payload::{ NtpRequestPacket, NtpResponsePacket, NtpPacketHeader, };
 use crate::server::ntp::{ NTP_MAGIC_NUMBER, MAX_NTP_PACKET_SIZE, };
 use crate::MAX_PACKET_SIZE;
 
@@ -24,6 +24,10 @@ pub enum NtpClientError {
 	Connect(tokio::io::Error),
 	/// Emitted if the server response does not have the correct packet index.
 	InvalidIndex,
+	/// Emitted if the server did not send us the expected magic number.
+	InvalidMagicNumber,
+	/// Emitted if the server sent us a packet type that we do not recognize
+	InvalidPacketType,
 	/// Emitted if we encountered a problem with the tokio mpsc UDP socket communication.
 	MpscError(mpsc::error::TryRecvError),
 	/// Emitted if we encountered a problem with network streams.
@@ -46,6 +50,8 @@ impl NtpClientError {
 			NtpClientError::Create(_) => true,
 			NtpClientError::Connect(_) => true,
 			NtpClientError::InvalidIndex => false,
+			NtpClientError::InvalidMagicNumber => false,
+			NtpClientError::InvalidPacketType => false,
 			NtpClientError::MpscError(error) => {
 				if let mpsc::error::TryRecvError::Disconnected = error {
 					return true;
@@ -176,10 +182,18 @@ impl NtpClient {
 
 	/// Send a time synchronization request to the server.
 	pub async fn sync_time(&mut self) -> Result<(), NtpClientError> {
-		self.packet_index = u8::overflowing_add(self.packet_index, 1).0;
-		let packet = NtpClientPacket {
-			index: self.packet_index,
+		// encode packet header
+		let header = NtpPacketHeader {
 			magic_number: String::from(NTP_MAGIC_NUMBER),
+			packet_type: 0,
+		};
+
+		self.send_stream.encode(&header)?;
+
+		// encode request packet
+		self.packet_index = u8::overflowing_add(self.packet_index, 1).0;
+		let packet = NtpRequestPacket {
+			index: self.packet_index,
 		};
 
 		self.send_stream.encode(&packet)?;
@@ -218,7 +232,10 @@ impl NtpClient {
 			match self.rx.try_recv() {
 				Ok(message) => self.process(message)?,
 				Err(mpsc::error::TryRecvError::Empty) => return Ok(()),
-				Err(error) => return Err(error.into()),
+				Err(error) => {
+					println!("we got an error");
+					return Err(error.into())
+				},
 			}
 		}
 	}
@@ -239,8 +256,30 @@ impl NtpClient {
 		buffer.extend(&receive_buffer[0..read_bytes]);
 		self.receive_stream.import(buffer)?;
 
+		// decode the packet type
+		let packet_header = self.receive_stream.decode::<NtpPacketHeader>()?.0;
+		if packet_header.magic_number != NTP_MAGIC_NUMBER {
+			self.log.print(LogLevel::Error, format!("received invalid magic number from"), 0);
+			return Err(NtpClientError::InvalidMagicNumber);
+		}
+
+		match packet_header.packet_type {
+			0 => {},
+			1 => self.process_response(recv_time)?,
+			_ => {
+				self.log.print(LogLevel::Error, format!("received invalid packet type from"), 0);
+				return Err(NtpClientError::InvalidPacketType);
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Process a response from the server. Contains timing information we use to update our internal state.
+	fn process_response(&mut self, recv_time: i128) -> Result<(), NtpClientError> {
 		// figure out what to do with the packet we just got
-		let packet = self.receive_stream.decode::<NtpServerPacket>()?.0;
+		let packet = self.receive_stream.decode::<NtpResponsePacket>()?.0;
+
 		let send_time = self.send_times[&packet.packet_index];
 		self.shift_register.add_time(Some(Times::new(
 			recv_time,

@@ -102,11 +102,11 @@ where
 		let (upper_half, _) = stream.read_u64()?;
 		let receive_time = ((upper_half as u128) << 64 | lower_half as u128) as i128;
 
-		let (lower_half, _) = stream.read_u64()?;
-		let (upper_half, position) = stream.read_u64()?;
-		let send_time = ((upper_half as u128) << 64 | lower_half as u128) as i128;
+		let (precision, position) = stream.read_u64()?;
 
-		let (precision, _) = stream.read_u64()?;
+		let (lower_half, _) = stream.read_u64()?;
+		let (upper_half, _) = stream.read_u64()?;
+		let send_time = ((upper_half as u128) << 64 | lower_half as u128) as i128;
 
 		Ok((NtpResponsePacket {
 			packet_index,
