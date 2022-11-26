@@ -197,6 +197,14 @@ impl Server {
 			}
 		}
 
+		// send NTP packets to all clients
+		for (address, _) in self.client_table.client_iter() {
+			let mut ntp_address = address.clone();
+			ntp_address.set_port(ntp_address.port() + 1);
+
+			self.ntp_server.sync_time(Some(ntp_address)).await?;
+		}
+
 		// process NTP packets
 		self.ntp_server.process_all().await?;
 
