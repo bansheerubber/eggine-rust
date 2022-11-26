@@ -3,6 +3,7 @@ pub mod error;
 pub mod handshake;
 pub mod log;
 pub mod network_stream;
+pub mod ntp;
 pub mod payload;
 pub mod server;
 
