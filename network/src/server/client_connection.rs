@@ -21,8 +21,6 @@ pub struct ClientConnection {
 	pub(crate) last_sequence_received: Option<u32>,
 	/// The NTP id that the client uses to talk to us.
 	pub(crate) ntp_id_client: u32,
-	/// The NTP id that we use to talk to the client.
-	pub(crate) ntp_id_server: u32,
 	/// Each client has a new packet assigned to them every server tick. All information that needs to be sent that tick
 	/// should be encoded into the client's outgoing packet. Clients can only be sent one packet per tick.
 	pub(crate) outgoing_packet: Packet,

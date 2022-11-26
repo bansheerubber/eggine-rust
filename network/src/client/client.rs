@@ -1,5 +1,5 @@
 use rand::Rng;
-use std::net::{ SocketAddr, ToSocketAddrs, UdpSocket, };
+use std::net::{ ToSocketAddrs, UdpSocket, };
 use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
@@ -72,7 +72,6 @@ impl From<NtpServerError> for ClientError {
 pub struct Client {
 	/// Acknowledge mask for this client.
 	acknowledge_mask: AcknowledgeMask,
-	address: SocketAddr,
 	/// True if the server accepted our handshake and we're in a state where we are ready to exchange packets.
 	connection_initialized: bool,
 	/// The handshake we send to the server upon connection initialization.
@@ -120,7 +119,6 @@ impl Client {
 
 		Ok(Client {
 			acknowledge_mask: AcknowledgeMask::default(),
-			address: socket.local_addr().unwrap(),
 			connection_initialized: false,
 			handshake: Handshake {
 				checksum: [0; 16],

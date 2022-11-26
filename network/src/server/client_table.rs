@@ -1,5 +1,5 @@
 use std::collections::{ HashMap, HashSet, };
-use std::collections::hash_map::{ Iter, IterMut, };
+use std::collections::hash_map::Iter;
 use std::net::{ Ipv6Addr, SocketAddr, };
 
 use super::ClientConnection;
@@ -17,12 +17,12 @@ pub(crate) struct ClientTable {
 
 impl ClientTable {
 	/// Get the client using the specified address.
-	pub(crate) fn get_client(&self, source: &SocketAddr) -> Result<&ClientConnection, ServerError> {
+	/*pub(crate) fn get_client(&self, source: &SocketAddr) -> Result<&ClientConnection, ServerError> {
 		match self.address_to_client.get(&source) {
     	Some(client) => Ok(client),
     	None => Err(ServerError::CouldNotFindClient),
 		}
-	}
+	}*/
 
 	/// Get the client using the specified address.
 	pub(crate) fn get_client_mut(&mut self, source: &SocketAddr) -> Result<&mut ClientConnection, ServerError> {
@@ -53,9 +53,9 @@ impl ClientTable {
 	}
 
 	/// Return a mutable iterator over the `SocketAddr` -> `ClientConnection` mapping.
-	pub(crate) fn client_iter_mut(&mut self) -> IterMut<'_, std::net::SocketAddr, ClientConnection> {
+	/*pub(crate) fn client_iter_mut(&mut self) -> IterMut<'_, std::net::SocketAddr, ClientConnection> {
 		self.address_to_client.iter_mut()
-	}
+	}*/
 
 	/// Add an IP address to the blacklist.
 	pub(crate) fn add_to_blacklist(&mut self, address: Ipv6Addr) {
@@ -63,9 +63,9 @@ impl ClientTable {
 	}
 
 	/// Remove an IP address from the blacklist.
-	pub(crate) fn remove_from_blacklist(&mut self, address: &Ipv6Addr) {
+	/*pub(crate) fn remove_from_blacklist(&mut self, address: &Ipv6Addr) {
 		self.blacklist.remove(address);
-	}
+	}*/
 
 	/// Check if an IP address is in the blacklist.
 	pub(crate) fn is_in_blacklist(&self, address: &Ipv6Addr) -> bool {

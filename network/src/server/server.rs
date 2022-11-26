@@ -75,8 +75,6 @@ impl From<NtpServerError> for ServerError {
 /// information. The two communicate using a packet format built upon the streams library.
 #[derive(Debug)]
 pub struct Server {
-	/// The address the server is bound to
-	address: SocketAddr,
 	client_table: ClientTable,
 	/// Handshake we compare client handshakes against.
 	handshake: Handshake,
@@ -106,7 +104,6 @@ impl Server {
 		ntp_address.set_port(ntp_address.port() + 1);
 
 		Ok(Server {
-			address: socket.local_addr().unwrap(),
 			client_table: ClientTable::default(),
 			handshake: Handshake {
 				checksum: [0; 16],
@@ -389,7 +386,6 @@ impl Server {
 			acknowledge_mask: AcknowledgeMask::default(),
 			address: source,
 			ntp_id_client: their_ntp_id,
-			ntp_id_server: handshake.ntp_id,
 			highest_acknowledge_received: Some(sequence),
 			last_activity: Instant::now(),
 			last_ping_time: Instant::now(),
