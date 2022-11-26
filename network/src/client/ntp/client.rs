@@ -190,15 +190,19 @@ impl NtpClient {
 			return Err(NtpClientError::Receive(error));
 		}
 
-		self.send_times.insert(self.packet_index, Self::get_micros());
-
-		if let Err(error) = self.socket.send(&self.send_stream.export()?).await {
+		let time = Self::get_micros();
+		let result = if let Err(error) = self.socket.send(&self.send_stream.export()?).await {
 			Err(NtpClientError::Send(error))
 		} else {
 			Ok(())
-		}
+		};
+
+		self.send_times.insert(self.packet_index, time);
+
+		return result;
 	}
 
+	/// Get an estimation of the server time using the best time offset.
 	pub fn get_corrected_time(&self) -> CorrectedTime {
 		let offset = if let Some(best) = self.shift_register.best() {
 			best.time_offset()
@@ -247,6 +251,7 @@ impl NtpClient {
 			packet.send_time,
 		)));
 
+		// print some continuously running statistics
 		let best = self.shift_register.best().unwrap();
 
 		println!("time offset: {}us", best.time_offset());
