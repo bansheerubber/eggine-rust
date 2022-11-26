@@ -147,9 +147,8 @@ impl NtpClient {
 			return Err(NtpClientError::Create(error));
 		}
 
-		let (tx, rx) = mpsc::channel::<Message>(100);
-
 		// set up the read thread
+		let (tx, rx) = mpsc::channel::<Message>(100);
 		let socket = Arc::new(socket);
 		let receive_socket = socket.clone();
 		tokio::spawn(async move {

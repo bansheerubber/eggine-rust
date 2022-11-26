@@ -1,8 +1,10 @@
 use std::collections::HashSet;
-use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::sync::{ Arc, Mutex, };
+use std::net::{ Ipv6Addr, SocketAddr, };
+use std::sync::Arc;
 use std::time::{ Instant, SystemTime, UNIX_EPOCH, };
 use streams::ReadStream;
+use tokio::sync::mpsc;
+use tokio::net::{ ToSocketAddrs, UdpSocket, };
 
 use crate::error::NetworkStreamError;
 use crate::log::{ Log, LogLevel, };
@@ -14,11 +16,13 @@ use super::{ MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, };
 #[derive(Debug)]
 pub enum NtpServerError {
 	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
-	Create(std::io::Error),
+	Create(tokio::io::Error),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
 	InvalidIP,
 	/// Emitted if the client did not send us the expected magic number.
 	InvalidMagicNumber(SocketAddr),
+	/// Emitted if we encountered a problem with the tokio mpsc UDP socket communication.
+	MpscError(mpsc::error::TryRecvError),
 	/// Emitted if we encountered a problem with network streams.
 	NetworkStreamError(NetworkStreamError),
 	/// Emitted if we receive data from a non-whitelisted IP. Non-fatal.
@@ -26,9 +30,9 @@ pub enum NtpServerError {
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig(SocketAddr),
 	/// Emitted if we encountered an OS socket error during a receive. Fatal.
-	Receive(std::io::Error),
+	Receive(tokio::io::Error),
 	/// Emitted if we encountered an OS socket error during a send. Fatal.
-	Send(std::io::Error),
+	Send(tokio::io::Error),
 }
 
 impl NtpServerError {
@@ -38,6 +42,13 @@ impl NtpServerError {
 			NtpServerError::Create(_) => true,
 			NtpServerError::InvalidIP => false,
 			NtpServerError::InvalidMagicNumber(_) => false,
+			NtpServerError::MpscError(error) => {
+				if let mpsc::error::TryRecvError::Disconnected = error {
+					return true;
+				} else {
+					return false;
+				}
+			},
 			NtpServerError::NetworkStreamError(_) => false,
 			NtpServerError::NotWhitelisted(_) => false,
 			NtpServerError::PacketTooBig(_) => false,
@@ -53,6 +64,14 @@ impl From<NetworkStreamError> for NtpServerError {
 	}
 }
 
+impl From<mpsc::error::TryRecvError> for NtpServerError {
+	fn from(error: mpsc::error::TryRecvError) -> Self {
+		NtpServerError::MpscError(error)
+	}
+}
+
+type Message = (SocketAddr, [u8; MAX_NTP_PACKET_SIZE + 1], usize, i128);
+
 #[derive(Debug)]
 pub struct NtpServer {
 	/// The address the server is bound to
@@ -63,16 +82,15 @@ pub struct NtpServer {
 	log: Log,
 	/// Amount of time it takes to read system time, in nanoseconds.
 	precision: u64,
-	/// The buffer we write into when we receive data.
-	receive_buffer: [u8; MAX_NTP_PACKET_SIZE + 1],
 	/// The stream we import data into when we receive data.
 	receive_stream: NetworkReadStream,
-	socket: UdpSocket,
+	socket: Arc<UdpSocket>,
+	rx: mpsc::Receiver<Message>,
 }
 
 impl NtpServer {
-	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, NtpServerError> {
-		let socket = match UdpSocket::bind(address) {
+	pub async fn new<T: ToSocketAddrs>(address: T) -> Result<Self, NtpServerError> {
+		let socket = match UdpSocket::bind(address).await {
 			Ok(socket) => socket,
 			Err(error) => return Err(NtpServerError::Create(error)),
 		};
@@ -89,6 +107,20 @@ impl NtpServer {
 			total += (Instant::now() - start).as_nanos();
 		}
 
+		// set up the read thread
+		let (tx, rx) = mpsc::channel::<Message>(100);
+		let socket = Arc::new(socket);
+		let receive_socket = socket.clone();
+		tokio::spawn(async move {
+			loop {
+				let mut receive_buffer = [0; MAX_NTP_PACKET_SIZE + 1];
+				let (read_bytes, address) = receive_socket.recv_from(&mut receive_buffer).await.expect("Could not receive");
+				let recv_time = Self::get_micros();
+
+				tx.send((address, receive_buffer, read_bytes, recv_time)).await.expect("Could not send");
+			}
+		});
+
 		Ok(NtpServer {
 			address: socket.local_addr().unwrap(),
 			address_whitelist: HashSet::new(),
@@ -98,35 +130,25 @@ impl NtpServer {
 			},
 			precision: (total / BENCHMARK_TIMES) as u64,
 			log: Log::default(),
-			receive_buffer: [0; MAX_NTP_PACKET_SIZE + 1],
 			receive_stream: NetworkReadStream::new(),
 			socket,
+			rx,
 		})
 	}
 
-	pub fn recv_loop(&mut self) -> Result<(), NtpServerError> {
+	/// Consume all messages that the tokio UDP socket sent us.
+	pub async fn process_all(&mut self) -> Result<(), NtpServerError> {
 		loop {
-			match self.recv() {
-				Ok(_) => {},
-				Err(error) => {
-					println!("{:?}", error);
-					if error.is_fatal() {
-						return Err(error);
-					}
-				},
+			match self.rx.try_recv() {
+				Ok(message) => self.process(message).await?,
+				Err(mpsc::error::TryRecvError::Empty) => return Ok(()),
+				Err(error) => return Err(error.into()),
 			}
 		}
 	}
 
-	fn recv(&mut self) -> Result<(), NtpServerError> {
-		let (read_bytes, source) = match self.socket.recv_from(&mut self.receive_buffer) {
-			Ok(a) => a,
-			Err(error) => {
-				return Err(NtpServerError::Receive(error));
-			},
-		};
-
-		let recv_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128;
+	async fn process(&mut self, message: Message) -> Result<(), NtpServerError> {
+		let (source, receive_buffer, read_bytes, recv_time) = message;
 
 		// convert the `SocketAddr` into a `Ipv6Addr`. `Ipv6Addr`s do not contain the port the client connected from, the
 		// lack of which is required for the blacklist implementation
@@ -149,7 +171,7 @@ impl NtpServer {
 
 		// TODO optimize this
 		let mut buffer: Vec<u8> = Vec::new();
-		buffer.extend(&self.receive_buffer[0..read_bytes]);
+		buffer.extend(&receive_buffer[0..read_bytes]);
 
 		self.receive_stream.import(buffer)?;
 
@@ -215,10 +237,15 @@ impl NtpServer {
 		buffer[32] = ((send_time >> 120) & 0xFF) as u8;
 
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send_to(&buffer, source) {
+		if let Err(error) = self.socket.send_to(&buffer, source).await {
 			return Err(NtpServerError::Send(error));
 		}
 
 		Ok(())
+	}
+
+	/// Get time in microseconds.
+	fn get_micros() -> i128 {
+		SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i128
 	}
 }

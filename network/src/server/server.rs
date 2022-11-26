@@ -1,6 +1,4 @@
 use std::net::{ Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket, };
-use std::sync::{ Arc, Mutex, };
-use std::thread;
 use std::time::{ Duration, Instant, SystemTime, UNIX_EPOCH, };
 use streams::{ ReadStream, WriteStream, };
 
@@ -95,7 +93,7 @@ pub struct Server {
 
 impl Server {
 	/// Initialize the server and listen on the specified address.
-	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, ServerError> {
+	pub async fn new<T: ToSocketAddrs>(address: T) -> Result<Self, ServerError> {
 		let socket = match UdpSocket::bind(address) {
 			Ok(socket) => socket,
 			Err(error) => return Err(ServerError::Create(error)),
@@ -105,11 +103,6 @@ impl Server {
 
 		let mut ntp_address = socket.local_addr().unwrap();
 		ntp_address.set_port(ntp_address.port() + 1);
-
-		let mut ntp_server = NtpServer::new(ntp_address)?;
-		// thread::spawn(move || {
-		// 	ntp_server.recv_loop();
-		// });
 
 		Ok(Server {
 			address: socket.local_addr().unwrap(),
@@ -125,7 +118,7 @@ impl Server {
 				},
 			},
 			log: Log::default(),
-			ntp_server,
+			ntp_server: NtpServer::new(ntp_address).await?,
 			// create the receive buffer. if we ever receive a packet that is greater than `MAX_PACKET_SIZE`, then the recv
 			// function call will say that we have read `MAX_PACKET_SIZE + 1` bytes. the extra read byte allows us to check
 			// if a packet is too big to decode, while also allowing us to use all the packet bytes within the range
@@ -139,7 +132,7 @@ impl Server {
 
 	/// Perform all necessary network functions for this tick. This includes receiving data, sending data, and figuring
 	/// out all `ClientConnection`s' time-to-live.
-	pub fn tick(&mut self) -> Result<(), ServerError> {
+	pub async fn tick(&mut self) -> Result<(), ServerError> {
 		{
 			// send client outgoing packets
 			// TODO make this a little more efficient, right now this sucks b/c i can't use a &self ref in the for loop source
@@ -203,6 +196,9 @@ impl Server {
 				self.disconnect_client(source, DisconnectionReason::Timeout)?;
 			}
 		}
+
+		// process NTP packets
+		self.ntp_server.process_all().await?;
 
 		Ok(())
 	}

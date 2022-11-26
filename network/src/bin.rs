@@ -13,9 +13,9 @@ async fn main() {
 	}
 
 	if arguments.contains("--server") {
-		let mut server = Server::new(last_argument).unwrap();
+		let mut server = Server::new(last_argument).await.unwrap();
 		loop {
-			if let Err(error) = server.tick() {
+			if let Err(error) = server.tick().await {
 				if error.is_fatal() {
 					panic!("{:?}", error);
 				} else {
