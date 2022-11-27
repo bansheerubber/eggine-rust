@@ -15,8 +15,6 @@ use super::{ Times, TimesShiftRegister, MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, }
 
 #[derive(Debug)]
 pub enum NtpServerError {
-	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
-	Create(tokio::io::Error),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
 	InvalidIP,
 	/// Emitted if the client did not send us the expected magic number.
@@ -35,17 +33,14 @@ pub enum NtpServerError {
 	NotWhitelisted(SocketAddr),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig(SocketAddr),
-	/// Emitted if we encountered an OS socket error during a receive. Fatal.
-	Receive(tokio::io::Error),
-	/// Emitted if we encountered an OS socket error during a send. Fatal.
-	Send(tokio::io::Error),
+	/// Emitted if we encountered an OS error during a socket operation.
+	Socket(tokio::io::ErrorKind),
 }
 
 impl NtpServerError {
 	/// Identifies whether or not the server needs a restart upon the emission of an error.
 	pub fn is_fatal(&self) -> bool {
 		match *self {
-			NtpServerError::Create(_) => true,
 			NtpServerError::InvalidIP => false,
 			NtpServerError::InvalidPacketType(_) => false,
 			NtpServerError::InvalidMagicNumber(_) => false,
@@ -61,8 +56,7 @@ impl NtpServerError {
 			NtpServerError::NetworkStreamError(_) => false,
 			NtpServerError::NotWhitelisted(_) => false,
 			NtpServerError::PacketTooBig(_) => false,
-			NtpServerError::Receive(_) => true,
-			NtpServerError::Send(_) => true,
+			NtpServerError::Socket(_) => true,
 		}
 	}
 }
@@ -76,6 +70,12 @@ impl From<NetworkStreamError> for NtpServerError {
 impl From<mpsc::error::TryRecvError> for NtpServerError {
 	fn from(error: mpsc::error::TryRecvError) -> Self {
 		NtpServerError::MpscError(error)
+	}
+}
+
+impl From<std::io::Error> for NtpServerError {
+	fn from(error: std::io::Error) -> Self {
+		NtpServerError::Socket(error.kind())
 	}
 }
 
@@ -108,15 +108,10 @@ pub struct NtpServer {
 
 impl NtpServer {
 	pub async fn new<T: ToSocketAddrs>(address: T, host_address: Option<T>) -> Result<Self, NtpServerError> {
-		let socket = match UdpSocket::bind(address).await {
-			Ok(socket) => socket,
-			Err(error) => return Err(NtpServerError::Create(error)),
-		};
+		let socket = UdpSocket::bind(address).await?;
 
 		if let Some(host_address) = host_address {
-			if let Err(error) = socket.connect(host_address).await {
-				return Err(NtpServerError::Create(error));
-			}
+			socket.connect(host_address).await?;
 		}
 
 		// benchmark precision
@@ -207,13 +202,11 @@ impl NtpServer {
 		self.send_stream.encode(&packet)?;
 
 		// wait for socket to become writable
-		if let Err(error) = self.socket.writable().await {
-			return Err(NtpServerError::Send(error));
-		}
+		self.socket.writable().await?;
 
 		let time = Self::get_micros();
 		let result = if let Err(error) = self.socket.send_to(&self.send_stream.export()?, address).await {
-			Err(NtpServerError::Send(error))
+			Err(error.into())
 		} else {
 			Ok(())
 		};
@@ -363,9 +356,7 @@ impl NtpServer {
 		buffer[56] = ((send_time >> 120) & 0xFF) as u8;
 
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send_to(&buffer, source).await {
-			return Err(NtpServerError::Send(error));
-		}
+		self.socket.send_to(&buffer, source).await?;
 
 		Ok(())
 	}

@@ -13,10 +13,6 @@ use crate::MAX_PACKET_SIZE;
 
 #[derive(Debug)]
 pub enum ClientError {
-	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
-	Create(std::io::Error),
-	/// Emitted if we encountered a problem connecting to a server socket. Fatal.
-	Connect(std::io::Error),
 	/// Emitted if we could not talk to the server.
 	ConnectionRefused,
 	/// Emitted if we were disconnected by the server. Fatal.
@@ -29,10 +25,8 @@ pub enum ClientError {
 	NtpError(NtpServerError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig,
-	/// Emitted if we encountered an OS socket error during a receive. Fatal.
-	Receive(std::io::Error),
-	/// Emitted if we encountered an OS socket error during a send. Fatal.
-	Send(std::io::Error),
+	/// Emitted if we encountered an OS error during a socket operation.
+	Socket(std::io::ErrorKind),
 	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
 	/// available packets from the socket at the moment. Non-fatal.
 	WouldBlock,
@@ -42,16 +36,13 @@ impl ClientError {
 	/// Identifies whether or not the server needs a restart upon the emission of an error.
 	pub fn is_fatal(&self) -> bool {
 		match *self {
-			ClientError::Create(_) => true,
-			ClientError::Connect(_) => true,
 			ClientError::ConnectionRefused => true,
 			ClientError::Disconnected(_) => true,
 			ClientError::Handshake => true,
 			ClientError::NetworkStreamError(_) => false,
 			ClientError::NtpError(_) => false,
 			ClientError::PacketTooBig => false,
-			ClientError::Receive(_) => true,
-			ClientError::Send(_) => true,
+			ClientError::Socket(_) => true,
 			ClientError::WouldBlock => false,
 		}
 	}
@@ -66,6 +57,12 @@ impl From<NetworkStreamError> for ClientError {
 impl From<NtpServerError> for ClientError {
 	fn from(error: NtpServerError) -> Self {
 		ClientError::NtpError(error)
+	}
+}
+
+impl From<std::io::Error> for ClientError {
+	fn from(error: std::io::Error) -> Self {
+		ClientError::Socket(error.kind())
 	}
 }
 
@@ -109,14 +106,8 @@ pub struct Client {
 impl Client {
 	/// Initialize the a client socket bound to the specified address.
 	pub fn new<T: ToSocketAddrs>(address: T) -> Result<Self, ClientError> {
-		let socket = match UdpSocket::bind(address) {
-			Ok(socket) => socket,
-			Err(error) => return Err(ClientError::Create(error)),
-		};
-
-		if let Err(error) = socket.set_nonblocking(true) {
-			return Err(ClientError::Create(error));
-		}
+		let socket = UdpSocket::bind(address)?;
+		socket.set_nonblocking(true)?;
 
 		let ntp_id_server = rand::thread_rng().gen::<u32>();
 
@@ -179,17 +170,17 @@ impl Client {
 			match self.recv() {
 				Ok(_) => {},
 				Err(error) => {
-					if error.is_fatal() {
-						return Err(error);
-					} else if let ClientError::WouldBlock = error {
+					if let ClientError::Socket(std::io::ErrorKind::WouldBlock) = error {
 						break;
+					} else if error.is_fatal() {
+						return Err(error);
 					}
 				},
 			}
 		}
 
 		// process NTP packets from the server
-		if self.connection_initialized && self.ntp_server.is_some() {
+		if self.is_connection_valid() && self.ntp_server.is_some() {
 			let ntp_server = self.ntp_server.as_mut().unwrap();
 			ntp_server.sync_time(None).await?;
 			ntp_server.process_all().await?;
@@ -201,9 +192,7 @@ impl Client {
 	/// Initializes a connection with the specified server. Done by sending a handshake, and receiving a sequence ID pair
 	/// used for exchanging packets.
 	pub async fn initialize_connection<T: ToSocketAddrs>(&mut self, address: T) -> Result<(), ClientError> {
-		if let Err(error) = self.socket.connect(address) {
-			return Err(ClientError::Connect(error));
-		}
+		self.socket.connect(address)?;
 
 		self.log.print(LogLevel::Info, format!("establishing connection to {:?}...", self.socket.peer_addr().unwrap()), 0);
 		self.send_stream.encode(&self.handshake)?;
@@ -245,11 +234,7 @@ impl Client {
 		let read_bytes = match self.socket.recv(&mut self.receive_buffer) {
 			Ok(a) => a,
 			Err(error) => {
-				if error.raw_os_error().unwrap() == 11 {
-					return Err(ClientError::WouldBlock);
-				} else {
-					return Err(ClientError::Receive(error));
-				}
+				return Err(ClientError::Socket(error.kind()));
 			},
 		};
 
@@ -332,11 +317,7 @@ impl Client {
 		match self.socket.send(&bytes) {
 			Ok(_) => Ok(()),
 			Err(error) => {
-				if error.raw_os_error().unwrap() == 111 {
-					Err(ClientError::ConnectionRefused)
-				} else {
-					Err(ClientError::Send(error))
-				}
+				Err(ClientError::Socket(error.kind()))
 			},
 		}
 	}

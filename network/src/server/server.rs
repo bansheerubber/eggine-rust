@@ -21,8 +21,6 @@ pub enum ServerError {
 	ClientCreation,
 	/// Emitted if we could not find a `ClientConnection` associated with a `SocketAddr`
 	CouldNotFindClient,
-	/// Emitted if we encountered a problem creating + binding the socket. Fatal.
-	Create(std::io::Error),
 	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
 	InvalidIP,
 	/// Emitted if we encountered a problem with network streams.
@@ -31,13 +29,8 @@ pub enum ServerError {
 	NtpError(NtpServerError),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig(SocketAddr),
-	/// Emitted if we encountered an OS socket error during a receive. Fatal.
-	Receive(std::io::Error),
-	/// Emitted if we encountered an OS socket error during a send. Fatal.
-	Send(std::io::Error),
-	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
-	/// available packets from the socket at the moment. Non-fatal.
-	WouldBlock,
+	/// Emitted if we encountered an OS error during a socket operation.
+	Socket(std::io::ErrorKind),
 }
 
 impl ServerError {
@@ -47,14 +40,11 @@ impl ServerError {
 			ServerError::Blacklisted(_) => false,
 			ServerError::ClientCreation => false,
 			ServerError::CouldNotFindClient => false,
-			ServerError::Create(_) => true,
 			ServerError::InvalidIP => false,
 			ServerError::NetworkStreamError(_) => false,
 			ServerError::NtpError(_) => false,
 			ServerError::PacketTooBig(_) => false,
-			ServerError::Receive(_) => true,
-			ServerError::Send(_) => true,
-			ServerError::WouldBlock => false,
+			ServerError::Socket(_) => true,
 		}
 	}
 }
@@ -68,6 +58,12 @@ impl From<NetworkStreamError> for ServerError {
 impl From<NtpServerError> for ServerError {
 	fn from(error: NtpServerError) -> Self {
 		ServerError::NtpError(error)
+	}
+}
+
+impl From<std::io::Error> for ServerError {
+	fn from(error: std::io::Error) -> Self {
+		ServerError::Socket(error.kind())
 	}
 }
 
@@ -93,14 +89,11 @@ pub struct Server {
 impl Server {
 	/// Initialize the server and listen on the specified address.
 	pub async fn new<T: ToSocketAddrs>(address: T) -> Result<Self, ServerError> {
-		let socket = match UdpSocket::bind(address) {
-			Ok(socket) => socket,
-			Err(error) => return Err(ServerError::Create(error)),
-		};
+		let socket = UdpSocket::bind(address)?;
 
-		socket.set_nonblocking(true).unwrap();
+		socket.set_nonblocking(true)?;
 
-		let mut ntp_address = socket.local_addr().unwrap();
+		let mut ntp_address = socket.local_addr()?;
 		ntp_address.set_port(ntp_address.port() + 1);
 
 		Ok(Server {
@@ -167,10 +160,10 @@ impl Server {
 			match self.recv() {
 				Ok(_) => {},
 				Err(error) => {
-					if error.is_fatal() {
-						return Err(error);
-					} else if let ServerError::WouldBlock = error {
+					if let ServerError::Socket(std::io::ErrorKind::WouldBlock) = error {
 						break;
+					} else if error.is_fatal() {
+						return Err(error);
 					}
 				},
 			}
@@ -216,16 +209,7 @@ impl Server {
 
 	/// Attempt to receive data from the socket.
 	fn recv(&mut self) -> Result<(), ServerError> {
-		let (read_bytes, source) = match self.socket.recv_from(&mut self.receive_buffer) {
-			Ok(a) => a,
-			Err(error) => {
-				if error.raw_os_error().unwrap() == 11 {
-					return Err(ServerError::WouldBlock);
-				} else {
-					return Err(ServerError::Receive(error));
-				}
-			},
-		};
+		let (read_bytes, source) = self.socket.recv_from(&mut self.receive_buffer)?;
 
 		// convert the `SocketAddr` into a `Ipv6Addr`. `Ipv6Addr`s do not contain the port the client connected from, the
 		// lack of which is required for the blacklist implementation
@@ -335,10 +319,7 @@ impl Server {
 	/// Send a byte vector to the specified client address.
 	fn send_bytes_to(&mut self, source: SocketAddr, bytes: &Vec<u8>) -> Result<(), ServerError> {
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send_to(&bytes, source) {
-			return Err(ServerError::Send(error));
-		}
-
+		self.socket.send_to(&bytes, source)?;
 		Ok(())
 	}
 
