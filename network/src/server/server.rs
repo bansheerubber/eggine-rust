@@ -36,13 +36,23 @@ pub enum ServerError {
 impl ServerError {
 	/// Identifies whether or not the server needs a restart upon the emission of an error.
 	pub fn is_fatal(&self) -> bool {
-		match *self {
+		match self {
 			ServerError::Blacklisted(_) => false,
 			ServerError::ClientCreation => false,
 			ServerError::CouldNotFindClient => false,
 			ServerError::InvalidIP => false,
 			ServerError::NetworkStreamError(_) => false,
-			ServerError::NtpError(_) => false,
+			ServerError::NtpError(error) => {
+				if let NtpServerError::Socket(error) = error {
+					match error {
+						tokio::io::ErrorKind::AddrInUse => true,
+						tokio::io::ErrorKind::AddrNotAvailable => true,
+						_ => false,
+					}
+				} else {
+					false
+				}
+			},
 			ServerError::PacketTooBig(_) => false,
 			ServerError::Socket(_) => true,
 		}

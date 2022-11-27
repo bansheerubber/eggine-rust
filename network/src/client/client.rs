@@ -35,12 +35,12 @@ pub enum ClientError {
 impl ClientError {
 	/// Identifies whether or not the server needs a restart upon the emission of an error.
 	pub fn is_fatal(&self) -> bool {
-		match *self {
+		match self {
 			ClientError::ConnectionRefused => true,
 			ClientError::Disconnected(_) => true,
 			ClientError::Handshake => true,
 			ClientError::NetworkStreamError(_) => false,
-			ClientError::NtpError(_) => false,
+			ClientError::NtpError(error) => error.is_fatal(),
 			ClientError::PacketTooBig => false,
 			ClientError::Socket(_) => true,
 			ClientError::WouldBlock => false,
