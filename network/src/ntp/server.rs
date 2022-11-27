@@ -15,8 +15,6 @@ use super::{ Times, TimesShiftRegister, MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, }
 
 #[derive(Debug)]
 pub enum NtpServerError {
-	/// Emitted if we could not convert a `SourceAddr` into an `Ipv6Addr` during a receive call. Non-fatal.
-	InvalidIP,
 	/// Emitted if the client did not send us the expected magic number.
 	InvalidMagicNumber(SocketAddr),
 	/// Emitted if the client sent us a packet type that we do not recognize
@@ -30,7 +28,7 @@ pub enum NtpServerError {
 	/// Emitted if we could not match an ID to a host ID.
 	NoHostId(u32),
 	/// Emitted if we receive data from a non-whitelisted IP. Non-fatal.
-	NotWhitelisted(SocketAddr),
+	NotWhitelisted(u32),
 	/// Emitted if a received packet is too big to be an eggine packet. Non-fatal.
 	PacketTooBig(SocketAddr),
 	/// Emitted if we encountered an OS error during a socket operation.
@@ -41,7 +39,6 @@ impl NtpServerError {
 	/// Identifies whether or not the server needs a restart upon the emission of an error.
 	pub fn is_fatal(&self) -> bool {
 		match *self {
-			NtpServerError::InvalidIP => false,
 			NtpServerError::InvalidPacketType(_) => false,
 			NtpServerError::InvalidMagicNumber(_) => false,
 			NtpServerError::MpscError(error) => {
@@ -258,7 +255,7 @@ impl NtpServer {
 
 		// stop non-whitelisted data from continuing
 		if !self.id_to_host_id.contains_key(&packet_header.id) {
-			return Err(NtpServerError::NotWhitelisted(source));
+			return Err(NtpServerError::NotWhitelisted(packet_header.id));
 		}
 
 		self.address_to_id.insert(source, packet_header.id);
