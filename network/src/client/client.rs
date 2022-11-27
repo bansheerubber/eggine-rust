@@ -13,8 +13,6 @@ use crate::MAX_PACKET_SIZE;
 
 #[derive(Debug)]
 pub enum ClientError {
-	/// Emitted if we could not talk to the server.
-	ConnectionRefused,
 	/// Emitted if we were disconnected by the server. Fatal.
 	Disconnected(DisconnectionReason),
 	/// Received an invalid handshake. We likely talked to a random UDP server. Fatal.
@@ -27,23 +25,18 @@ pub enum ClientError {
 	PacketTooBig,
 	/// Emitted if we encountered an OS error during a socket operation.
 	Socket(std::io::ErrorKind),
-	/// Emitted if a socket call would block. With the non-blocking flag set, this indicates that we have consumed all
-	/// available packets from the socket at the moment. Non-fatal.
-	WouldBlock,
 }
 
 impl ClientError {
 	/// Identifies whether or not the server needs a restart upon the emission of an error.
 	pub fn is_fatal(&self) -> bool {
 		match self {
-			ClientError::ConnectionRefused => true,
 			ClientError::Disconnected(_) => true,
 			ClientError::Handshake => true,
 			ClientError::NetworkStreamError(_) => false,
 			ClientError::NtpError(error) => error.is_fatal(),
 			ClientError::PacketTooBig => false,
 			ClientError::Socket(_) => true,
-			ClientError::WouldBlock => false,
 		}
 	}
 }
