@@ -81,11 +81,11 @@ type Message = (SocketAddr, [u8; MAX_NTP_PACKET_SIZE + 1], usize, i128);
 #[derive(Debug)]
 pub struct NtpServer {
 	/// Used to translate a socket address to the ID that they've been assigned.
-	pub address_to_id: HashMap<SocketAddr, u32>,
+	address_to_id: HashMap<SocketAddr, u32>,
 	/// The address the server is connected to, if any.
 	host_address: Option<SocketAddr>,
 	/// Used to translate between client IDs and the host ID they expect to find in packets we send to them.
-	pub id_to_host_id: HashMap<u32, u32>,
+	id_to_host_id: HashMap<u32, u32>,
 	log: Log,
 	/// Used to distinguish between packets and timing statistics.
 	packet_indexes: HashMap<u32, u8>,
@@ -96,7 +96,7 @@ pub struct NtpServer {
 	/// The stream we use to export data so we can sent it to a client.
 	send_stream: NetworkWriteStream,
 	/// The last time we sent a packet to the NTP server.
-	send_times: HashMap<(u32, u8), i128>,
+	send_times: HashMap<u32, [i128; 256]>,
 	socket: Arc<UdpSocket>,
 	/// Used for determining the best system time correction.
 	statistics: HashMap<u32, NtpStatistics>,
@@ -104,11 +104,13 @@ pub struct NtpServer {
 }
 
 impl NtpServer {
-	pub async fn new<T: ToSocketAddrs>(address: T, host_address: Option<T>) -> Result<Self, NtpServerError> {
+	pub async fn new<T: ToSocketAddrs>(address: T, host_address: Option<(T, u32)>) -> Result<Self, NtpServerError> {
 		let socket = UdpSocket::bind(address).await?;
 
-		if let Some(host_address) = host_address {
+		let mut address_to_id = HashMap::new();
+		if let Some((host_address, id)) = host_address {
 			socket.connect(host_address).await?;
+			address_to_id.insert(socket.peer_addr()?, id);
 		}
 
 		// benchmark precision
@@ -144,7 +146,7 @@ impl NtpServer {
 		};
 
 		Ok(NtpServer {
-			address_to_id: HashMap::new(),
+			address_to_id,
 			host_address,
 			id_to_host_id: HashMap::new(),
 			log: Log::default(),
@@ -208,7 +210,12 @@ impl NtpServer {
 			Ok(())
 		};
 
-		self.send_times.insert((*id, packet_index), time);
+		if !self.send_times.contains_key(id) {
+			self.send_times.insert(*id, [0; 256]);
+		}
+
+		let array = self.send_times.get_mut(id).unwrap();
+		array[packet_index as usize] = time;
 
 		return result;
 	}
@@ -229,6 +236,20 @@ impl NtpServer {
 				Err(error) => return Err(error.into()),
 			}
 		}
+	}
+
+	/// Associates a client ID to a host ID.
+	pub fn associate_host_id(&mut self, id: u32, host_id: u32) {
+		self.id_to_host_id.insert(id, host_id);
+	}
+
+	/// Delete all state referencing the source address & client ID.
+	pub fn disconnect_id(&mut self, source: SocketAddr, id: u32) {
+		self.address_to_id.remove(&source);
+		self.id_to_host_id.remove(&id);
+		self.packet_indexes.remove(&id);
+		self.statistics.remove(&id);
+		self.send_times.remove(&id);
 	}
 
 	/// Get a reference to the NTP statistics associated with a particular ID.
@@ -372,9 +393,9 @@ impl NtpServer {
 		// figure out what to do with the packet we just got
 		let packet = self.receive_stream.decode::<NtpResponsePacket>()?.0;
 
-		let send_time = self.send_times[&(id, packet.packet_index)];
-		let shift_register = self.statistics.get_mut(&id).unwrap();
-		shift_register.add_time(
+		let send_time = self.send_times.get_mut(&id).unwrap()[packet.packet_index as usize];
+		let statistics = self.statistics.get_mut(&id).unwrap();
+		statistics.add_time(
 			Times::new(
 				recv_time,
 				send_time,
@@ -385,18 +406,18 @@ impl NtpServer {
 		);
 
 		// print some continuously running statistics
-		// let best = shift_register.best().unwrap();
+		// let best = statistics.best().unwrap();
 
 		// println!("time offset: {}us", best.time_offset());
 		// println!("round-trip: {}us", best.delay());
-		// println!("jitter: {}us", shift_register.jitter().unwrap());
-		// println!("delay std: {}", shift_register.delay_std());
-		// println!("synchronization distance: {}us", shift_register.synchronization_distance().unwrap());
+		// println!("jitter: {}us", statistics.jitter().unwrap());
+		// println!("delay std: {}", statistics.delay_std().unwrap());
+		// println!("synchronization distance: {}us", statistics.synchronization_distance().unwrap());
 
-		// if shift_register.last_best().is_some() {
+		// if statistics.last_best().is_some() {
 		// 	println!(
 		// 		"distance from last best: {}",
-		// 		best.time_offset() - shift_register.last_best().unwrap().time_offset()
+		// 		best.time_offset() - statistics.last_best().unwrap().time_offset()
 		// 	);
 		// }
 

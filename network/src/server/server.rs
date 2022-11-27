@@ -386,7 +386,7 @@ impl Server {
 		});
 
 		// add the client to the NTP server whitelist so they can get accurate times
-		self.ntp_server.id_to_host_id.insert(their_ntp_id, handshake.ntp_id);
+		self.ntp_server.associate_host_id(their_ntp_id, handshake.ntp_id);
 
 		self.handshake.sequences = (sequence, their_sequence);
 		self.handshake.ntp_id = their_ntp_id; // tell the client to use this ID
@@ -410,8 +410,7 @@ impl Server {
 		self.log.print(LogLevel::Info, format!("disconnected client with reason {:?}", reason), 0);
 
 		// remove the client to the NTP server whitelist
-		self.ntp_server.address_to_id.remove(&source);
-		self.ntp_server.id_to_host_id.remove(&client.ntp_id_client);
+		self.ntp_server.disconnect_id(source, client.ntp_id_client);
 
 		// remove the client before we have a chance of erroring out during the send
 		self.client_table.remove_client(&source);
