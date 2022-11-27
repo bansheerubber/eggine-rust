@@ -11,7 +11,7 @@ use crate::log::{ Log, LogLevel, };
 use crate::network_stream::{ NetworkReadStream, NetworkWriteStream, };
 use crate::payload::{ NtpPacketHeader, NtpRequestPacket, NtpResponsePacket, };
 
-use super::{ Times, TimesShiftRegister, MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, };
+use super::{ Times, NtpStatistics, MAX_NTP_PACKET_SIZE, NTP_MAGIC_NUMBER, };
 
 #[derive(Debug)]
 pub enum NtpServerError {
@@ -98,7 +98,7 @@ pub struct NtpServer {
 	/// The last time we sent a packet to the NTP server.
 	send_times: HashMap<(u32, u8), i128>,
 	/// Used for determining the best system time correction.
-	shift_registers: HashMap<u32, TimesShiftRegister>,
+	shift_registers: HashMap<u32, NtpStatistics>,
 	socket: Arc<UdpSocket>,
 	rx: mpsc::Receiver<Message>,
 }
@@ -361,7 +361,7 @@ impl NtpServer {
 	/// Process the response sent. Update internal state using the timing information received.
 	fn process_response(&mut self, id: u32, recv_time: i128) -> Result<(), NtpServerError> {
 		if !self.shift_registers.contains_key(&id) {
-			self.shift_registers.insert(id, TimesShiftRegister::new(300, self.precision));
+			self.shift_registers.insert(id, NtpStatistics::new(300, self.precision));
 		}
 
 		// figure out what to do with the packet we just got
@@ -369,13 +369,15 @@ impl NtpServer {
 
 		let send_time = self.send_times[&(id, packet.packet_index)];
 		let shift_register = self.shift_registers.get_mut(&id).unwrap();
-		shift_register.add_time(Some(Times::new(
-			recv_time,
-			send_time,
-			packet.precision,
-			packet.receive_time,
-			packet.send_time,
-		)));
+		shift_register.add_time(
+			Times::new(
+				recv_time,
+				send_time,
+				packet.precision,
+				packet.receive_time,
+				packet.send_time,
+			)
+		);
 
 		// print some continuously running statistics
 		// let best = shift_register.best().unwrap();

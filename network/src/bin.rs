@@ -27,7 +27,6 @@ async fn main() {
 	} else {
 		let mut client = Client::new("[::]:0").unwrap();
 		client.initialize_connection(last_argument).await.expect("Could not initialize connection to the server");
-		std::thread::sleep(std::time::Duration::from_secs(1));
 
 		let mut last_ping = std::time::Instant::now();
 

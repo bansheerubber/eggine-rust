@@ -6,35 +6,26 @@ use super::Times;
 /// Collect several `Times` in order to statistically determine the best NTP offset/delay pair to use to correct our
 /// system time.
 #[derive(Debug)]
-pub struct TimesShiftRegister {
+pub struct NtpStatistics {
 	last_best: Option<Times>,
 	max_amount: usize,
 	/// How long it takes to measure system time, in nanoseconds.
 	precision: u64,
-	read_timeout: f64,
 	times: VecDeque<Times>,
 }
 
-impl TimesShiftRegister {
+impl NtpStatistics {
 	pub fn new(max_amount: usize, precision: u64) -> Self {
-		TimesShiftRegister {
+		NtpStatistics {
 			last_best: None,
 			precision,
 			max_amount,
-			read_timeout: 16_000_000.0,
 			times: VecDeque::new(),
 		}
 	}
 
 	/// Add a `Times` to the shift register.
-	pub fn add_time(&mut self, times: Option<Times>) {
-		// update read timeout if we failed to receive times
-		if let None = times {
-			self.read_timeout *= 2.0;
-			return;
-		}
-
-		let times = times.unwrap();
+	pub fn add_time(&mut self, times: Times) {
 		let last_best = self.best().cloned();
 
 		if self.times.len() > self.max_amount {
@@ -47,8 +38,6 @@ impl TimesShiftRegister {
 		if last_best.is_some() && last_best != best {
 			self.last_best = Some(last_best.unwrap().clone());
 		}
-
-		self.read_timeout = self.delay_mean() * 1.5;
 	}
 
 	/// Returns the best `Times` for use in correcting system time.
@@ -97,24 +86,27 @@ impl TimesShiftRegister {
 	}
 
 	/// Calculates delay variance.
-	pub fn delay_std(&self) -> f64 {
-		let mean = self.delay_mean();
-		f64::sqrt(
+	pub fn delay_std(&self) -> Option<f64> {
+		if self.times.len() == 0 {
+			return None;
+		}
+
+		let mean = self.delay_mean().unwrap();
+		Some(f64::sqrt(
 			self.times.iter()
 				.fold(0.0, |accum, times| accum + f64::powi(times.delay() as f64 - mean, 2)) / (self.times.len() as f64)
-		)
+		))
 	}
 
-	pub fn delay_mean(&self) -> f64 {
-		self.times.iter().fold(0.0, |accum, times| accum + times.delay() as f64) / (self.times.len() as f64)
-	}
-
-	pub fn read_timeout(&self) -> f64 {
-		if self.read_timeout <= 1.0 {
-			16_000_000.0
-		} else {
-			self.read_timeout
+	pub fn delay_mean(&self) -> Option<f64> {
+		if self.times.len() == 0 {
+			return None;
 		}
+
+		Some(
+			self.times.iter().
+				fold(0.0, |accum, times| accum + times.delay() as f64) / (self.times.len() as f64)
+		)
 	}
 
 	pub fn last_best(&self) -> Option<&Times> {
