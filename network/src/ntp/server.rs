@@ -97,9 +97,9 @@ pub struct NtpServer {
 	send_stream: NetworkWriteStream,
 	/// The last time we sent a packet to the NTP server.
 	send_times: HashMap<(u32, u8), i128>,
-	/// Used for determining the best system time correction.
-	shift_registers: HashMap<u32, NtpStatistics>,
 	socket: Arc<UdpSocket>,
+	/// Used for determining the best system time correction.
+	statistics: HashMap<u32, NtpStatistics>,
 	rx: mpsc::Receiver<Message>,
 }
 
@@ -153,7 +153,7 @@ impl NtpServer {
 			receive_stream: NetworkReadStream::new(),
 			send_stream: NetworkWriteStream::new(),
 			send_times: HashMap::new(),
-			shift_registers: HashMap::new(),
+			statistics: HashMap::new(),
 			socket,
 			rx,
 		})
@@ -229,6 +229,11 @@ impl NtpServer {
 				Err(error) => return Err(error.into()),
 			}
 		}
+	}
+
+	/// Get a reference to the NTP statistics associated with a particular ID.
+	pub fn get_statistics(&self, id: u32) -> Option<&NtpStatistics> {
+		self.statistics.get(&id)
 	}
 
 	/// Filter bad packets, then read the packet header and figure out what to do with the packet.
@@ -360,15 +365,15 @@ impl NtpServer {
 
 	/// Process the response sent. Update internal state using the timing information received.
 	fn process_response(&mut self, id: u32, recv_time: i128) -> Result<(), NtpServerError> {
-		if !self.shift_registers.contains_key(&id) {
-			self.shift_registers.insert(id, NtpStatistics::new(300, self.precision));
+		if !self.statistics.contains_key(&id) {
+			self.statistics.insert(id, NtpStatistics::new(300, self.precision));
 		}
 
 		// figure out what to do with the packet we just got
 		let packet = self.receive_stream.decode::<NtpResponsePacket>()?.0;
 
 		let send_time = self.send_times[&(id, packet.packet_index)];
-		let shift_register = self.shift_registers.get_mut(&id).unwrap();
+		let shift_register = self.statistics.get_mut(&id).unwrap();
 		shift_register.add_time(
 			Times::new(
 				recv_time,
