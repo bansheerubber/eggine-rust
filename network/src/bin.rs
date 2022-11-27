@@ -32,7 +32,7 @@ async fn main() {
 		let mut last_ping = std::time::Instant::now();
 
 		loop {
-			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(10) {
+			if std::time::Instant::now() - last_ping > std::time::Duration::from_secs(1) {
 				if let Err(error) = client.ping() {
 					if error.is_fatal() {
 						panic!("{:?}", error);

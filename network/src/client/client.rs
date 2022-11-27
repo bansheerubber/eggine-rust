@@ -17,6 +17,8 @@ pub enum ClientError {
 	Create(std::io::Error),
 	/// Emitted if we encountered a problem connecting to a server socket. Fatal.
 	Connect(std::io::Error),
+	/// Emitted if we could not talk to the server.
+	ConnectionRefused,
 	/// Emitted if we were disconnected by the server. Fatal.
 	Disconnected(DisconnectionReason),
 	/// Received an invalid handshake. We likely talked to a random UDP server. Fatal.
@@ -42,6 +44,7 @@ impl ClientError {
 		match *self {
 			ClientError::Create(_) => true,
 			ClientError::Connect(_) => true,
+			ClientError::ConnectionRefused => true,
 			ClientError::Disconnected(_) => true,
 			ClientError::Handshake => true,
 			ClientError::NetworkStreamError(_) => false,
@@ -186,7 +189,8 @@ impl Client {
 		}
 
 		// process NTP packets from the server
-		if let Some(ntp_server) = self.ntp_server.as_mut() {
+		if self.connection_initialized && self.ntp_server.is_some() {
+			let ntp_server = self.ntp_server.as_mut().unwrap();
 			ntp_server.sync_time(None).await?;
 			ntp_server.process_all().await?;
 		}
@@ -325,10 +329,15 @@ impl Client {
 	/// Send a byte vector to the server.
 	fn send_bytes(&mut self, bytes: &Vec<u8>) -> Result<(), ClientError> {
 		// TODO check if the amount of bytes sent in the socket matches the size of the exported vector
-		if let Err(error) = self.socket.send(&bytes) {
-			return Err(ClientError::Send(error));
+		match self.socket.send(&bytes) {
+			Ok(_) => Ok(()),
+			Err(error) => {
+				if error.raw_os_error().unwrap() == 111 {
+					Err(ClientError::ConnectionRefused)
+				} else {
+					Err(ClientError::Send(error))
+				}
+			},
 		}
-
-		Ok(())
 	}
 }

@@ -390,20 +390,20 @@ impl NtpServer {
 		)));
 
 		// print some continuously running statistics
-		let best = shift_register.best().unwrap();
+		// let best = shift_register.best().unwrap();
 
-		println!("time offset: {}us", best.time_offset());
-		println!("round-trip: {}us", best.delay());
-		println!("jitter: {}us", shift_register.jitter().unwrap());
-		println!("delay std: {}", shift_register.delay_std());
-		println!("synchronization distance: {}us", shift_register.synchronization_distance().unwrap());
+		// println!("time offset: {}us", best.time_offset());
+		// println!("round-trip: {}us", best.delay());
+		// println!("jitter: {}us", shift_register.jitter().unwrap());
+		// println!("delay std: {}", shift_register.delay_std());
+		// println!("synchronization distance: {}us", shift_register.synchronization_distance().unwrap());
 
-		if shift_register.last_best().is_some() {
-			println!(
-				"distance from last best: {}",
-				best.time_offset() - shift_register.last_best().unwrap().time_offset()
-			);
-		}
+		// if shift_register.last_best().is_some() {
+		// 	println!(
+		// 		"distance from last best: {}",
+		// 		best.time_offset() - shift_register.last_best().unwrap().time_offset()
+		// 	);
+		// }
 
 		Ok(())
 	}
