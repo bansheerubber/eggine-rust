@@ -1,0 +1,17 @@
+[package]
+name = "renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { features = ["full"], version = "1.22.0" }
+winit = "0.28.1"
+wgpu = "0.15.0"
+
+[lib]
+name = "renderer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rendererbin"
+path = "src/bin.rs"
