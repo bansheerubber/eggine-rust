@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::shaders::Program;
 use super::shaders::ShaderTable;
 use super::state::State;
 
@@ -105,9 +106,13 @@ impl Renderer {
 			panic!("Could not load frag shader");
 		};
 
+		let mut program = Program::new(
+			vec![self.shader_table.get_shader("texture.frag.spv"), self.shader_table.get_shader("texture.vert.spv")]
+		);
+
 		// create the pipeline
 		let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			bind_group_layouts: &[],
+			bind_group_layouts: &program.get_bind_group_layouts(&self.device),
 			label: None,
 			push_constant_ranges: &[],
 		});

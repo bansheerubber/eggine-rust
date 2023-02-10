@@ -48,10 +48,17 @@ impl ShaderTable {
 			source: wgpu::util::make_spirv(&buffer),
     });
 
+		let stage = if file_name.contains("frag") {
+			wgpu::ShaderStages::FRAGMENT
+		} else {
+			wgpu::ShaderStages::VERTEX
+		};
+
 		self.shaders.insert(
 			file_name.to_string(),
 			Shader {
 				module,
+				stage,
 				uniforms: self.process_uniforms_from_file(&file_name.to_string().replace(".spv", ""))?,
 			}
 		);
@@ -172,7 +179,6 @@ impl ShaderTable {
 
 				// we finally finished parsing a uniform, so reset the state machine
 				token_state = TokenState::None;
-				token_buffer = String::new();
 			}
 		}
 
