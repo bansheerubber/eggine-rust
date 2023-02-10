@@ -319,6 +319,17 @@ impl U8ReadStream<Error> for FileReadStream {
 
 		Ok((number, self.position))
 	}
+
+	fn read_vector(&mut self, length: usize) -> Result<(Vec<u8>, StreamPosition), Error> {
+		let mut output = Vec::new();
+		for _ in 0..length {
+			output.push(self.read_u8()?.0);
+		}
+
+		self.position += length as u64;
+
+		Ok((output, self.position))
+	}
 }
 
 impl U8ReadStringStream<Error> for FileReadStream {

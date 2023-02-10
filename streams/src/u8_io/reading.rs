@@ -115,6 +115,9 @@ pub trait U8ReadStream<Error> {
 	/// Reads a variable length quantity integer. The 16th bit in a 2 byte pair represents if the number has another two
 	/// bits. 1 if there are, 0 if there aren't. Integers within the range of `0..2**60` are supported.
 	fn read_vlq(&mut self) -> Result<(u64, StreamPosition), Error>;
+
+	/// Reads a specified amount of bytes into a vector.
+	fn read_vector(&mut self, length: usize) -> Result<(Vec<u8>, StreamPosition), Error>;
 }
 
 pub trait U8ReadStringStream<Error> {

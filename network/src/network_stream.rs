@@ -169,6 +169,17 @@ impl U8ReadStream<NetworkStreamError> for NetworkReadStream {
 		self.position += delta;
 		Ok((number, self.position))
 	}
+
+	fn read_vector(&mut self, length: usize) -> Result<(Vec<u8>, StreamPosition), NetworkStreamError> {
+		let mut output = Vec::new();
+		for _ in 0..length {
+			output.push(self.read_u8()?.0);
+		}
+
+		self.position += length as u64;
+
+		Ok((output, self.position))
+	}
 }
 
 impl U8ReadStringSafeStream<NetworkStreamError> for NetworkReadStream {
