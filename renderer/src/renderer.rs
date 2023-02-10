@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::shaders::ShaderTable;
 use super::state::State;
 
 /// The renderer has the job of rendering any renderable objects to the screen. The renderer also stores data needed by
@@ -14,6 +15,7 @@ pub struct Renderer {
 	swapchain_format: wgpu::TextureFormat,
 
 	state_to_pipeline: HashMap<State, wgpu::RenderPipeline>,
+	shader_table: ShaderTable,
 }
 
 impl Renderer {
@@ -79,6 +81,7 @@ impl Renderer {
 			swapchain_format,
 
 			state_to_pipeline: HashMap::new(),
+			shader_table: ShaderTable::new(),
 		};
 
 		// create thet initial render pipeline
@@ -93,11 +96,14 @@ impl Renderer {
 
 	/// Creates a `wgpu` pipeline based on the current render state.
 	fn create_pipeline(&mut self, state: &State) -> &wgpu::RenderPipeline {
-		// load the shader
-		let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-			label: None,
-			source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shader.wgsl"))),
-    });
+		// load the shaders
+		if let Err(_) = self.shader_table.load_shader_from_file("texture.vert.spv", &self.device) {
+			panic!("Could not load vert shader");
+		};
+
+		if let Err(_) = self.shader_table.load_shader_from_file("texture.frag.spv", &self.device) {
+			panic!("Could not load frag shader");
+		};
 
 		// create the pipeline
 		let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -110,8 +116,8 @@ impl Renderer {
 		let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			depth_stencil: None,
 			fragment: Some(wgpu::FragmentState {
-				entry_point: "fs_main",
-				module: &shader,
+				entry_point: "main",
+				module: &self.shader_table.get_shader("texture.frag.spv").module,
 				targets: &[Some(self.swapchain_format.into())],
 			}),
 			label: None,
@@ -121,8 +127,8 @@ impl Renderer {
 			primitive: wgpu::PrimitiveState::default(),
 			vertex: wgpu::VertexState {
 				buffers: &[],
-				entry_point: "vs_main",
-				module: &shader,
+				entry_point: "main",
+				module: &self.shader_table.get_shader("texture.vert.spv").module,
 			},
 		});
 
