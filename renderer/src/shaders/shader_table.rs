@@ -1,9 +1,12 @@
+use carton::Carton;
+use streams::u8_io::U8ReadStream;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 
 use super::{ Shader, Uniform, };
 
+#[derive(Debug)]
 pub enum ShaderError {
 	FileError,
 }
@@ -57,9 +60,43 @@ impl ShaderTable {
 		self.shaders.insert(
 			file_name.to_string(),
 			Shader {
+				file_name: file_name.to_string(),
 				module,
 				stage,
 				uniforms: self.process_uniforms_from_file(&file_name.to_string().replace(".spv", ""))?,
+			}
+		);
+
+		Ok(&self.shaders[file_name])
+	}
+
+	pub fn load_shader_from_carton(
+		&mut self, file_name: &str, carton: &mut Carton, device: &wgpu::Device
+	) -> Result<&Shader, ShaderError> {
+		let mut file_stream = carton.get_file_data(file_name).unwrap();
+		let binary_buffer = file_stream.read_vector(file_stream.file.get_size() as usize).unwrap().0;
+
+		let mut file_stream = carton.get_file_data(&file_name.to_string().replace(".spv", "")).unwrap();
+		let text_buffer = file_stream.read_vector(file_stream.file.get_size() as usize).unwrap().0;
+
+		let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+			label: None,
+			source: wgpu::util::make_spirv(&binary_buffer),
+    });
+
+		let stage = if file_name.contains("frag") {
+			wgpu::ShaderStages::FRAGMENT
+		} else {
+			wgpu::ShaderStages::VERTEX
+		};
+
+		self.shaders.insert(
+			file_name.to_string(),
+			Shader {
+				file_name: file_name.to_string(),
+				module,
+				stage,
+				uniforms: self.process_uniforms_from_buffer(&text_buffer)?,
 			}
 		);
 
@@ -83,6 +120,11 @@ impl ShaderTable {
 			return Err(ShaderError::FileError);
 		}
 
+		self.process_uniforms_from_buffer(&file_buffer)
+	}
+
+	/// Parse uniforms from the raw text shader so the renderer can assemble DescriptorSetLayoutBindings
+	fn process_uniforms_from_buffer(&self, file_buffer: &Vec<u8>) -> Result<Vec<Uniform>, ShaderError> {
 		// stores uniforms that are finished parsing
 		let mut uniforms = Vec::new();
 
@@ -96,15 +138,15 @@ impl ShaderTable {
 
 		let mut token_state = TokenState::None;
 		let mut token_buffer = String::new();
-		for character in file_buffer {
+		for character in file_buffer.iter() {
 			// push whitespace if we find a new line
-			if character == 10 || character == 13 {
+			if *character == 10 || *character == 13 {
 				token_buffer.push(' ');
 				continue;
 			}
 
 			// push a character into the buffer
-			token_buffer.push(character as char);
+			token_buffer.push(*character as char);
 
 			// this if statement describes the state machine used to parse uniform declarations
 			if token_state == TokenState::None
