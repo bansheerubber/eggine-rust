@@ -3,7 +3,9 @@ use std::string::FromUtf8Error;
 
 #[derive(Debug)]
 pub enum CartonError {
+	DecodedFileNotFound,
 	FileError(std::io::Error),
+	FileNotOpen,
 	FromUtf8(FromUtf8Error),
 	InvalidCompression,
 	InvalidMagicNumber,
