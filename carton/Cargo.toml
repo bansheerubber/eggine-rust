@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { features = ["derive"], version = "4.1.4" }
 serde = { features = ["derive"], version = "1.0.147" }
 streams = { path = "../streams" }
 toml = "0.5.9"
