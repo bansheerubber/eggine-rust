@@ -13,13 +13,13 @@ use crate::{ Carton, CartonError, Error, };
 #[derive(Debug)]
 pub struct CartonFileReadStream<'a> {
 	pub carton: &'a Carton,
-	pub file: File,
+	pub file: &'a File,
 	/// The stream's position is virtual and is relative to the position of the file offset in the carton file.
 	pub position: StreamPosition,
 }
 
 impl<'a> CartonFileReadStream<'a> {
-	pub fn new(carton: &'a Carton, file: File) -> Result<Self, Error> {
+	pub fn new(carton: &'a Carton, file: &'a File) -> Result<Self, Error> {
 		Ok(CartonFileReadStream {
 			carton,
 			file,
