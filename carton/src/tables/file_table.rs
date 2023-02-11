@@ -10,8 +10,8 @@ use super::TableID;
 /// Maps files to their absolute positions within the carton.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct FileTable {
-	/// List of files.
-	files: Vec<File>,
+	/// Mapping of file names to file objects.
+	files_by_name: HashMap<String, File>,
 	/// Where the file metadata is located. File metadata is positioned before file contents. If we're building a carton
 	/// from a directory, then the metadata mapping is only valid during file encoding and remains empty beforehand. If
 	/// we're importing a carton from a `.carton` file, then the metadata mapping becomes valid immediately after file
@@ -19,19 +19,18 @@ pub(crate) struct FileTable {
 	metadata_positions: HashMap<String, u64>,
 	/// Where the file data begins. Represents byte 0 of the file. If we're building a carton from a directory, then the
 	/// absolute position mapping is only valid during file encoding and remains empty beforehand. If we're importing a
-	/// carton from a `.carton` file, then the metadata mapping becomes valid only after we decode the entire carton.
+	/// carton from a `.carton` file, then the file position mapping becomes valid only after we decode the entire carton.
 	file_positions: HashMap<String, u64>,
 }
-
 impl FileTable {
 	/// Adds a standalone file from disk.
 	pub fn add_from_disk(&mut self, file: File) {
-		self.files.push(file);
+		self.files_by_name.insert(file.get_file_name().to_string(), file);
 	}
 
 	/// Adds a standalone file from the intermediate decode.
 	pub(crate) fn add_from_intermediate(&mut self, file: File) {
-		self.files.push(file);
+		self.files_by_name.insert(file.get_file_name().to_string(), file);
 	}
 
 	/// Add a file's metadata position into the table during the decode process.
@@ -45,14 +44,19 @@ impl FileTable {
 		self.file_positions.insert(String::from(file_name), file_position);
 	}
 
-	/// Get the list of files the table keeps track of.
-	pub fn get_files(&self) -> &Vec<File> {
-		&self.files
-	}
-
 	/// Get a reference for file metadata positions.
 	pub fn get_metadata_positions(&self) -> &HashMap<String, u64> {
 		&self.metadata_positions
+	}
+
+	/// Get a reference for file positions.
+	pub fn get_file_positions(&self) -> &HashMap<String, u64> {
+		&self.file_positions
+	}
+
+	/// Get a reference for files by file name
+	pub fn get_files_by_name(&self) -> &HashMap<String, File> {
+		&self.files_by_name
 	}
 }
 

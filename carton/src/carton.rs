@@ -113,7 +113,7 @@ where
 
 		// encode files
 		let mut positions = Vec::new();
-		for file in self.file_table.get_files() {
+		for file in self.file_table.get_files_by_name().values() {
 			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table)?;
 			positions.push((String::from(file.get_file_name()), metadata_position, file_position));
 		}
