@@ -1,3 +1,4 @@
+use std::fs::OpenOptions;
 use streams::{ Decode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 use walkdir::WalkDir;
@@ -17,8 +18,9 @@ const CARTON_VERSION: u8 = 2;
 /// designed to support everything from storing data in files, to sending data over the network. Cartons are designed to
 /// be constructed from a directory which includes data to be included in a video game. The carton preserves the file
 /// structure and automatically assigns imported files with metadata read from TOML files.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Carton {
+	pub(crate) file: Option<std::fs::File>,
 	/// Keeps track of files in the carton.
 	pub(crate) file_table: FileTable,
 	/// Stores strings used throughout the carton.
@@ -30,6 +32,7 @@ pub struct Carton {
 impl Default for Carton {
 	fn default() -> Self {
 		Carton {
+			file: None,
 			file_table: FileTable::default(),
 			string_table: StringTable::default(),
 			version: CARTON_VERSION,
@@ -43,6 +46,24 @@ impl Carton {
 		let mut stream = FileWriteStream::new(file_name).unwrap();
 		stream.encode_mut(self).unwrap();
 		stream.export().unwrap();
+	}
+
+	/// Decodes the carton from file and sets up file reading.
+	pub fn read(file_name: &str) -> Result<Carton, Error> {
+		let mut stream = FileReadStream::new("scratch/resources.carton").unwrap();
+		let mut new_carton = stream.decode::<Carton>().unwrap().0;
+
+		let file = match OpenOptions::new()
+			.read(true)
+			.open(file_name)
+		{
+			Ok(file) => file,
+			Err(error) => return Err(Box::new(CartonError::FileError(error))),
+		};
+
+		new_carton.file = Some(file);
+
+		Ok(new_carton)
 	}
 
 	/// Add a file to the carton. The file will be written into the carton archive format when it is exported.
