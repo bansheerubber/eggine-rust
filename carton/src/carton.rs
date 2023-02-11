@@ -3,11 +3,12 @@ use streams::{ Decode, EncodeMut, Endable, ReadStream, Peekable, Seekable, Strea
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 use walkdir::WalkDir;
 
+use crate::carton_file_stream::CartonFileReadStream;
 use crate::{ CartonError, Error, };
 use crate::tables::{ FileTable, TableID, };
 use crate::tables::StringTable;
 use crate::file::{ File, decode_file, encode_file };
-use crate::file_stream::FileWriteStream;
+use crate::file_stream::{ FileReadStream, FileWriteStream, };
 use crate::metadata::decode_value;
 
 const CARTON_VERSION: u8 = 2;
@@ -84,6 +85,18 @@ impl Carton {
 				self.add_file(file_name);
 			}
 		}
+	}
+
+	pub fn get_file_data(&mut self, file_name: &str) -> Result<CartonFileReadStream, Error> {
+		if self.file.is_none() {
+			return Err(Box::new(CartonError::FileNotOpen));
+		}
+
+		if !self.file_table.get_files_by_name().contains_key(file_name) {
+			return Err(Box::new(CartonError::DecodedFileNotFound));
+		}
+
+		CartonFileReadStream::new(self, &self.file_table.get_files_by_name()[file_name])
 	}
 }
 
