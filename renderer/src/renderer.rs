@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use super::shaders::Program;
-use super::shaders::ShaderTable;
-use super::state::State;
+use super::state::{ State, StateKey, };
 
 /// The renderer has the job of rendering any renderable objects to the screen. The renderer also stores data needed by
 /// `wgpu`, such as shader programs and render pipelines.
@@ -15,8 +14,7 @@ pub struct Renderer {
 	swapchain_capabilities: wgpu::SurfaceCapabilities,
 	swapchain_format: wgpu::TextureFormat,
 
-	state_to_pipeline: HashMap<State, wgpu::RenderPipeline>,
-	shader_table: ShaderTable,
+	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 }
 
 impl Renderer {
@@ -72,7 +70,7 @@ impl Renderer {
 		surface.configure(&device, &config);
 
 		// create the renderer container object
-		let mut renderer = Renderer {
+		Renderer {
 			adapter,
 			device,
 			instance,
@@ -82,13 +80,7 @@ impl Renderer {
 			swapchain_format,
 
 			state_to_pipeline: HashMap::new(),
-			shader_table: ShaderTable::new(),
-		};
-
-		// create thet initial render pipeline
-		renderer.create_pipeline(&State {});
-
-		return renderer;
+		}
 	}
 
 	pub fn tick() {
@@ -96,18 +88,9 @@ impl Renderer {
 	}
 
 	/// Creates a `wgpu` pipeline based on the current render state.
-	fn create_pipeline(&mut self, state: &State) -> &wgpu::RenderPipeline {
-		// load the shaders
-		if let Err(_) = self.shader_table.load_shader_from_file("hello.vert.spv", &self.device) {
-			panic!("Could not load vert shader");
-		};
-
-		if let Err(_) = self.shader_table.load_shader_from_file("hello.frag.spv", &self.device) {
-			panic!("Could not load frag shader");
-		};
-
+	pub fn create_pipeline(&mut self, state: &State) -> &wgpu::RenderPipeline {
 		let mut program = Program::new(
-			vec![self.shader_table.get_shader("hello.frag.spv"), self.shader_table.get_shader("hello.vert.spv")]
+			vec![state.fragment_shader, state.vertex_shader]
 		);
 
 		// create the pipeline
@@ -122,7 +105,7 @@ impl Renderer {
 			depth_stencil: None,
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
-				module: &self.shader_table.get_shader("hello.frag.spv").module,
+				module: &state.fragment_shader.module,
 				targets: &[Some(self.swapchain_format.into())],
 			}),
 			label: None,
@@ -141,12 +124,17 @@ impl Renderer {
 			vertex: wgpu::VertexState {
 				buffers: &[],
 				entry_point: "main",
-				module: &self.shader_table.get_shader("hello.vert.spv").module,
+				module: &state.vertex_shader.module,
 			},
 		});
 
-		self.state_to_pipeline.insert(state.clone(), render_pipeline);
+		self.state_to_pipeline.insert(state.key(), render_pipeline);
 
-		&self.state_to_pipeline[state]
+		&self.state_to_pipeline[&state.key()]
+	}
+
+	/// Gets the wgpu device used by this renderer.
+	pub fn get_device(&self) -> &wgpu::Device {
+		&self.device
 	}
 }
