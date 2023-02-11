@@ -122,7 +122,26 @@ impl Renderer {
 				unclipped_depth: false,
 			},
 			vertex: wgpu::VertexState {
-				buffers: &[],
+				buffers: &[
+					wgpu::VertexBufferLayout {
+						array_stride: 0,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x2,
+							offset: 0,
+							shader_location: 0,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
+					wgpu::VertexBufferLayout {
+						array_stride: 0,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x4,
+							offset: 0,
+							shader_location: 1,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
+				],
 				entry_point: "main",
 				module: &state.vertex_shader.module,
 			},
