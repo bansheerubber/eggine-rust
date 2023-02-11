@@ -98,16 +98,16 @@ impl Renderer {
 	/// Creates a `wgpu` pipeline based on the current render state.
 	fn create_pipeline(&mut self, state: &State) -> &wgpu::RenderPipeline {
 		// load the shaders
-		if let Err(_) = self.shader_table.load_shader_from_file("texture.vert.spv", &self.device) {
+		if let Err(_) = self.shader_table.load_shader_from_file("hello.vert.spv", &self.device) {
 			panic!("Could not load vert shader");
 		};
 
-		if let Err(_) = self.shader_table.load_shader_from_file("texture.frag.spv", &self.device) {
+		if let Err(_) = self.shader_table.load_shader_from_file("hello.frag.spv", &self.device) {
 			panic!("Could not load frag shader");
 		};
 
 		let mut program = Program::new(
-			vec![self.shader_table.get_shader("texture.frag.spv"), self.shader_table.get_shader("texture.vert.spv")]
+			vec![self.shader_table.get_shader("hello.frag.spv"), self.shader_table.get_shader("hello.vert.spv")]
 		);
 
 		// create the pipeline
@@ -122,18 +122,26 @@ impl Renderer {
 			depth_stencil: None,
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
-				module: &self.shader_table.get_shader("texture.frag.spv").module,
+				module: &self.shader_table.get_shader("hello.frag.spv").module,
 				targets: &[Some(self.swapchain_format.into())],
 			}),
 			label: None,
 			layout: Some(&pipeline_layout),
 			multisample: wgpu::MultisampleState::default(),
 			multiview: None,
-			primitive: wgpu::PrimitiveState::default(),
+			primitive: wgpu::PrimitiveState {
+				conservative: false,
+				cull_mode: None,
+				front_face: wgpu::FrontFace::Ccw,
+				polygon_mode: wgpu::PolygonMode::Fill,
+				strip_index_format: Some(wgpu::IndexFormat::Uint16),
+				topology: wgpu::PrimitiveTopology::TriangleStrip,
+				unclipped_depth: false,
+			},
 			vertex: wgpu::VertexState {
 				buffers: &[],
 				entry_point: "main",
-				module: &self.shader_table.get_shader("texture.vert.spv").module,
+				module: &self.shader_table.get_shader("hello.vert.spv").module,
 			},
 		});
 
