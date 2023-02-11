@@ -5,14 +5,30 @@ use super::Uniform;
 /// Stores the wgpu ShaderModule and uniform descriptor sets
 #[derive(Debug)]
 pub struct Shader {
+	pub file_name: String,
 	pub module: wgpu::ShaderModule,
 	pub stage: wgpu::ShaderStages,
 	pub uniforms: Vec<Uniform>,
 }
 
+impl std::hash::Hash for Shader {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.file_name.hash(state);
+	}
+}
+
+impl PartialEq for Shader {
+	fn eq(&self, other: &Self) -> bool {
+		self.file_name == other.file_name
+	}
+}
+
+impl Eq for Shader {}
+
 impl Shader {
-	pub fn new(module: wgpu::ShaderModule, stage: wgpu::ShaderStages) -> Self {
+	pub fn new(file_name: String, module: wgpu::ShaderModule, stage: wgpu::ShaderStages) -> Self {
 		Shader {
+			file_name,
 			module,
 			stage,
 			uniforms: Vec::new(),
