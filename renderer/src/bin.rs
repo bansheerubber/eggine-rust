@@ -21,4 +21,9 @@ async fn main() {
 		fragment_shader: shader_table.get_shader("data/hello.frag.spv"),
 		vertex_shader: shader_table.get_shader("data/hello.vert.spv"),
 	});
+
+	// render
+	loop {
+		renderer.tick();
+	}
 }

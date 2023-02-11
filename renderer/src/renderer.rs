@@ -83,8 +83,36 @@ impl Renderer {
 		}
 	}
 
-	pub fn tick() {
+	pub fn tick(&mut self) {
+		let frame = self.surface.get_current_texture().expect("Failed to acquire next swap chain texture");
+		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+			label: None,
+		});
+
+		{
+			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+					ops: wgpu::Operations {
+						load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+						store: true,
+					},
+					resolve_target: None,
+					view: &view,
+				})],
+				depth_stencil_attachment: None,
+				label: None,
+			});
+
+			render_pass.set_pipeline(
+				self.state_to_pipeline.values().next().unwrap()
+			);
+		}
+
+		self.queue.submit(Some(encoder.finish()));
+		frame.present();
+		println!("present");
 	}
 
 	/// Creates a `wgpu` pipeline based on the current render state.
