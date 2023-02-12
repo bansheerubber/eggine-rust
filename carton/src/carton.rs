@@ -51,8 +51,8 @@ impl Carton {
 
 	/// Decodes the carton from file and sets up file reading.
 	pub fn read(file_name: &str) -> Result<Carton, Error> {
-		let mut stream = FileReadStream::new(file_name).unwrap();
-		let mut new_carton = stream.decode::<Carton>().unwrap().0;
+		let mut stream = FileReadStream::new(file_name)?;
+		let mut new_carton = stream.decode::<Carton>()?.0;
 
 		let file = match OpenOptions::new()
 			.read(true)

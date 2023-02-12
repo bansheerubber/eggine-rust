@@ -1,7 +1,7 @@
 mod file_table;
 mod string_table;
 
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) enum TableID {
 	Invalid 			= 0,
 	FileTable 		= 1,
