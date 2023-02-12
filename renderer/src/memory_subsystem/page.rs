@@ -3,16 +3,32 @@ use std::collections::VecDeque;
 use super::node::{ Node, NodeKind, align_to, };
 
 #[derive(Debug)]
+pub enum PageError {
+	NodeNotFound,
+	NoFreeSpace,
+}
+
+#[derive(Debug)]
 pub struct Page {
+	buffer: wgpu::Buffer,
+	next_node_index: u64,
 	nodes: VecDeque<Node>,
 	size: u64,
 }
 
 impl Page {
-	pub fn new(size: u64) -> Self {
+	pub fn new(size: u64, usage: wgpu::BufferUsages, device: &wgpu::Device) -> Self {
 		Page {
+			buffer: device.create_buffer(&wgpu::BufferDescriptor {
+				label: None,
+				mapped_at_creation: false, // TODO get this working, requires some extra stuff according to the docs
+				size,
+				usage,
+			}),
+			next_node_index: 1,
 			nodes: vec![Node { // initialize with empty node with thet size of the entire page
 				align: 1,
+				index: 0,
 				kind: NodeKind::Buffer,
 				offset: 0,
 				size: size,
@@ -22,7 +38,7 @@ impl Page {
 	}
 
 	/// Allocates a node into the page by allocating a node from unused nodes. Alignment must be non-zero.
-	pub fn allocate_node(&mut self, size: u64, align: u64, kind: NodeKind) {
+	pub fn allocate_node(&mut self, size: u64, align: u64, kind: NodeKind) -> Result<Node, PageError> {
 		let size = align_to(size, align);
 
 		// find a node that can fit the new node into it
@@ -39,7 +55,7 @@ impl Page {
 		}
 
 		let Some(mut found_node) = found_node else {
-			return;
+			return Err(PageError::NoFreeSpace);
 		};
 
 		let padding = align_to(self.nodes[found_node].offset, align) - self.nodes[found_node].offset;
@@ -52,38 +68,67 @@ impl Page {
 			if padding != 0 {
 				self.nodes.insert(found_node, Node {
 					align: 1,
+					index: self.next_node_index,
 					kind: NodeKind::Unused,
 					offset: self.nodes[found_node].offset,
 					size: padding,
 				});
 
+				self.next_node_index += 1;
 				found_node += 1;
 			}
 
-			self.nodes.insert(found_node, Node {
+			let node = Node {
 				align,
+				index: self.next_node_index,
 				kind,
 				offset: self.nodes[found_node].offset + padding,
 				size,
-			});
+			};
 
+			self.nodes.insert(found_node, node.clone());
+
+			self.next_node_index += 1;
 			found_node += 1;
 
 			// assign new offset & size to the node we just stole from
 			self.nodes[found_node].offset = self.nodes[found_node].offset + size + padding;
 			self.nodes[found_node].size -= size + padding;
 			self.defragment(found_node + 1);
+
+			Ok(node)
 		} else { // if the unused node is the exact size we want with correctly aligned offset, just steal it
 			self.nodes[found_node].kind = kind;
 			self.nodes[found_node].align = align;
+
+			Ok(self.nodes[found_node].clone())
 		}
 	}
 
-	/// Marks the node at the specified index as unused.
-	pub fn deallocate_node(&mut self, index: usize) {
+	/// Marks the node as unused.
+	pub fn deallocate_node(&mut self, node: Node) -> Result<(), PageError> {
+		// find the node
+		let mut index = None;
+		for i in 0..self.nodes.len() {
+			if self.nodes[i] == node {
+				index = Some(i);
+			}
+		}
+
+		let Some(index) = index else {
+			return Err(PageError::NodeNotFound);
+		};
+
 		self.nodes[index].kind = NodeKind::Unused;
 		self.nodes[index].align = 1;
 		self.defragment(index + 1);
+
+		Ok(())
+	}
+
+	/// Returns the page's buffer.
+	pub fn get_buffer(&self) -> &wgpu::Buffer {
+		return &self.buffer;
 	}
 
 	/// Combines adjacent unused nodes into single nodes.
