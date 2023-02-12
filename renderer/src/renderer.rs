@@ -11,16 +11,21 @@ pub struct Renderer {
 	instance: wgpu::Instance,
 	queue: wgpu::Queue,
 	surface: wgpu::Surface,
+	surface_config: wgpu::SurfaceConfiguration,
 	swapchain_capabilities: wgpu::SurfaceCapabilities,
 	swapchain_format: wgpu::TextureFormat,
 
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
+
+	test_buffer1: wgpu::Buffer,
+	test_buffer2: wgpu::Buffer,
+
+	pub window: winit::window::Window,
 }
 
 impl Renderer {
 	/// Creates a new renderer. Acquires a surface using `winit` and acquires a device using `wgpu`.
-	pub async fn new() -> Self {
-		let event_loop = winit::event_loop::EventLoop::new();
+	pub async fn new(event_loop: &winit::event_loop::EventLoop<()>) -> Self {
 		let window = winit::window::Window::new(&event_loop).unwrap();
 
 		let size = window.inner_size();
@@ -57,7 +62,7 @@ impl Renderer {
     let swapchain_format = swapchain_capabilities.formats[0];
 
 		// configure the surface
-		let config = wgpu::SurfaceConfiguration {
+		let surface_config = wgpu::SurfaceConfiguration {
 			alpha_mode: swapchain_capabilities.alpha_modes[0],
 			format: swapchain_format,
 			height: size.height,
@@ -67,29 +72,81 @@ impl Renderer {
 			width: size.width,
 		};
 
-		surface.configure(&device, &config);
+		surface.configure(&device, &surface_config);
 
 		// create the renderer container object
 		Renderer {
+			test_buffer1: device.create_buffer(&wgpu::BufferDescriptor {
+				label: Some("test_buffer1"),
+				mapped_at_creation: false,
+				usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				size: 4 * 2 * 3,
+			}),
+
+			test_buffer2: device.create_buffer(&wgpu::BufferDescriptor {
+				label: Some("test_buffer2"),
+				mapped_at_creation: false,
+				usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				size: 4 * 4 * 3,
+			}),
+
 			adapter,
 			device,
 			instance,
 			queue,
 			surface,
+			surface_config,
 			swapchain_capabilities,
 			swapchain_format,
 
 			state_to_pipeline: HashMap::new(),
+
+			window,
 		}
 	}
 
 	pub fn tick(&mut self) {
-		let frame = self.surface.get_current_texture().expect("Failed to acquire next swap chain texture");
+		let frame = self.surface.get_current_texture().expect("Could not acquire next texture");
+
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
 		});
+
+		let triangle: [f32; 6] = [
+			-0.5, -0.5,
+			0.5, -0.5,
+			0.0, 0.5
+		];
+
+		self.queue.write_buffer(
+			&self.test_buffer1,
+			0,
+			unsafe {
+				std::slice::from_raw_parts(
+					triangle.as_ptr() as *const u8,
+					triangle.len() * 4,
+				)
+			}
+		);
+
+		let colors: [f32; 4 * 3] = [
+			1.0, 0.0, 0.0, 1.0,
+			0.0, 1.0, 0.0, 1.0,
+			0.0, 0.0, 1.0, 1.0,
+		];
+
+		self.queue.write_buffer(
+			&self.test_buffer2,
+			0,
+			unsafe {
+				std::slice::from_raw_parts(
+					colors.as_ptr() as *const u8,
+					colors.len() * 4,
+				)
+			}
+		);
 
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -108,11 +165,22 @@ impl Renderer {
 			render_pass.set_pipeline(
 				self.state_to_pipeline.values().next().unwrap()
 			);
+
+			render_pass.set_vertex_buffer(0, self.test_buffer1.slice(..));
+			render_pass.set_vertex_buffer(1, self.test_buffer2.slice(..));
+
+			render_pass.draw(0..3, 0..1);
 		}
 
 		self.queue.submit(Some(encoder.finish()));
 		frame.present();
-		println!("present");
+	}
+
+	pub fn resize(&mut self, width: u32, height: u32) {
+		self.surface_config.width = width;
+		self.surface_config.height = height;
+
+		self.surface.configure(&self.device, &self.surface_config);
 	}
 
 	/// Creates a `wgpu` pipeline based on the current render state.
