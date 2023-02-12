@@ -61,7 +61,7 @@ impl Renderer {
 			.expect("Failed to get device");
 
 		let swapchain_capabilities = surface.get_capabilities(&adapter);
-    let swapchain_format = swapchain_capabilities.formats[0];
+    let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
 		// configure the surface
 		let surface_config = wgpu::SurfaceConfiguration {
