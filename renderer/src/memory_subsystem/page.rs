@@ -131,6 +131,11 @@ impl Page {
 		return &self.buffer;
 	}
 
+	/// Gets a buffer slice from the specified node.
+	pub fn get_slice(&self, node: &Node) -> wgpu::BufferSlice {
+		return self.buffer.slice(node.offset..node.offset + node.size);
+	}
+
 	/// Combines adjacent unused nodes into single nodes.
 	fn defragment(&mut self, index: usize) {
 		// defragment unused nodes

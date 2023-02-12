@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
+use super::memory_subsystem::{ Node, NodeKind, Page, };
 use super::shaders::Program;
 use super::state::{ State, StateKey, };
 
@@ -20,8 +21,9 @@ pub struct Renderer {
 
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 
-	test_buffer1: wgpu::Buffer,
-	test_buffer2: wgpu::Buffer,
+	test_buffer1: Node,
+	test_buffer2: Node,
+	test_page: Page,
 }
 
 impl Renderer {
@@ -75,41 +77,13 @@ impl Renderer {
 
 		surface.configure(&device, &surface_config);
 
-		let triangle: [f32; 6] = [
-			0.0, 0.5,
-			-0.5, -0.5,
-			0.5, -0.5,
-		];
-
-		let colors: [f32; 4 * 3] = [
-			1.0, 0.0, 0.0, 1.0,
-			0.0, 1.0, 0.0, 1.0,
-			0.0, 0.0, 1.0, 1.0,
-		];
+		let mut page = Page::new(6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, &device);
 
 		// create the renderer container object
 		Renderer {
-			test_buffer1: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-				contents: unsafe {
-					std::slice::from_raw_parts(
-						triangle.as_ptr() as *const u8,
-						triangle.len() * 4,
-					)
-				},
-				label: Some("test_buffer1"),
-				usage: wgpu::BufferUsages::VERTEX,
-			}),
-
-			test_buffer2: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-				contents: unsafe {
-					std::slice::from_raw_parts(
-						colors.as_ptr() as *const u8,
-						colors.len() * 4,
-					)
-				},
-				label: Some("test_buffer2"),
-				usage: wgpu::BufferUsages::VERTEX,
-			}),
+			test_buffer1: page.allocate_node(6 * 4, 4, NodeKind::Buffer).unwrap(),
+			test_buffer2: page.allocate_node(4 * 3 * 4, 4, NodeKind::Buffer).unwrap(),
+			test_page: page,
 
 			adapter,
 			device,
@@ -129,6 +103,40 @@ impl Renderer {
 		let frame = self.surface.get_current_texture().expect("Could not acquire next texture");
 
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+		let triangle: [f32; 6] = [
+			0.0, 0.5,
+			-0.5, -0.5,
+			0.5, -0.5,
+		];
+
+		self.queue.write_buffer(
+			self.test_page.get_buffer(),
+			self.test_buffer1.offset,
+			unsafe {
+				std::slice::from_raw_parts(
+					triangle.as_ptr() as *const u8,
+					triangle.len() * 4 as usize,
+				)
+			}
+		);
+
+		let colors: [f32; 4 * 3] = [
+			1.0, 0.0, 0.0, 1.0,
+			0.0, 1.0, 0.0, 1.0,
+			0.0, 0.0, 1.0, 1.0,
+		];
+
+		self.queue.write_buffer(
+			self.test_page.get_buffer(),
+			self.test_buffer2.offset,
+			unsafe {
+				std::slice::from_raw_parts(
+					colors.as_ptr() as *const u8,
+					colors.len() * 4 as usize,
+				)
+			}
+		);
 
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
@@ -152,8 +160,8 @@ impl Renderer {
 				self.state_to_pipeline.values().next().unwrap()
 			);
 
-			render_pass.set_vertex_buffer(0, self.test_buffer1.slice(..));
-			render_pass.set_vertex_buffer(1, self.test_buffer2.slice(..));
+			render_pass.set_vertex_buffer(0, self.test_page.get_slice(&self.test_buffer1));
+			render_pass.set_vertex_buffer(1, self.test_page.get_slice(&self.test_buffer2));
 
 			render_pass.draw(0..3, 0..1);
 		}
