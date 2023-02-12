@@ -16,13 +16,12 @@ pub struct Renderer {
 	surface_config: wgpu::SurfaceConfiguration,
 	swapchain_capabilities: wgpu::SurfaceCapabilities,
 	swapchain_format: wgpu::TextureFormat,
+	window: winit::window::Window,
 
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 
 	test_buffer1: wgpu::Buffer,
 	test_buffer2: wgpu::Buffer,
-
-	pub window: winit::window::Window,
 }
 
 impl Renderer {
@@ -120,10 +119,9 @@ impl Renderer {
 			surface_config,
 			swapchain_capabilities,
 			swapchain_format,
+			window,
 
 			state_to_pipeline: HashMap::new(),
-
-			window,
 		}
 	}
 
@@ -239,5 +237,10 @@ impl Renderer {
 	/// Gets the wgpu device used by this renderer.
 	pub fn get_device(&self) -> &wgpu::Device {
 		&self.device
+	}
+
+	/// Gets the window this renderer is rendering to.
+	pub fn get_window(&self) -> &winit::window::Window {
+		&self.window
 	}
 }

@@ -27,7 +27,7 @@ async fn main() {
 	event_loop.run(move |event, _, control_flow| {
 		match event {
 			winit::event::Event::RedrawEventsCleared => {
-				renderer.window.request_redraw();
+				renderer.get_window().request_redraw();
 			},
 			winit::event::Event::RedrawRequested(_) => {
 				renderer.tick();
