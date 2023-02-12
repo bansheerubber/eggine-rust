@@ -1,6 +1,4 @@
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
+use std::io::{ Read, Seek, SeekFrom, };
 
 use streams::u8_io::reading::U8ReadStringStream;
 use streams::{ Endable, Peekable, Seekable, StreamPosition, };
@@ -32,6 +30,16 @@ impl<'a> CartonFileReadStream<'a> {
 
 		if let Err(error) = self.carton.file.as_ref().unwrap().seek(SeekFrom::Start(file_position + self.position)) {
 			return Err(Box::new(CartonError::FileError(error)));
+		} else {
+			Ok(())
+		}
+	}
+
+	fn reset_seek_io_err(&self) -> Result<(), std::io::Error> {
+		let file_position = self.carton.file_table.get_file_positions()[self.file.get_file_name()];
+
+		if let Err(error) = self.carton.file.as_ref().unwrap().seek(SeekFrom::Start(file_position + self.position)) {
+			Err(error)
 		} else {
 			Ok(())
 		}
@@ -212,5 +220,79 @@ impl<'a> Endable<Error> for CartonFileReadStream<'a> {
 		} else {
 			Ok(false)
 		}
+	}
+}
+
+/// std::io::Read implementation so we can pass the read stream to things expecting a std reader
+impl<'a> std::io::Read for CartonFileReadStream<'a> {
+	fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+		self.reset_seek_io_err()?;
+
+		let length = match self.carton.file.as_ref().unwrap().read(buffer) {
+			Ok(length) => length,
+			Err(error) => return Err(error),
+		};
+
+		self.position += length as u64;
+
+		Ok(length)
+	}
+}
+
+/// std::io::Read implementation so we can pass the read stream to things expecting a seeked reader
+impl<'a> std::io::Seek for CartonFileReadStream<'a> {
+	fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+		self.position = match position {
+			SeekFrom::Current(position) => { // relative seek
+				let Some(new_position) = self.position.checked_add_signed(position) else {
+					return Err(std::io::Error::new(
+						std::io::ErrorKind::InvalidInput,
+						format!("Could not relative seek with input '{}'", position)
+					));
+				};
+
+				let file_position = self.carton.file_table.get_file_positions()[self.file.get_file_name()];
+				if new_position >= file_position + self.file.get_size() {
+					return Err(std::io::Error::new(
+						std::io::ErrorKind::InvalidInput,
+						format!("Beyond end of seekable file due to relative seek with input '{}'", position)
+					));
+				}
+
+				new_position
+			},
+			SeekFrom::End(position) => {
+				if position < 0 {
+					return Err(std::io::Error::new(
+						std::io::ErrorKind::InvalidInput,
+						format!("Beyond end of seekable file due to end seek with input '{}'", position)
+					));
+				}
+
+				let Some(new_position) = self.file.get_size().checked_sub(position as u64) else {
+					return Err(std::io::Error::new(
+						std::io::ErrorKind::InvalidInput,
+						format!("Could not end seek with input '{}'", position)
+					));
+				};
+
+				new_position
+			},
+			SeekFrom::Start(position) => {
+				let file_position = self.carton.file_table.get_file_positions()[self.file.get_file_name()];
+				if position > file_position + self.file.get_size() {
+					return Err(std::io::Error::new(
+						std::io::ErrorKind::InvalidInput,
+						format!("Beyond end of seekable file due to start seek with input '{}'", position)
+					));
+				}
+
+				position
+			},
+		};
+
+		self.reset_seek_io_err()?;
+
+		Ok(self.position)
 	}
 }
