@@ -29,7 +29,7 @@ impl Page {
 			nodes: vec![Node { // initialize with empty node with thet size of the entire page
 				align: 1,
 				index: 0,
-				kind: NodeKind::Buffer,
+				kind: NodeKind::Unused,
 				offset: 0,
 				size: size,
 			}].into(),
