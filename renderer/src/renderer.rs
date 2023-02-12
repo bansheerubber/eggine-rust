@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use wgpu::util::DeviceExt;
+
 use super::shaders::Program;
 use super::state::{ State, StateKey, };
 
@@ -74,20 +76,40 @@ impl Renderer {
 
 		surface.configure(&device, &surface_config);
 
+		let triangle: [f32; 6] = [
+			0.0, 0.5,
+			-0.5, -0.5,
+			0.5, -0.5,
+		];
+
+		let colors: [f32; 4 * 3] = [
+			1.0, 0.0, 0.0, 1.0,
+			0.0, 1.0, 0.0, 1.0,
+			0.0, 0.0, 1.0, 1.0,
+		];
+
 		// create the renderer container object
 		Renderer {
-			test_buffer1: device.create_buffer(&wgpu::BufferDescriptor {
+			test_buffer1: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+				contents: unsafe {
+					std::slice::from_raw_parts(
+						triangle.as_ptr() as *const u8,
+						triangle.len() * 4,
+					)
+				},
 				label: Some("test_buffer1"),
-				mapped_at_creation: false,
-				usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-				size: 4 * 2 * 3,
+				usage: wgpu::BufferUsages::VERTEX,
 			}),
 
-			test_buffer2: device.create_buffer(&wgpu::BufferDescriptor {
+			test_buffer2: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+				contents: unsafe {
+					std::slice::from_raw_parts(
+						colors.as_ptr() as *const u8,
+						colors.len() * 4,
+					)
+				},
 				label: Some("test_buffer2"),
-				mapped_at_creation: false,
-				usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-				size: 4 * 4 * 3,
+				usage: wgpu::BufferUsages::VERTEX,
 			}),
 
 			adapter,
@@ -113,40 +135,6 @@ impl Renderer {
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
 		});
-
-		let triangle: [f32; 6] = [
-			-0.5, -0.5,
-			0.5, -0.5,
-			0.0, 0.5
-		];
-
-		self.queue.write_buffer(
-			&self.test_buffer1,
-			0,
-			unsafe {
-				std::slice::from_raw_parts(
-					triangle.as_ptr() as *const u8,
-					triangle.len() * 4,
-				)
-			}
-		);
-
-		let colors: [f32; 4 * 3] = [
-			1.0, 0.0, 0.0, 1.0,
-			0.0, 1.0, 0.0, 1.0,
-			0.0, 0.0, 1.0, 1.0,
-		];
-
-		self.queue.write_buffer(
-			&self.test_buffer2,
-			0,
-			unsafe {
-				std::slice::from_raw_parts(
-					colors.as_ptr() as *const u8,
-					colors.len() * 4,
-				)
-			}
-		);
 
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -210,7 +198,7 @@ impl Renderer {
 			multiview: None,
 			primitive: wgpu::PrimitiveState {
 				conservative: false,
-				cull_mode: None,
+				cull_mode: Some(wgpu::Face::Back),
 				front_face: wgpu::FrontFace::Ccw,
 				polygon_mode: wgpu::PolygonMode::Fill,
 				strip_index_format: Some(wgpu::IndexFormat::Uint16),
@@ -220,7 +208,7 @@ impl Renderer {
 			vertex: wgpu::VertexState {
 				buffers: &[
 					wgpu::VertexBufferLayout {
-						array_stride: 0,
+						array_stride: 4 * 2,
 						attributes: &[wgpu::VertexAttribute {
 							format: wgpu::VertexFormat::Float32x2,
 							offset: 0,
@@ -229,7 +217,7 @@ impl Renderer {
 						step_mode: wgpu::VertexStepMode::Vertex,
 					},
 					wgpu::VertexBufferLayout {
-						array_stride: 0,
+						array_stride: 4 * 4,
 						attributes: &[wgpu::VertexAttribute {
 							format: wgpu::VertexFormat::Float32x4,
 							offset: 0,
