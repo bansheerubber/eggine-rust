@@ -4,6 +4,7 @@ pub mod memory_subsystem;
 pub mod shaders;
 pub mod shape;
 pub mod state;
+pub mod testing;
 
 pub use boss::Boss;
 pub use pass::Pass;

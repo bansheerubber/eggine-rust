@@ -91,17 +91,6 @@ impl Boss {
 			6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, context.clone()
 		);
 
-		// create indirect command buffer page
-		// let indirect_command_buffer = memory.new_page(
-		// 	8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
-		// );
-
-		// // create node that fills entire indirect command buffer page
-		// let indirect_command_buffer_node = memory.get_page_mut(indirect_command_buffer)
-		// 	.unwrap()
-		// 	.allocate_node(8_000_000, 1, NodeKind::Buffer)
-		// 	.unwrap();
-
 		// create the renderer container object
 		Boss {
 			test_buffer1: page.allocate_node(6 * 4, 4, NodeKind::Buffer).unwrap(),
