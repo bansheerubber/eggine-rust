@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Instant;
 
 use super::memory_subsystem::{ Memory, Node, NodeKind, Page, };
 use super::shaders::Program;
@@ -19,6 +20,7 @@ pub struct Renderer {
 	swapchain_format: wgpu::TextureFormat,
 	window: winit::window::Window,
 
+	last_rendered_frame: Instant,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 
 	test_buffer1: Node,
@@ -95,6 +97,7 @@ impl Renderer {
 			swapchain_format,
 			window,
 
+			last_rendered_frame: Instant::now(),
 			state_to_pipeline: HashMap::new(),
 		}
 	}
@@ -106,6 +109,9 @@ impl Renderer {
 	/// #4. Submit command buffer to queue
 	/// #5. Present frame
 	pub fn tick(&mut self, memory: &mut Memory) {
+		// let frametime = Instant::now() - self.last_rendered_frame;
+		self.last_rendered_frame = Instant::now();
+
 		// prepare framebuffer
 		let frame = self.surface.get_current_texture().expect("Could not acquire next texture");
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
