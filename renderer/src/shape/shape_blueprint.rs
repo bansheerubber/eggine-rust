@@ -5,8 +5,9 @@ use fbxcel_dom::any::AnyDocument;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
 
-use crate::memory_subsystem::{ Memory, Node, NodeKind, PageUUID, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, };
 use crate::shape::triangulator::triangulator;
+use super::shape_buffer::ShapeBuffer;
 
 #[derive(Debug)]
 pub enum ShapeBlueprintError {
@@ -29,8 +30,6 @@ struct Mesh {
 /// A collection of meshes loaded from a single FBX file.
 #[derive(Debug)]
 pub struct ShapeBlueprint {
-	/// The page that stores the shape's mesh data.
-	buffer: PageUUID,
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
 }
@@ -38,7 +37,7 @@ pub struct ShapeBlueprint {
 impl ShapeBlueprint {
 	/// Load a FBX file from a carton.
 	pub fn load(
-		file_name: &str, carton: &mut Carton, device: &wgpu::Device, memory: &mut Memory
+		file_name: &str, carton: &mut Carton, memory: &mut Memory, shape_buffer: &ShapeBuffer,
 	) -> Result<ShapeBlueprint, ShapeBlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
@@ -94,28 +93,18 @@ impl ShapeBlueprint {
 			}
 		}
 
-		// figure out the size of the page we need for the mesh buffer
-		let mut size = 0;
-		for (vertices, indices) in meshes.iter() {
-			size += vertices.len() * 3 * std::mem::size_of::<f32>();
-			size += indices.len() * std::mem::size_of::<u16>();
-		}
-
-		// allocate a page for all meshes in this FBX
-		let page = memory.new_page(size as u64, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, device);
-
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
 		for (vertices, indices) in meshes.iter() {
 			// allocate node for `Vec3` vertices
-			let vertices = memory.get_page_mut(page).unwrap().allocate_node(
+			let vertices = memory.get_page_mut(shape_buffer.vertex_page).unwrap().allocate_node(
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
 				(3 * std::mem::size_of::<f32>()) as u64,
 				NodeKind::Buffer
 			).unwrap();
 
 			// allocate node for `u16` indices
-			let indices = memory.get_page_mut(page).unwrap().allocate_node(
+			let indices = memory.get_page_mut(shape_buffer.index_page).unwrap().allocate_node(
 				(indices.len() * std::mem::size_of::<u16>()) as u64,
 				std::mem::size_of::<u16>() as u64,
 				NodeKind::Buffer
@@ -136,7 +125,7 @@ impl ShapeBlueprint {
 				u8_vertices.extend_from_slice(bytemuck::bytes_of(point));
 			}
 
-			memory.write_buffer(page, &mesh.vertices, u8_vertices);
+			memory.write_buffer(shape_buffer.vertex_page, &mesh.vertices, u8_vertices);
 
 			// serialize indices & write to buffer
 			let mut u8_indices: Vec<u8> = Vec::new();
@@ -144,11 +133,10 @@ impl ShapeBlueprint {
 				u8_indices.extend_from_slice(bytemuck::bytes_of(index));
 			}
 
-			memory.write_buffer(page, &mesh.indices, u8_indices);
+			memory.write_buffer(shape_buffer.index_page, &mesh.indices, u8_indices);
 		}
 
 		Ok(ShapeBlueprint {
-			buffer: page,
 			meshes: mesh_representations,
 		})
 	}

@@ -1,4 +1,5 @@
 use carton::Carton;
+use renderer::shape::ShapeBuffer;
 use tokio;
 
 use renderer::{ Memory, Renderer, ShapeBlueprint, };
@@ -25,7 +26,10 @@ async fn main() {
 		vertex_shader: shader_table.get_shader("data/hello.vert.spv").unwrap(),
 	});
 
-	ShapeBlueprint::load("data/test.fbx", &mut carton, renderer.get_device(), &mut memory).unwrap();
+	// create shape buffer used for indirect rendering
+	let buffer = ShapeBuffer::new(&mut memory, renderer.get_device());
+
+	ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &buffer).unwrap();
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {
