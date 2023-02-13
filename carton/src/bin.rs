@@ -1,6 +1,5 @@
-use carton::{ Carton, file_stream::FileReadStream };
+use carton::Carton;
 use clap::Parser;
-use streams::ReadStream;
 
 #[derive(Debug, Parser)]
 #[command(about = "Carton file utility program", override_usage = "cartonbin -s <directory> -o <file>\n       cartonbin -i <file>", arg_required_else_help = true)]
