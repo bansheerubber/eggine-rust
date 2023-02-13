@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use wgpu::util::DeviceExt;
-
 use super::memory_subsystem::{ Node, NodeKind, Page, };
 use super::shaders::Program;
 use super::state::{ State, StateKey, };
@@ -245,6 +243,11 @@ impl Renderer {
 	/// Gets the wgpu device used by this renderer.
 	pub fn get_device(&self) -> &wgpu::Device {
 		&self.device
+	}
+
+	/// Gets the wgpu queue used by this renderer.
+	pub fn get_queue(&self) -> &wgpu::Queue {
+		&self.queue
 	}
 
 	/// Gets the window this renderer is rendering to.

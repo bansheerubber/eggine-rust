@@ -8,16 +8,22 @@ pub enum PageError {
 	NoFreeSpace,
 }
 
+pub type PageUUID = u64;
+
 #[derive(Debug)]
 pub struct Page {
 	buffer: wgpu::Buffer,
+	/// UUID for the `Memory` that this page belongs to.
+	index: PageUUID,
+	/// UUID for the next allocated node.
 	next_node_index: u64,
 	nodes: VecDeque<Node>,
+	/// The size of the wgpu buffer that the page allocated on its creation.
 	size: u64,
 }
 
 impl Page {
-	pub fn new(size: u64, usage: wgpu::BufferUsages, device: &wgpu::Device) -> Self {
+	pub(crate) fn new(size: u64, usage: wgpu::BufferUsages, device: &wgpu::Device) -> Self {
 		Page {
 			buffer: device.create_buffer(&wgpu::BufferDescriptor {
 				label: None,
@@ -25,6 +31,7 @@ impl Page {
 				size,
 				usage,
 			}),
+			index: 0,
 			next_node_index: 1,
 			nodes: vec![Node { // initialize with empty node with thet size of the entire page
 				align: 1,
@@ -35,6 +42,10 @@ impl Page {
 			}].into(),
 			size,
 		}
+	}
+
+	pub fn set_uuid(&mut self, index: u64) {
+		self.index = index;
 	}
 
 	/// Allocates a node into the page by allocating a node from unused nodes. Alignment must be non-zero.

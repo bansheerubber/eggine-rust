@@ -1,7 +1,7 @@
 use carton::Carton;
 use tokio;
 
-use renderer::{ Renderer, Shape, };
+use renderer::{ Memory, Renderer, Shape, };
 use renderer::shaders::ShaderTable;
 use renderer::state::State;
 
@@ -11,6 +11,8 @@ async fn main() {
 
 	let event_loop = winit::event_loop::EventLoop::new();
 	let mut renderer = Renderer::new(&event_loop).await;
+
+	let mut memory = Memory::new(renderer.get_queue());
 
 	// load the compiled shaders from the carton
 	let mut shader_table = ShaderTable::new();
