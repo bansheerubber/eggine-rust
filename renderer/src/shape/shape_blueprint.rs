@@ -9,7 +9,7 @@ use crate::memory_subsystem::{ Memory, Node, NodeKind, PageUUID, };
 use crate::shape::triangulator::triangulator;
 
 #[derive(Debug)]
-pub enum ShapeError {
+pub enum ShapeBlueprintError {
 	CartonError(carton::Error),
 	FBXParsingError(fbxcel_dom::any::Error),
 	FailedTriangulation(String),
@@ -28,27 +28,27 @@ struct Mesh {
 
 /// A collection of meshes loaded from a single FBX file.
 #[derive(Debug)]
-pub struct Shape {
+pub struct ShapeBlueprint {
 	/// The page that stores the shape's mesh data.
 	buffer: PageUUID,
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
 }
 
-impl Shape {
+impl ShapeBlueprint {
 	/// Load a FBX file from a carton.
 	pub fn load(
 		file_name: &str, carton: &mut Carton, device: &wgpu::Device, memory: &mut Memory
-	) -> Result<Shape, ShapeError> {
+	) -> Result<ShapeBlueprint, ShapeBlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
-			Err(error) => return Err(ShapeError::CartonError(error)),
+			Err(error) => return Err(ShapeBlueprintError::CartonError(error)),
 			Ok(fbx_stream) => fbx_stream,
 		};
 
 		// use fbx library to parse the fbx
 		let document = match AnyDocument::from_seekable_reader(fbx_stream) {
-			Err(error) => return Err(ShapeError::FBXParsingError(error)),
+			Err(error) => return Err(ShapeBlueprintError::FBXParsingError(error)),
 			Ok(document) => document,
 		};
 
@@ -147,7 +147,7 @@ impl Shape {
 			memory.write_buffer(page, &mesh.indices, u8_indices);
 		}
 
-		Ok(Shape {
+		Ok(ShapeBlueprint {
 			buffer: page,
 			meshes: mesh_representations,
 		})

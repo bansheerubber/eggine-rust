@@ -1,7 +1,7 @@
 use carton::Carton;
 use tokio;
 
-use renderer::{ Memory, Renderer, Shape, };
+use renderer::{ Memory, Renderer, ShapeBlueprint, };
 use renderer::shaders::ShaderTable;
 use renderer::state::State;
 
@@ -25,7 +25,7 @@ async fn main() {
 		vertex_shader: shader_table.get_shader("data/hello.vert.spv").unwrap(),
 	});
 
-	Shape::load("data/test.fbx", &mut carton, renderer.get_device(), &mut memory).unwrap();
+	ShapeBlueprint::load("data/test.fbx", &mut carton, renderer.get_device(), &mut memory).unwrap();
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {

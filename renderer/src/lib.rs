@@ -6,4 +6,4 @@ pub mod state;
 
 pub use memory_subsystem::Memory;
 pub use renderer::Renderer;
-pub use shape::Shape;
+pub use shape::ShapeBlueprint;
