@@ -12,12 +12,12 @@ pub struct ShapeBuffer {
 }
 
 impl ShapeBuffer {
-	pub fn new(memory: &mut Memory, device: &wgpu::Device) -> Self {
+	pub fn new(memory: &mut Memory) -> Self {
 		ShapeBuffer {
 			highest_vertex_offset: 0,
-			index_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, device),
+			index_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
-			vertex_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, device),
+			vertex_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 		}
 	}
 }

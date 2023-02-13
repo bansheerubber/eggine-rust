@@ -2,35 +2,29 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
 
-use super::memory_subsystem::{ Memory, Node, NodeKind, Page, PageUUID, };
-use super::shaders::Program;
-use super::state::{ State, StateKey, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, PageUUID, };
+use crate::shaders::Program;
+use crate::state::{ State, StateKey, };
 
-/// The renderer has the job of rendering any renderable objects to the screen. The renderer also stores data needed by
-/// `wgpu`, such as shader programs and render pipelines.
+use super::WGPUContext;
+
+/// The boss coordinates the different components needed for rendering (memory management, passes, etc) and glues
+/// together their independent logic to generate frames. The boss has executive control over all the components.
 #[derive(Debug)]
-pub struct Renderer {
-	adapter: wgpu::Adapter,
-	device: wgpu::Device,
-	instance: wgpu::Instance,
-	queue: Rc<wgpu::Queue>,
-	surface: wgpu::Surface,
-	surface_config: wgpu::SurfaceConfiguration,
-	swapchain_capabilities: wgpu::SurfaceCapabilities,
-	swapchain_format: wgpu::TextureFormat,
-	window: winit::window::Window,
-
+pub struct Boss {
+	context: Rc<WGPUContext>,
 	indirect_command_buffer: PageUUID,
 	indirect_command_buffer_node: Node,
 	last_rendered_frame: Instant,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
+	surface_config: wgpu::SurfaceConfiguration,
 
 	test_buffer1: Node,
 	test_buffer2: Node,
 	test_page: Page,
 }
 
-impl Renderer {
+impl Boss {
 	/// Creates a new renderer. Acquires a surface using `winit` and acquires a device using `wgpu`.
 	pub async fn new(event_loop: &winit::event_loop::EventLoop<()>) -> Self {
 		let window = winit::window::Window::new(&event_loop).unwrap();
@@ -81,34 +75,39 @@ impl Renderer {
 
 		surface.configure(&device, &surface_config);
 
-		let mut page = Page::new(6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, &device);
+		let context = Rc::new(WGPUContext {
+			adapter,
+			device,
+			instance,
+			queue,
+			surface,
+			swapchain_capabilities,
+			swapchain_format,
+			window,
+		});
+
+		let mut page = Page::new(
+			6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, context.clone()
+		);
 
 		// create the renderer container object
-		Renderer {
+		Boss {
 			test_buffer1: page.allocate_node(6 * 4, 4, NodeKind::Buffer).unwrap(),
 			test_buffer2: page.allocate_node(4 * 3 * 4, 4, NodeKind::Buffer).unwrap(),
 			test_page: page,
 
-			adapter,
-			device,
-			instance,
-			queue: Rc::new(queue),
-			surface,
-			surface_config,
-			swapchain_capabilities,
-			swapchain_format,
-			window,
-
+			context,
 			indirect_command_buffer: 0,
 			indirect_command_buffer_node: Node::default(),
 			last_rendered_frame: Instant::now(),
 			state_to_pipeline: HashMap::new(),
+			surface_config,
 		}
 	}
 
 	pub fn initialize_buffers(&mut self, memory: &mut Memory) {
 		self.indirect_command_buffer = memory.new_page(
-			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST, &self.device
+			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
 		);
 
 		self.indirect_command_buffer_node = memory.get_page_mut(self.indirect_command_buffer)
@@ -128,7 +127,7 @@ impl Renderer {
 		self.last_rendered_frame = Instant::now();
 
 		// prepare framebuffer
-		let frame = self.surface.get_current_texture().expect("Could not acquire next texture");
+		let frame = self.context.surface.get_current_texture().expect("Could not acquire next texture");
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		// write data into buffers
@@ -140,7 +139,7 @@ impl Renderer {
 			0.5, -0.5,
 		];
 
-		self.queue.write_buffer(
+		self.context.queue.write_buffer(
 			self.test_page.get_buffer(),
 			self.test_buffer1.offset,
 			unsafe {
@@ -157,7 +156,7 @@ impl Renderer {
 			0.0, 0.0, 1.0, 1.0,
 		];
 
-		self.queue.write_buffer(
+		self.context.queue.write_buffer(
 			self.test_page.get_buffer(),
 			self.test_buffer2.offset,
 			unsafe {
@@ -169,7 +168,7 @@ impl Renderer {
 		);
 
 		// initialize command buffer
-		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
 		});
 
@@ -198,7 +197,7 @@ impl Renderer {
 			render_pass.draw(0..3, 0..1);
 		}
 
-		self.queue.submit(Some(encoder.finish()));
+		self.context.queue.submit(Some(encoder.finish()));
 		frame.present();
 	}
 
@@ -207,7 +206,7 @@ impl Renderer {
 		self.surface_config.width = width;
 		self.surface_config.height = height;
 
-		self.surface.configure(&self.device, &self.surface_config);
+		self.context.surface.configure(&self.context.device, &self.surface_config);
 	}
 
 	/// Creates a `wgpu` pipeline based on the current render state.
@@ -223,19 +222,19 @@ impl Renderer {
 		);
 
 		// create the pipeline
-		let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			bind_group_layouts: &program.get_bind_group_layouts(&self.device),
+		let pipeline_layout = self.context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			bind_group_layouts: &program.get_bind_group_layouts(&self.context.device),
 			label: None,
 			push_constant_ranges: &[],
 		});
 
 		// create the render pipeline
-		let render_pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+		let render_pipeline = self.context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			depth_stencil: None,
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
 				module: &state.fragment_shader.module,
-				targets: &[Some(self.swapchain_format.into())],
+				targets: &[Some(self.context.swapchain_format.into())],
 			}),
 			label: None,
 			layout: Some(&pipeline_layout),
@@ -281,18 +280,8 @@ impl Renderer {
 		&self.state_to_pipeline[&state.key()]
 	}
 
-	/// Gets the wgpu device used by this renderer.
-	pub fn get_device(&self) -> &wgpu::Device {
-		&self.device
-	}
-
-	/// Gets the wgpu queue used by this renderer.
-	pub fn get_queue(&self) -> Rc<wgpu::Queue> {
-		self.queue.clone()
-	}
-
-	/// Gets the window this renderer is rendering to.
-	pub fn get_window(&self) -> &winit::window::Window {
-		&self.window
+	/// Gets the `WGPUContext` owned by the boss.
+	pub fn get_context(&self) -> Rc<WGPUContext> {
+		self.context.clone()
 	}
 }

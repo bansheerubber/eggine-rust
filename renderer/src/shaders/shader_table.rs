@@ -3,6 +3,9 @@ use streams::u8_io::U8ReadStream;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::rc::Rc;
+
+use crate::boss::WGPUContext;
 
 use super::{ Shader, Uniform, };
 
@@ -14,6 +17,7 @@ pub enum ShaderError {
 
 /// Manages shader loading, and stores/manages loaded shaders.
 pub struct ShaderTable {
+	context: Rc<WGPUContext>,
 	/// Map of file names to shader objects.
 	shaders: HashMap<String, Shader>,
 }
@@ -29,17 +33,16 @@ enum TokenState {
 
 impl ShaderTable {
 	/// Creates a new `ShaderTable`.
-	pub fn new() -> Self {
+	pub fn new(context: Rc<WGPUContext>) -> Self {
 		ShaderTable {
+			context,
 			shaders: HashMap::new(),
 		}
 	}
 
 	/// Loads a SPIR-V shader from file. Expects a file named `[name].(frag|vert).spv` and an associated source file named
 	/// `[name].(frag|vert)`. The source file is parsed for its uniform information.
-	pub fn load_shader_from_file(
-		&mut self, file_name: &str, device: &wgpu::Device
-	) -> Result<&Shader, ShaderError> {
+	pub fn load_shader_from_file(&mut self, file_name: &str) -> Result<&Shader, ShaderError> {
 		// determine stage based on file name (".frag" for fragment shaders, ".vert" for vertex shaders)
 		let stage = if file_name.contains(".frag.spv") {
 			wgpu::ShaderStages::FRAGMENT
@@ -66,7 +69,7 @@ impl ShaderTable {
 		}
 
 		// create the shader module from SPIR-V
-		let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+		let module = self.context.device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: None,
 			source: wgpu::util::make_spirv(&buffer),
     });
@@ -87,9 +90,7 @@ impl ShaderTable {
 
 	/// Loads a SPIR-V shader from a carton. Expects a file named `[name].(frag|vert).spv` and an associated source file
 	/// named `[name].(frag|vert)`. The source file is parsed for its uniform information.
-	pub fn load_shader_from_carton(
-		&mut self, file_name: &str, carton: &mut Carton, device: &wgpu::Device
-	) -> Result<&Shader, ShaderError> {
+	pub fn load_shader_from_carton(&mut self, file_name: &str, carton: &mut Carton) -> Result<&Shader, ShaderError> {
 		// determine stage based on file name (".frag" for fragment shaders, ".vert" for vertex shaders)
 		let stage = if file_name.contains(".frag.spv") {
 			wgpu::ShaderStages::FRAGMENT
@@ -108,7 +109,7 @@ impl ShaderTable {
 		let text_buffer = file_stream.read_vector(file_stream.file.get_size() as usize).unwrap().0;
 
 		// create the shader module from SPIR-V
-		let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+		let module = self.context.device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: None,
 			source: wgpu::util::make_spirv(&binary_buffer),
     });

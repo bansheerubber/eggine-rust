@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::rc::Rc;
 
+use crate::boss::WGPUContext;
+
 use super::node::{ Node, NodeKind, align_to, };
 
 #[derive(Debug)]
@@ -14,6 +16,8 @@ pub type PageUUID = u64;
 #[derive(Debug)]
 pub struct Page {
 	buffer: wgpu::Buffer,
+	// The page uses context properties to write and manage memory.
+	context: Rc<WGPUContext>,
 	/// UUID for the `Memory` that this page belongs to.
 	index: PageUUID,
 	/// UUID for the next allocated node.
@@ -25,14 +29,15 @@ pub struct Page {
 
 impl Page {
 	/// Creates a page and allocates a `wgpu` buffer with the specified size.
-	pub(crate) fn new(size: u64, usage: wgpu::BufferUsages, device: &wgpu::Device) -> Self {
+	pub(crate) fn new(size: u64, usage: wgpu::BufferUsages, context: Rc<WGPUContext>) -> Self {
 		Page {
-			buffer: device.create_buffer(&wgpu::BufferDescriptor {
+			buffer: context.device.create_buffer(&wgpu::BufferDescriptor {
 				label: None,
 				mapped_at_creation: false, // TODO get this working, requires some extra stuff according to the docs
 				size,
 				usage,
 			}),
+			context,
 			index: 0,
 			next_node_index: 1,
 			nodes: vec![Node { // initialize with empty node with thet size of the entire page
@@ -155,8 +160,8 @@ impl Page {
 	}
 
 	/// Writes a node into the page's buffer.
-	pub fn write_buffer(&self, node: &Node, data: &Vec<u8>, queue: Rc<wgpu::Queue>) {
-		queue.write_buffer(&self.buffer, node.offset, data);
+	pub fn write_buffer(&self, node: &Node, data: &Vec<u8>) {
+		self.context.queue.write_buffer(&self.buffer, node.offset, data);
 	}
 
 	/// Combines adjacent unused nodes into single nodes.

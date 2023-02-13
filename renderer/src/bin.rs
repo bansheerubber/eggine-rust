@@ -2,7 +2,7 @@ use carton::Carton;
 use renderer::shape::{ ShapeBuffer, Shape, };
 use tokio;
 
-use renderer::{ Memory, Renderer, ShapeBlueprint, };
+use renderer::{ Boss, Memory, ShapeBlueprint, };
 use renderer::shaders::ShaderTable;
 use renderer::state::State;
 
@@ -11,15 +11,15 @@ async fn main() {
 	let mut carton = Carton::read("resources.carton").unwrap();
 
 	let event_loop = winit::event_loop::EventLoop::new();
-	let mut renderer = Renderer::new(&event_loop).await;
+	let mut renderer = Boss::new(&event_loop).await;
 
-	let mut memory = Memory::new(renderer.get_queue());
+	let mut memory = Memory::new(renderer.get_context());
 	renderer.initialize_buffers(&mut memory);
 
 	// load the compiled shaders from the carton
-	let mut shader_table = ShaderTable::new();
-	shader_table.load_shader_from_carton("data/hello.frag.spv", &mut carton, renderer.get_device()).unwrap();
-	shader_table.load_shader_from_carton("data/hello.vert.spv", &mut carton, renderer.get_device()).unwrap();
+	let mut shader_table = ShaderTable::new(renderer.get_context());
+	shader_table.load_shader_from_carton("data/hello.frag.spv", &mut carton).unwrap();
+	shader_table.load_shader_from_carton("data/hello.vert.spv", &mut carton).unwrap();
 
 	// create the initial render pipeline
 	renderer.create_pipeline(&State {
@@ -28,7 +28,7 @@ async fn main() {
 	});
 
 	// create shape buffer used for indirect rendering
-	let mut buffer = ShapeBuffer::new(&mut memory, renderer.get_device());
+	let mut buffer = ShapeBuffer::new(&mut memory);
 
 	let blueprint = ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &mut buffer).unwrap();
 	let shape = Shape::new(blueprint.clone());
@@ -40,7 +40,7 @@ async fn main() {
 	event_loop.run(move |event, _, control_flow| {
 		match event {
 			winit::event::Event::RedrawEventsCleared => {
-				renderer.get_window().request_redraw();
+				renderer.get_context().window.request_redraw();
 			},
 			winit::event::Event::RedrawRequested(_) => {
 				renderer.tick(&mut memory);
