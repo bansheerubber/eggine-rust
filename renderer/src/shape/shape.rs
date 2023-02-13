@@ -67,9 +67,9 @@ impl Shape {
 					.unwrap();
 
 				// get the raw vertex data
-				let mut points = Vec::new();
+				let mut vertices = Vec::new();
 				for vertex in triangulated_vertices.polygon_vertices().raw_control_points().unwrap() {
-					points.push(Vec3 {
+					vertices.push(Vec3 {
 						x: vertex.x as f32,
 						y: vertex.y as f32,
 						z: vertex.z as f32,
@@ -82,14 +82,14 @@ impl Shape {
 					indices.push(vertex_index.unwrap().to_u32() as u16);
 				}
 
-				meshes.push((points, indices));
+				meshes.push((vertices, indices));
 			}
 		}
 
 		// figure out the size of the page we need for the mesh buffer
 		let mut size = 0;
-		for (points, indices) in meshes.iter() {
-			size += points.len() * 3 * std::mem::size_of::<f32>();
+		for (vertices, indices) in meshes.iter() {
+			size += vertices.len() * 3 * std::mem::size_of::<f32>();
 			size += indices.len() * std::mem::size_of::<u16>();
 		}
 
@@ -98,10 +98,10 @@ impl Shape {
 
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
-		for (points, indices) in meshes.iter() {
+		for (vertices, indices) in meshes.iter() {
 			// allocate node for `Vec3` vertices
 			let vertices = memory.get_page_mut(page).unwrap().allocate_node(
-				(points.len() * 3 * std::mem::size_of::<f32>()) as u64,
+				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
 				(3 * std::mem::size_of::<f32>()) as u64,
 				NodeKind::Buffer
 			).unwrap();
@@ -118,6 +118,25 @@ impl Shape {
 				indices,
 				vertices,
 			});
+		}
+
+		// schedule buffer writes
+		for ((vertices, indices), mesh) in meshes.iter().zip(mesh_representations.iter()) {
+			// serialize vertices
+			let mut u8_vertices: Vec<u8> = Vec::new();
+			for point in vertices {
+				u8_vertices.extend_from_slice(bytemuck::bytes_of(point));
+			}
+
+			memory.write_buffer(page, &mesh.vertices, u8_vertices);
+
+			// serialize indices
+			let mut u8_indices: Vec<u8> = Vec::new();
+			for index in indices {
+				u8_indices.extend_from_slice(bytemuck::bytes_of(index));
+			}
+
+			memory.write_buffer(page, &mesh.indices, u8_indices);
 		}
 
 		Ok(Shape {
