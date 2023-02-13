@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::rc::Rc;
 
 use super::node::{ Node, NodeKind, align_to, };
 
@@ -145,6 +146,11 @@ impl Page {
 	/// Gets a buffer slice from the specified node.
 	pub fn get_slice(&self, node: &Node) -> wgpu::BufferSlice {
 		return self.buffer.slice(node.offset..node.offset + node.size);
+	}
+
+	/// Writes a node into the page's buffer.
+	pub fn write_buffer(&self, node: &Node, data: &Vec<u8>, queue: Rc<wgpu::Queue>) {
+		queue.write_buffer(&self.buffer, node.offset, data);
 	}
 
 	/// Combines adjacent unused nodes into single nodes.

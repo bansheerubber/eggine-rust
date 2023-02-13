@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::memory_subsystem::{ Node, NodeKind, Page, };
+use super::memory_subsystem::{ Memory, Node, NodeKind, Page, };
 use super::shaders::Program;
 use super::state::{ State, StateKey, };
 
@@ -99,10 +99,13 @@ impl Renderer {
 		}
 	}
 
-	pub fn tick(&mut self) {
+	pub fn tick(&mut self, memory: &mut Memory) {
 		let frame = self.surface.get_current_texture().expect("Could not acquire next texture");
 
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+		// write data into buffers
+		memory.complete_write_buffers();
 
 		let triangle: [f32; 6] = [
 			0.0, 0.5,

@@ -34,7 +34,7 @@ async fn main() {
 				renderer.get_window().request_redraw();
 			},
 			winit::event::Event::RedrawRequested(_) => {
-				renderer.tick();
+				renderer.tick(&mut memory);
 			},
 			winit::event::Event::WindowEvent {
 				event:
