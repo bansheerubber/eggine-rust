@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 use std::time::Instant;
 
-use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, PageUUID, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, };
 use crate::shaders::Program;
 use crate::state::{ State, StateKey, };
 
@@ -14,8 +14,6 @@ use super::WGPUContext;
 #[derive(Debug)]
 pub struct Boss {
 	context: Rc<WGPUContext>,
-	indirect_command_buffer: PageUUID,
-	indirect_command_buffer_node: Node,
 	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
 	memory: Arc<RwLock<Memory>>,
 	last_rendered_frame: Instant,
@@ -93,19 +91,16 @@ impl Boss {
 			6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, context.clone()
 		);
 
-		// set up memory
-		let mut memory = Memory::new(context.clone());
-
 		// create indirect command buffer page
-		let indirect_command_buffer = memory.new_page(
-			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
-		);
+		// let indirect_command_buffer = memory.new_page(
+		// 	8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
+		// );
 
-		// create node that fills entire indirect command buffer page
-		let indirect_command_buffer_node = memory.get_page_mut(indirect_command_buffer)
-			.unwrap()
-			.allocate_node(8_000_000, 1, NodeKind::Buffer)
-			.unwrap();
+		// // create node that fills entire indirect command buffer page
+		// let indirect_command_buffer_node = memory.get_page_mut(indirect_command_buffer)
+		// 	.unwrap()
+		// 	.allocate_node(8_000_000, 1, NodeKind::Buffer)
+		// 	.unwrap();
 
 		// create the renderer container object
 		Boss {
@@ -113,10 +108,11 @@ impl Boss {
 			test_buffer2: page.allocate_node(4 * 3 * 4, 4, NodeKind::Buffer).unwrap(),
 			test_page: page,
 
+			memory: Arc::new(RwLock::new(
+				Memory::new(context.clone())
+			)),
+
 			context,
-			indirect_command_buffer,
-			indirect_command_buffer_node,
-			memory: Arc::new(RwLock::new(memory)),
 			last_rendered_frame: Instant::now(),
 			state_to_pipeline: HashMap::new(),
 			surface_config,
