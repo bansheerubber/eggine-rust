@@ -24,6 +24,7 @@ pub struct Page {
 }
 
 impl Page {
+	/// Creates a page and allocates a `wgpu` buffer with the specified size.
 	pub(crate) fn new(size: u64, usage: wgpu::BufferUsages, device: &wgpu::Device) -> Self {
 		Page {
 			buffer: device.create_buffer(&wgpu::BufferDescriptor {
@@ -45,15 +46,18 @@ impl Page {
 		}
 	}
 
+	/// Sets the UUID of the `Page`.
 	pub fn set_uuid(&mut self, index: u64) {
 		self.index = index;
 	}
 
-	/// Allocates a node into the page by allocating a node from unused nodes. Alignment must be non-zero.
+	/// Allocates a node into the page by allocating a node from unused nodes. Alignment must be non-zero. If a space for
+	/// a node is found but its offset is not aligned, then an padding node will be allocated before the beginning to
+	/// ensure that the node's offset is aligned.
 	pub fn allocate_node(&mut self, size: u64, align: u64, kind: NodeKind) -> Result<Node, PageError> {
 		let size = align_to(size, align);
 
-		// find a node that can fit the new node into it
+		// find an unused node that can fit the new node into it
 		let mut found_node = None;
 		for i in 0..self.nodes.len() {
 			let node = &self.nodes[i];
@@ -66,10 +70,12 @@ impl Page {
 			}
 		}
 
+		// if we couldn't find a spot for the node then assume that there wasn't enough space to allocate it
 		let Some(mut found_node) = found_node else {
 			return Err(PageError::NoFreeSpace);
 		};
 
+		// figure out how much padding we need to ensure node alignment
 		let padding = align_to(self.nodes[found_node].offset, align) - self.nodes[found_node].offset;
 
 		// split the node that we found
@@ -117,7 +123,7 @@ impl Page {
 		}
 	}
 
-	/// Marks the node as unused.
+	/// Marks the node as unused and performs a defragment.
 	pub fn deallocate_node(&mut self, node: Node) -> Result<(), PageError> {
 		// find the node
 		let mut index = None;
@@ -182,11 +188,13 @@ impl Page {
 	/// 5. unused nodes should have an alignment of 1
 	/// 6. nodes should have non-zero alignment and size
 	pub fn verify(&self) {
+		// check #1
 		if self.nodes.len() == 0 {
 			println!("{:#?}", self);
 			panic!("Page has zero nodes left");
 		}
 
+		// check #2
 		if self.nodes[0].offset != 0 {
 			println!("{:#?}", self);
 			panic!("Page begins with node that has non-zero offset '{}'", self.nodes[0].offset);
@@ -197,7 +205,7 @@ impl Page {
 		let mut total_size = 0;
 		for node in self.nodes.iter() {
 			let correct_offset = last_offset + last_size;
-			if node.offset != correct_offset {
+			if node.offset != correct_offset { // check #3
 				println!("{:#?}", self);
 				panic!(
 					"Page has node offset '{}' that is not equal to the sum of previous node's offset and size '{}'",
@@ -206,17 +214,17 @@ impl Page {
 				);
 			}
 
-			if node.kind == NodeKind::Unused && node.align != 1 {
+			if node.kind == NodeKind::Unused && node.align != 1 { // check #5
 				println!("{:#?}", self);
 				panic!("Page has unused node that has non-one alignment of '{}'", node.align);
 			}
 
-			if node.align == 0 {
+			if node.align == 0 { // check #6
 				println!("{:#?}", self);
 				panic!("Page has node that has alignment of zero");
 			}
 
-			if node.size == 0 {
+			if node.size == 0 { // check #6
 				println!("{:#?}", self);
 				panic!("Page has node that has size of zero");
 			}
@@ -226,7 +234,7 @@ impl Page {
 			total_size += node.size;
 		}
 
-		if self.size != total_size {
+		if self.size != total_size { // #check 4
 			println!("{:#?}", self);
 			panic!("Page expected size '{}' does not match node purported size '{}'", self.size, total_size);
 		}

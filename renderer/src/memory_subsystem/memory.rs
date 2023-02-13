@@ -7,13 +7,18 @@ use super::page::PageUUID;
 /// Keeps track of all allocated `Page`s, also helps `Page`s upload their data to wgpu buffers.
 #[derive(Debug)]
 pub struct Memory {
+	/// The UUID to use for the next allocated page.
 	next_page_index: PageUUID,
+	/// The pages allocated by this memory manager.
 	pages: HashMap<PageUUID, Page>,
+	/// The queue that the memory manager uses to write to buffers.
 	queue: Rc<wgpu::Queue>,
+	/// Data that the memory manager will write to buffers the next renderer tick.
 	queued_writes: Vec<(Vec<u8>, PageUUID, Node)>,
 }
 
 impl Memory {
+	/// Create a new memory manager that uses the supplied queue to write to buffers.
 	pub fn new(queue: Rc<wgpu::Queue>) -> Self {
 		Memory {
 			next_page_index: 0,
@@ -23,6 +28,7 @@ impl Memory {
 		}
 	}
 
+	/// Creates a mew page, which allocates a `wgpu` buffer with the specified size.
 	pub fn new_page(&mut self, size: u64, usage: wgpu::BufferUsages, device: &wgpu::Device) -> PageUUID {
 		let mut page = Page::new(size, usage, device);
 		page.set_uuid(self.next_page_index);
@@ -32,10 +38,12 @@ impl Memory {
 		return self.next_page_index - 1;
 	}
 
+	/// Finds the page associated with the supplied UUID.
 	pub fn get_page(&self, index: PageUUID) -> Option<&Page> {
 		self.pages.get(&index)
 	}
 
+	/// Finds the page associated with the supplied UUID.
 	pub fn get_page_mut(&mut self, index: PageUUID) -> Option<&mut Page> {
 		self.pages.get_mut(&index)
 	}

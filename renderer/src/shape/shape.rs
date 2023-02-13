@@ -17,20 +17,26 @@ pub enum ShapeError {
 	UnsupportedVersion,
 }
 
+/// Represents buffer data associated with a particular mesh.
 #[derive(Debug)]
 struct Mesh {
+	/// Points to the mesh's vertex indices. Indices are u16s.
 	indices: Node,
+	/// Points to the mesh's vertex vec3 data. Vertices are f32s.
 	vertices: Node,
 }
 
+/// A collection of meshes loaded from a single FBX file.
 #[derive(Debug)]
 pub struct Shape {
+	/// The page that stores the shape's mesh data.
 	buffer: PageUUID,
+	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
 }
 
 impl Shape {
-	/// Load a shape from a carton.
+	/// Load a FBX file from a carton.
 	pub fn load(
 		file_name: &str, carton: &mut Carton, device: &wgpu::Device, memory: &mut Memory
 	) -> Result<Shape, ShapeError> {

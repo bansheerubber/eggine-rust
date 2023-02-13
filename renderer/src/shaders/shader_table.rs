@@ -9,12 +9,16 @@ use super::{ Shader, Uniform, };
 #[derive(Debug)]
 pub enum ShaderError {
 	FileError,
+	UnrecognizedExtension,
 }
 
+/// Manages shader loading, and stores/manages loaded shaders.
 pub struct ShaderTable {
+	/// Map of file names to shader objects.
 	shaders: HashMap<String, Shader>,
 }
 
+/// Describes the state of the uniform parsing state machine.
 #[derive(Clone, Eq, PartialEq)]
 enum TokenState {
 	KindAndName,
@@ -24,39 +28,50 @@ enum TokenState {
 }
 
 impl ShaderTable {
+	/// Creates a new `ShaderTable`.
 	pub fn new() -> Self {
 		ShaderTable {
 			shaders: HashMap::new(),
 		}
 	}
 
+	/// Loads a SPIR-V shader from file. Expects a file named `[name].(frag|vert).spv` and an associated source file named
+	/// `[name].(frag|vert)`. The source file is parsed for its uniform information.
 	pub fn load_shader_from_file(
 		&mut self, file_name: &str, device: &wgpu::Device
 	) -> Result<&Shader, ShaderError> {
+		// determine stage based on file name (".frag" for fragment shaders, ".vert" for vertex shaders)
+		let stage = if file_name.contains(".frag.spv") {
+			wgpu::ShaderStages::FRAGMENT
+		} else if file_name.contains(".vert.spv") {
+			wgpu::ShaderStages::VERTEX
+		} else {
+			return Err(ShaderError::UnrecognizedExtension);
+		};
+
+		// try opening the file
 		let Ok(mut file) = File::open(file_name) else {
 			return Err(ShaderError::FileError);
 		};
 
+		// needed for the file size
 		let Ok(metadata) = std::fs::metadata(file_name) else {
 			return Err(ShaderError::FileError);
 		};
 
+		// read binary data into buffer
 		let mut buffer = vec![0; metadata.len() as usize];
 		if let Err(_) = file.read(&mut buffer) {
 			return Err(ShaderError::FileError);
 		}
 
+		// create the shader module from SPIR-V
 		let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: None,
 			source: wgpu::util::make_spirv(&buffer),
     });
 
-		let stage = if file_name.contains("frag") {
-			wgpu::ShaderStages::FRAGMENT
-		} else {
-			wgpu::ShaderStages::VERTEX
-		};
-
+		// create a new shader helper object, also parse uniforms from source code
 		self.shaders.insert(
 			file_name.to_string(),
 			Shader {
@@ -70,26 +85,35 @@ impl ShaderTable {
 		Ok(&self.shaders[file_name])
 	}
 
+	/// Loads a SPIR-V shader from a carton. Expects a file named `[name].(frag|vert).spv` and an associated source file
+	/// named `[name].(frag|vert)`. The source file is parsed for its uniform information.
 	pub fn load_shader_from_carton(
 		&mut self, file_name: &str, carton: &mut Carton, device: &wgpu::Device
 	) -> Result<&Shader, ShaderError> {
+		// determine stage based on file name (".frag" for fragment shaders, ".vert" for vertex shaders)
+		let stage = if file_name.contains(".frag.spv") {
+			wgpu::ShaderStages::FRAGMENT
+		} else if file_name.contains(".vert.spv") {
+			wgpu::ShaderStages::VERTEX
+		} else {
+			return Err(ShaderError::UnrecognizedExtension);
+		};
+
+		// open SPIR-V file stream
 		let mut file_stream = carton.get_file_data(file_name).unwrap();
 		let binary_buffer = file_stream.read_vector(file_stream.file.get_size() as usize).unwrap().0;
 
+		// open source code file stream
 		let mut file_stream = carton.get_file_data(&file_name.to_string().replace(".spv", "")).unwrap();
 		let text_buffer = file_stream.read_vector(file_stream.file.get_size() as usize).unwrap().0;
 
+		// create the shader module from SPIR-V
 		let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
 			label: None,
 			source: wgpu::util::make_spirv(&binary_buffer),
     });
 
-		let stage = if file_name.contains("frag") {
-			wgpu::ShaderStages::FRAGMENT
-		} else {
-			wgpu::ShaderStages::VERTEX
-		};
-
+		// create a new shader helper object, also parse uniforms from source code
 		self.shaders.insert(
 			file_name.to_string(),
 			Shader {
@@ -103,11 +127,12 @@ impl ShaderTable {
 		Ok(&self.shaders[file_name])
 	}
 
-	pub fn get_shader(&self, file_name: &str) -> &Shader {
-		&self.shaders[file_name]
+	/// Retreives the shader associated with the supplied file name.
+	pub fn get_shader(&self, file_name: &str) -> Option<&Shader> {
+		self.shaders.get(file_name)
 	}
 
-	/// Parse uniforms from the raw text shader so the renderer can assemble DescriptorSetLayoutBindings
+	/// Parse uniforms from the shader source codeso the renderer can assemble `wgpu::DescriptorSetLayoutBindings`.
 	fn process_uniforms_from_file(&self, file_name: &str) -> Result<Vec<Uniform>, ShaderError> {
 		// open the file
 		let Ok(mut file) = File::open(file_name) else {
@@ -123,7 +148,7 @@ impl ShaderTable {
 		self.process_uniforms_from_buffer(&file_buffer)
 	}
 
-	/// Parse uniforms from the raw text shader so the renderer can assemble DescriptorSetLayoutBindings
+	/// Parse uniforms from the shader source code so the renderer can assemble `wgpu::DescriptorSetLayoutBindings`.
 	fn process_uniforms_from_buffer(&self, file_buffer: &Vec<u8>) -> Result<Vec<Uniform>, ShaderError> {
 		// stores uniforms that are finished parsing
 		let mut uniforms = Vec::new();
@@ -198,7 +223,7 @@ impl ShaderTable {
 
 				if split.len() < 4 {
 					continue;
-				}
+					}
 
 				// only store into current uniform if we're dealing with one
 				if split[0] == "uniform" {

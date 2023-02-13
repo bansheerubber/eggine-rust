@@ -99,9 +99,15 @@ impl Renderer {
 		}
 	}
 
+	/// Executes render passes and presents the newly created frame. Order of operations:
+	/// #1. Get handle for framebuffer
+	/// #2. Complete queued buffer writes via `Memory`
+	/// #3. Encode render pass commands
+	/// #4. Submit command buffer to queue
+	/// #5. Present frame
 	pub fn tick(&mut self, memory: &mut Memory) {
+		// prepare framebuffer
 		let frame = self.surface.get_current_texture().expect("Could not acquire next texture");
-
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		// write data into buffers
@@ -141,10 +147,12 @@ impl Renderer {
 			}
 		);
 
+		// initialize command buffer
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
 		});
 
+		// encode render pass
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -173,6 +181,7 @@ impl Renderer {
 		frame.present();
 	}
 
+	/// Resizes the surface to the supplied width and height.
 	pub fn resize(&mut self, width: u32, height: u32) {
 		self.surface_config.width = width;
 		self.surface_config.height = height;
@@ -182,6 +191,12 @@ impl Renderer {
 
 	/// Creates a `wgpu` pipeline based on the current render state.
 	pub fn create_pipeline(&mut self, state: &State) -> &wgpu::RenderPipeline {
+		// check cache before creating new pipeline
+		if self.state_to_pipeline.contains_key(&state.key()) {
+			return self.state_to_pipeline.get(&state.key()).unwrap();
+		}
+
+		// create program helper object
 		let mut program = Program::new(
 			vec![state.fragment_shader, state.vertex_shader]
 		);
@@ -240,7 +255,7 @@ impl Renderer {
 			},
 		});
 
-		self.state_to_pipeline.insert(state.key(), render_pipeline);
+		self.state_to_pipeline.insert(state.key(), render_pipeline); // cache the pipeline
 
 		&self.state_to_pipeline[&state.key()]
 	}

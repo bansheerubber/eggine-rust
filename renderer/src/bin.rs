@@ -21,8 +21,8 @@ async fn main() {
 
 	// create the initial render pipeline
 	renderer.create_pipeline(&State {
-		fragment_shader: shader_table.get_shader("data/hello.frag.spv"),
-		vertex_shader: shader_table.get_shader("data/hello.vert.spv"),
+		fragment_shader: shader_table.get_shader("data/hello.frag.spv").unwrap(),
+		vertex_shader: shader_table.get_shader("data/hello.vert.spv").unwrap(),
 	});
 
 	Shape::load("data/test.fbx", &mut carton, renderer.get_device(), &mut memory).unwrap();
