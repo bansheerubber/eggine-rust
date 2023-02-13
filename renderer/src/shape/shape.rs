@@ -31,7 +31,9 @@ pub struct Shape {
 
 impl Shape {
 	/// Load a shape from a carton.
-	pub fn load(file_name: &str, carton: &mut Carton, device: &wgpu::Device, memory: &mut Memory) -> Result<Shape, ShapeError> {
+	pub fn load(
+		file_name: &str, carton: &mut Carton, device: &wgpu::Device, memory: &mut Memory
+	) -> Result<Shape, ShapeError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
 			Err(error) => return Err(ShapeError::CartonError(error)),
@@ -122,7 +124,7 @@ impl Shape {
 
 		// schedule buffer writes
 		for ((vertices, indices), mesh) in meshes.iter().zip(mesh_representations.iter()) {
-			// serialize vertices
+			// serialize vertices & write to buffer
 			let mut u8_vertices: Vec<u8> = Vec::new();
 			for point in vertices {
 				u8_vertices.extend_from_slice(bytemuck::bytes_of(point));
@@ -130,7 +132,7 @@ impl Shape {
 
 			memory.write_buffer(page, &mesh.vertices, u8_vertices);
 
-			// serialize indices
+			// serialize indices & write to buffer
 			let mut u8_indices: Vec<u8> = Vec::new();
 			for index in indices {
 				u8_indices.extend_from_slice(bytemuck::bytes_of(index));
