@@ -25,7 +25,7 @@ async fn main() {
 		vertex_shader: shader_table.get_shader("data/hello.vert.spv"),
 	});
 
-	Shape::load("data/test.fbx", &mut carton);
+	Shape::load("data/test.fbx", &mut carton, renderer.get_device(), &mut memory).unwrap();
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {

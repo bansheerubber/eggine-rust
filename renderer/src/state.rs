@@ -19,7 +19,7 @@ impl State<'_> {
 }
 
 /// State key used for hash maps
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StateKey {
 	fragment_shader: String,
 	vertex_shader: String,

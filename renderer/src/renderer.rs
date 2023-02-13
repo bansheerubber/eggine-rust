@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::memory_subsystem::{ Node, NodeKind, Page, };
 use super::shaders::Program;
@@ -6,11 +7,12 @@ use super::state::{ State, StateKey, };
 
 /// The renderer has the job of rendering any renderable objects to the screen. The renderer also stores data needed by
 /// `wgpu`, such as shader programs and render pipelines.
+#[derive(Debug)]
 pub struct Renderer {
 	adapter: wgpu::Adapter,
 	device: wgpu::Device,
 	instance: wgpu::Instance,
-	queue: wgpu::Queue,
+	queue: Rc<wgpu::Queue>,
 	surface: wgpu::Surface,
 	surface_config: wgpu::SurfaceConfiguration,
 	swapchain_capabilities: wgpu::SurfaceCapabilities,
@@ -86,7 +88,7 @@ impl Renderer {
 			adapter,
 			device,
 			instance,
-			queue,
+			queue: Rc::new(queue),
 			surface,
 			surface_config,
 			swapchain_capabilities,
@@ -246,8 +248,8 @@ impl Renderer {
 	}
 
 	/// Gets the wgpu queue used by this renderer.
-	pub fn get_queue(&self) -> &wgpu::Queue {
-		&self.queue
+	pub fn get_queue(&self) -> Rc<wgpu::Queue> {
+		self.queue.clone()
 	}
 
 	/// Gets the window this renderer is rendering to.
