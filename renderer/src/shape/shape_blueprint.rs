@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use anyhow::Context;
 use carton::Carton;
 use glam::{ Vec3, };
@@ -20,11 +22,17 @@ pub enum ShapeBlueprintError {
 
 /// Represents buffer data associated with a particular mesh.
 #[derive(Debug)]
-struct Mesh {
+pub struct Mesh {
+	/// Used for indirect rendering.
+	pub first_index: u32,
 	/// Points to the mesh's vertex indices. Indices are u16s.
 	indices: Node,
 	/// Points to the mesh's vertex vec3 data. Vertices are f32s.
 	vertices: Node,
+	/// The amount of vertices in the mesh.
+	pub vertex_count: u32,
+	/// Used for indirect rendering.
+	pub vertex_offset: i32,
 }
 
 /// A collection of meshes loaded from a single FBX file.
@@ -37,8 +45,8 @@ pub struct ShapeBlueprint {
 impl ShapeBlueprint {
 	/// Load a FBX file from a carton.
 	pub fn load(
-		file_name: &str, carton: &mut Carton, memory: &mut Memory, shape_buffer: &ShapeBuffer,
-	) -> Result<ShapeBlueprint, ShapeBlueprintError> {
+		file_name: &str, carton: &mut Carton, memory: &mut Memory, shape_buffer: &mut ShapeBuffer,
+	) -> Result<Rc<ShapeBlueprint>, ShapeBlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
 			Err(error) => return Err(ShapeBlueprintError::CartonError(error)),
@@ -86,7 +94,7 @@ impl ShapeBlueprint {
 				// get the index vector
 				let mut indices = Vec::new();
 				for vertex_index in triangulated_vertices.iter_control_point_indices() {
-					indices.push(vertex_index.unwrap().to_u32() as u16);
+					indices.push(vertex_index.unwrap().to_u32() as u32);
 				}
 
 				meshes.push((vertices, indices));
@@ -96,6 +104,8 @@ impl ShapeBlueprint {
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
 		for (vertices, indices) in meshes.iter() {
+			let vertex_count = indices.len() as u32; // amount of vertices to render
+
 			// allocate node for `Vec3` vertices
 			let vertices = memory.get_page_mut(shape_buffer.vertex_page).unwrap().allocate_node(
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
@@ -103,22 +113,27 @@ impl ShapeBlueprint {
 				NodeKind::Buffer
 			).unwrap();
 
-			// allocate node for `u16` indices
+			// allocate node for `u32` indices
 			let indices = memory.get_page_mut(shape_buffer.index_page).unwrap().allocate_node(
-				(indices.len() * std::mem::size_of::<u16>()) as u64,
-				std::mem::size_of::<u16>() as u64,
+				(indices.len() * std::mem::size_of::<u32>()) as u64,
+				std::mem::size_of::<u32>() as u64,
 				NodeKind::Buffer
 			).unwrap();
 
 			// push the mesh representation
 			mesh_representations.push(Mesh {
+				first_index: 0,
 				indices,
 				vertices,
+				vertex_count,
+				vertex_offset: 0,
 			});
 		}
 
 		// schedule buffer writes
-		for ((vertices, indices), mesh) in meshes.iter().zip(mesh_representations.iter()) {
+		let mut index_count = 0;
+		let mut highest_index = 0;
+		for ((vertices, indices), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
 			// serialize vertices & write to buffer
 			let mut u8_vertices: Vec<u8> = Vec::new();
 			for point in vertices {
@@ -130,14 +145,32 @@ impl ShapeBlueprint {
 			// serialize indices & write to buffer
 			let mut u8_indices: Vec<u8> = Vec::new();
 			for index in indices {
+				highest_index = std::cmp::max(highest_index, *index);
 				u8_indices.extend_from_slice(bytemuck::bytes_of(index));
 			}
+
+			index_count += indices.len();
+
+			// take the first_index from the indices_written property, then accumulate
+			let first_index = shape_buffer.indices_written;
+			shape_buffer.indices_written += index_count as u32;
+
+			// take the vertex_offset from the highest_vertex_offset property, then accumulate
+			let vertex_offset = shape_buffer.highest_vertex_offset;
+			shape_buffer.highest_vertex_offset += highest_index as i32;
+
+			mesh.first_index = first_index;
+			mesh.vertex_offset = vertex_offset;
 
 			memory.write_buffer(shape_buffer.index_page, &mesh.indices, u8_indices);
 		}
 
-		Ok(ShapeBlueprint {
+		Ok(Rc::new(ShapeBlueprint {
 			meshes: mesh_representations,
-		})
+		}))
+	}
+
+	pub fn get_meshes(&self) -> &Vec<Mesh> {
+		&self.meshes
 	}
 }

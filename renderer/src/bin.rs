@@ -27,9 +27,9 @@ async fn main() {
 	});
 
 	// create shape buffer used for indirect rendering
-	let buffer = ShapeBuffer::new(&mut memory, renderer.get_device());
+	let mut buffer = ShapeBuffer::new(&mut memory, renderer.get_device());
 
-	ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &buffer).unwrap();
+	ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &mut buffer).unwrap();
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {
