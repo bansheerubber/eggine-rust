@@ -1,5 +1,5 @@
 use carton::Carton;
-use renderer::shape::ShapeBuffer;
+use renderer::shape::{ ShapeBuffer, Shape, };
 use tokio;
 
 use renderer::{ Memory, Renderer, ShapeBlueprint, };
@@ -14,6 +14,7 @@ async fn main() {
 	let mut renderer = Renderer::new(&event_loop).await;
 
 	let mut memory = Memory::new(renderer.get_queue());
+	renderer.initialize_buffers(&mut memory);
 
 	// load the compiled shaders from the carton
 	let mut shader_table = ShaderTable::new();
@@ -29,7 +30,11 @@ async fn main() {
 	// create shape buffer used for indirect rendering
 	let mut buffer = ShapeBuffer::new(&mut memory, renderer.get_device());
 
-	ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &mut buffer).unwrap();
+	let blueprint = ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &mut buffer).unwrap();
+	let shape = Shape::new(blueprint.clone());
+
+	let mut buffer = Vec::new();
+	shape.write_indirect_buffer(&mut buffer);
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {

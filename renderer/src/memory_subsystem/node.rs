@@ -1,11 +1,12 @@
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum NodeKind {
 	Buffer,
+	#[default]
 	Unused,
 }
 
 /// Describes a suballocated piece of the buffer from a page.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Node {
 	/// The alignment of the piece of the buffer.
 	pub(crate) align: u64,

@@ -9,6 +9,13 @@ pub struct Shape {
 }
 
 impl Shape {
+	pub fn new(blueprint: Rc<ShapeBlueprint>) -> Self {
+		Shape {
+			blueprint,
+			position: Vec3::default(),
+		}
+	}
+
 	pub fn write_indirect_buffer(&self, buffer: &mut Vec<u8>) {
 		for mesh in self.blueprint.get_meshes().iter() {
 			buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {

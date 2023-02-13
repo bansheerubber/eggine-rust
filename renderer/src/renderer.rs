@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
 
-use super::memory_subsystem::{ Memory, Node, NodeKind, Page, };
+use super::memory_subsystem::{ Memory, Node, NodeKind, Page, PageUUID, };
 use super::shaders::Program;
 use super::state::{ State, StateKey, };
 
@@ -20,6 +20,8 @@ pub struct Renderer {
 	swapchain_format: wgpu::TextureFormat,
 	window: winit::window::Window,
 
+	indirect_command_buffer: PageUUID,
+	indirect_command_buffer_node: Node,
 	last_rendered_frame: Instant,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 
@@ -97,9 +99,22 @@ impl Renderer {
 			swapchain_format,
 			window,
 
+			indirect_command_buffer: 0,
+			indirect_command_buffer_node: Node::default(),
 			last_rendered_frame: Instant::now(),
 			state_to_pipeline: HashMap::new(),
 		}
+	}
+
+	pub fn initialize_buffers(&mut self, memory: &mut Memory) {
+		self.indirect_command_buffer = memory.new_page(
+			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST, &self.device
+		);
+
+		self.indirect_command_buffer_node = memory.get_page_mut(self.indirect_command_buffer)
+			.unwrap()
+			.allocate_node(8_000_000, 1, NodeKind::Buffer)
+			.unwrap();
 	}
 
 	/// Executes render passes and presents the newly created frame. Order of operations:
