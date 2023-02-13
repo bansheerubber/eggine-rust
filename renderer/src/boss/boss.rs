@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{ Arc, RwLock, };
 use std::time::Instant;
 
 use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, PageUUID, };
@@ -15,6 +16,8 @@ pub struct Boss {
 	context: Rc<WGPUContext>,
 	indirect_command_buffer: PageUUID,
 	indirect_command_buffer_node: Node,
+	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
+	memory: Arc<RwLock<Memory>>,
 	last_rendered_frame: Instant,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 	surface_config: wgpu::SurfaceConfiguration,
@@ -90,6 +93,20 @@ impl Boss {
 			6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, context.clone()
 		);
 
+		// set up memory
+		let mut memory = Memory::new(context.clone());
+
+		// create indirect command buffer page
+		let indirect_command_buffer = memory.new_page(
+			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
+		);
+
+		// create node that fills entire indirect command buffer page
+		let indirect_command_buffer_node = memory.get_page_mut(indirect_command_buffer)
+			.unwrap()
+			.allocate_node(8_000_000, 1, NodeKind::Buffer)
+			.unwrap();
+
 		// create the renderer container object
 		Boss {
 			test_buffer1: page.allocate_node(6 * 4, 4, NodeKind::Buffer).unwrap(),
@@ -97,23 +114,13 @@ impl Boss {
 			test_page: page,
 
 			context,
-			indirect_command_buffer: 0,
-			indirect_command_buffer_node: Node::default(),
+			indirect_command_buffer,
+			indirect_command_buffer_node,
+			memory: Arc::new(RwLock::new(memory)),
 			last_rendered_frame: Instant::now(),
 			state_to_pipeline: HashMap::new(),
 			surface_config,
 		}
-	}
-
-	pub fn initialize_buffers(&mut self, memory: &mut Memory) {
-		self.indirect_command_buffer = memory.new_page(
-			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
-		);
-
-		self.indirect_command_buffer_node = memory.get_page_mut(self.indirect_command_buffer)
-			.unwrap()
-			.allocate_node(8_000_000, 1, NodeKind::Buffer)
-			.unwrap();
 	}
 
 	/// Executes render passes and presents the newly created frame. Order of operations:
@@ -122,7 +129,7 @@ impl Boss {
 	/// #3. Encode render pass commands
 	/// #4. Submit command buffer to queue
 	/// #5. Present frame
-	pub fn tick(&mut self, memory: &mut Memory) {
+	pub fn tick(&mut self) {
 		// let frametime = Instant::now() - self.last_rendered_frame;
 		self.last_rendered_frame = Instant::now();
 
@@ -131,6 +138,7 @@ impl Boss {
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		// write data into buffers
+		let mut memory = self.memory.write().unwrap();
 		memory.complete_write_buffers();
 
 		let triangle: [f32; 6] = [
@@ -283,5 +291,10 @@ impl Boss {
 	/// Gets the `WGPUContext` owned by the boss.
 	pub fn get_context(&self) -> Rc<WGPUContext> {
 		self.context.clone()
+	}
+
+	/// Gets the `Memory` owned by the boss.
+	pub fn get_memory(&self) -> Arc<RwLock<Memory>> {
+		self.memory.clone()
 	}
 }

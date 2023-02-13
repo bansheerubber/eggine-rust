@@ -2,7 +2,7 @@ use carton::Carton;
 use renderer::shape::{ ShapeBuffer, Shape, };
 use tokio;
 
-use renderer::{ Boss, Memory, ShapeBlueprint, };
+use renderer::{ Boss, ShapeBlueprint, };
 use renderer::shaders::ShaderTable;
 use renderer::state::State;
 
@@ -12,9 +12,6 @@ async fn main() {
 
 	let event_loop = winit::event_loop::EventLoop::new();
 	let mut renderer = Boss::new(&event_loop).await;
-
-	let mut memory = Memory::new(renderer.get_context());
-	renderer.initialize_buffers(&mut memory);
 
 	// load the compiled shaders from the carton
 	let mut shader_table = ShaderTable::new(renderer.get_context());
@@ -28,9 +25,9 @@ async fn main() {
 	});
 
 	// create shape buffer used for indirect rendering
-	let mut buffer = ShapeBuffer::new(&mut memory);
+	let mut buffer = ShapeBuffer::new(renderer.get_memory());
 
-	let blueprint = ShapeBlueprint::load("data/test.fbx", &mut carton, &mut memory, &mut buffer).unwrap();
+	let blueprint = ShapeBlueprint::load("data/test.fbx", &mut carton, renderer.get_memory(), &mut buffer).unwrap();
 	let shape = Shape::new(blueprint.clone());
 
 	let mut buffer = Vec::new();
@@ -43,7 +40,7 @@ async fn main() {
 				renderer.get_context().window.request_redraw();
 			},
 			winit::event::Event::RedrawRequested(_) => {
-				renderer.tick(&mut memory);
+				renderer.tick();
 			},
 			winit::event::Event::WindowEvent {
 				event:

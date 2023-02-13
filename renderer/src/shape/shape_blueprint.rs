@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::sync::{ Arc, RwLock, };
 
 use anyhow::Context;
 use carton::Carton;
@@ -45,7 +46,7 @@ pub struct ShapeBlueprint {
 impl ShapeBlueprint {
 	/// Load a FBX file from a carton.
 	pub fn load(
-		file_name: &str, carton: &mut Carton, memory: &mut Memory, shape_buffer: &mut ShapeBuffer,
+		file_name: &str, carton: &mut Carton, memory: Arc<RwLock<Memory>>, shape_buffer: &mut ShapeBuffer,
 	) -> Result<Rc<ShapeBlueprint>, ShapeBlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
@@ -100,6 +101,8 @@ impl ShapeBlueprint {
 				meshes.push((vertices, indices));
 			}
 		}
+
+		let mut memory = memory.write().unwrap();
 
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();

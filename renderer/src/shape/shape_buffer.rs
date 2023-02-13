@@ -1,3 +1,5 @@
+use std::sync::{ Arc, RwLock, };
+
 use crate::memory_subsystem::{ Memory, PageUUID, };
 
 /// Describes the buffers bound during an indirect call.
@@ -12,7 +14,9 @@ pub struct ShapeBuffer {
 }
 
 impl ShapeBuffer {
-	pub fn new(memory: &mut Memory) -> Self {
+	pub fn new(memory: Arc<RwLock<Memory>>) -> Self {
+		let mut memory = memory.write().unwrap();
+
 		ShapeBuffer {
 			highest_vertex_offset: 0,
 			index_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
