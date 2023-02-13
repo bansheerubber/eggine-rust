@@ -1,7 +1,7 @@
 use carton::Carton;
 use tokio;
 
-use renderer::Renderer;
+use renderer::{ Renderer, Shape, };
 use renderer::shaders::ShaderTable;
 use renderer::state::State;
 
@@ -22,6 +22,8 @@ async fn main() {
 		fragment_shader: shader_table.get_shader("data/hello.frag.spv"),
 		vertex_shader: shader_table.get_shader("data/hello.vert.spv"),
 	});
+
+	Shape::load("data/test.fbx", &mut carton);
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {
