@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::Pass;
 use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, };
-use crate::shaders::Program;
+use crate::shaders::{ Program, ShaderTable, };
 use crate::state::{ State, StateKey, };
 
 use super::WGPUContext;
@@ -19,6 +19,7 @@ pub struct Boss {
 	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
 	memory: Arc<RwLock<Memory>>,
 	passes: Vec<Box<dyn Pass>>,
+	shader_table: Arc<RwLock<ShaderTable>>,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 	surface_config: wgpu::SurfaceConfiguration,
 
@@ -102,6 +103,7 @@ impl Boss {
 			memory: Arc::new(RwLock::new(
 				Memory::new(context.clone())
 			)),
+			shader_table: Arc::new(RwLock::new(ShaderTable::new(context.clone()))),
 
 			context,
 			last_rendered_frame: Instant::now(),
@@ -124,6 +126,24 @@ impl Boss {
 		// prepare framebuffer
 		let frame = self.context.surface.get_current_texture().expect("Could not acquire next texture");
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+		// figure out the pipelines needed for the `Pass`s
+		let shader_table = self.get_shader_table();
+		let shader_table = shader_table.read().unwrap();
+
+		// collect states
+		let mut states = Vec::new();
+		for pass in self.passes.iter() {
+			let pass_states = pass.states(&shader_table);
+			states.push(pass_states);
+		}
+
+		// create pipelines
+		for pass_states in states.iter() {
+			for state in pass_states {
+				self.create_pipeline(&state);
+			}
+		}
 
 		// write data into buffers
 		{
@@ -171,8 +191,14 @@ impl Boss {
 		});
 
 		// encode passes
-		for pass in self.passes.iter_mut() {
-			pass.encode(&mut encoder, &view);
+		for (pass, pass_states) in self.passes.iter().zip(states.iter()) {
+			let pass_pipelines = pass_states.iter()
+				.map(|x| {
+					self.get_pipeline(x).unwrap()
+				})
+				.collect::<Vec<&wgpu::RenderPipeline>>();
+
+			pass.encode(&mut encoder, &pass_pipelines, &view);
 		}
 
 		// encode render pass
@@ -213,10 +239,10 @@ impl Boss {
 	}
 
 	/// Creates a `wgpu` pipeline based on the current render state.
-	pub fn create_pipeline(&mut self, state: &State) -> &wgpu::RenderPipeline {
+	pub fn create_pipeline(&mut self, state: &State) {
 		// check cache before creating new pipeline
 		if self.state_to_pipeline.contains_key(&state.key()) {
-			return self.state_to_pipeline.get(&state.key()).unwrap();
+			return;
 		}
 
 		// create program helper object
@@ -279,8 +305,10 @@ impl Boss {
 		});
 
 		self.state_to_pipeline.insert(state.key(), render_pipeline); // cache the pipeline
+	}
 
-		&self.state_to_pipeline[&state.key()]
+	pub fn get_pipeline(&self, state: &State) -> Option<&wgpu::RenderPipeline> {
+		self.state_to_pipeline.get(&state.key())
 	}
 
 	/// Sets the ordering of the `Pass`s that are handled each frame.
@@ -296,5 +324,10 @@ impl Boss {
 	/// Gets the `Memory` owned by the boss.
 	pub fn get_memory(&self) -> Arc<RwLock<Memory>> {
 		self.memory.clone()
+	}
+
+	/// Gets the `ShaderTable` owned by the boss.
+	pub fn get_shader_table(&self) -> Arc<RwLock<ShaderTable>> {
+		self.shader_table.clone()
 	}
 }

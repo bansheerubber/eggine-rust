@@ -4,7 +4,6 @@ use renderer::testing::IndirectPass;
 use tokio;
 
 use renderer::Boss;
-use renderer::shaders::ShaderTable;
 use renderer::state::State;
 
 #[tokio::main]
@@ -15,18 +14,22 @@ async fn main() {
 	let mut boss = Boss::new(&event_loop).await;
 
 	// load the compiled shaders from the carton
-	let mut shader_table = ShaderTable::new(boss.get_context());
-	shader_table.load_shader_from_carton("data/hello.frag.spv", &mut carton).unwrap();
-	shader_table.load_shader_from_carton("data/hello.vert.spv", &mut carton).unwrap();
+	{
+		let shader_table = boss.get_shader_table();
+		let mut shader_table = shader_table.write().unwrap();
 
-	// create the initial render pipeline
-	boss.create_pipeline(&State {
-		fragment_shader: shader_table.get_shader("data/hello.frag.spv").unwrap(),
-		vertex_shader: shader_table.get_shader("data/hello.vert.spv").unwrap(),
-	});
+		shader_table.load_shader_from_carton("data/hello.frag.spv", &mut carton).unwrap();
+		shader_table.load_shader_from_carton("data/hello.vert.spv", &mut carton).unwrap();
+
+		// create the initial render pipeline
+		boss.create_pipeline(&State {
+			fragment_shader: shader_table.get_shader("data/hello.frag.spv").unwrap(),
+			vertex_shader: shader_table.get_shader("data/hello.vert.spv").unwrap(),
+		});
+	}
 
 	// create test indirect pass
-	let mut test_pass = Box::new(IndirectPass::new(&mut boss));
+	let mut test_pass = Box::new(IndirectPass::new(&mut boss, &mut carton));
 
 	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);

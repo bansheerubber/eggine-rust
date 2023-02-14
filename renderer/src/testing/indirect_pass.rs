@@ -1,15 +1,19 @@
+use carton::Carton;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
+use crate::{ Pass, shape, };
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
-use crate::{ Pass, shape, };
+use crate::shaders::ShaderTable;
+use crate::state::State;
 
 /// Renders `Shape`s using a indirect buffer.
 #[derive(Debug)]
 pub struct IndirectPass {
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	context: Rc<WGPUContext>,
+	fragment_shader: String,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
 	indices_page: PageUUID,
@@ -25,10 +29,11 @@ pub struct IndirectPass {
 	vertices_page: PageUUID,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
+	vertex_shader: String,
 }
 
 impl IndirectPass {
-	pub fn new(boss: &mut Boss) -> Self {
+	pub fn new(boss: &mut Boss, carton: &mut Carton) -> Self {
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
 
@@ -43,9 +48,19 @@ impl IndirectPass {
 			.allocate_node(8_000_000, 1, NodeKind::Buffer)
 			.unwrap();
 
+		// load the shaders from carton
+		let fragment_shader = "data/main.vert.spv".to_string();
+		let vertex_shader = "data/main.vert.spv".to_string();
+
+		let shader_table = boss.get_shader_table();
+		let mut shader_table = shader_table.write().unwrap();
+		shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
+		shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
+
 		IndirectPass {
 			blueprints: Vec::new(),
 			context: boss.get_context().clone(),
+			fragment_shader,
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
@@ -56,6 +71,7 @@ impl IndirectPass {
 			shapes: Vec::new(),
 			vertices_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
+			vertex_shader,
 		}
 	}
 
@@ -73,7 +89,16 @@ impl IndirectPass {
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
 impl Pass for IndirectPass {
-	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+	fn states<'a>(&self, shader_table: &'a ShaderTable) -> Vec<State<'a>> {
+		vec![State {
+			fragment_shader: shader_table.get_shader(&self.fragment_shader).unwrap(),
+			vertex_shader: shader_table.get_shader(&self.vertex_shader).unwrap(),
+		}]
+	}
+
+	fn encode(
+		&self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
+	) {
 		let mut buffer = Vec::new();
 
 		let mut draw_call_count = 0;
@@ -112,9 +137,7 @@ impl Pass for IndirectPass {
 				label: None,
 			});
 
-			// render_pass.set_pipeline(
-			// 	self.state_to_pipeline.values().next().unwrap()
-			// );
+			render_pass.set_pipeline(pipelines[0]);
 
 			render_pass.set_index_buffer(
 				memory.get_page(self.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),

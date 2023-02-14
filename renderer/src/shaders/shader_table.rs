@@ -16,6 +16,7 @@ pub enum ShaderError {
 }
 
 /// Manages shader loading, and stores/manages loaded shaders.
+#[derive(Debug)]
 pub struct ShaderTable {
 	context: Rc<WGPUContext>,
 	/// Map of file names to shader objects.
