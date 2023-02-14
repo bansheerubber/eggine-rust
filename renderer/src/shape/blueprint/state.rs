@@ -46,5 +46,5 @@ pub trait BlueprintState {
 	) -> Result<Option<Node>, PageError>;
 
 	/// Wrapper function for writing data into the specified node.
-	fn write_node(&mut self, node: &Node, buffer: Vec<u8>);
+	fn write_node(&mut self, name: BlueprintDataKind, node: &Node, buffer: Vec<u8>);
 }

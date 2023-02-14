@@ -154,7 +154,7 @@ impl Blueprint {
 					u8_vertices.extend_from_slice(bytemuck::bytes_of(point));
 				}
 
-				state.write_node(&vertices_node, u8_vertices);
+				state.write_node(BlueprintDataKind::Vertex, &vertices_node, u8_vertices);
 			}
 
 			// serialize indices & write to buffer
@@ -165,7 +165,7 @@ impl Blueprint {
 					u8_indices.extend_from_slice(bytemuck::bytes_of(index));
 				}
 
-				state.write_node(&indices_node, u8_indices);
+				state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
 			}
 
 			num_indices += indices.len();
