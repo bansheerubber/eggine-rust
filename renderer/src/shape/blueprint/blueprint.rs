@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::sync::{ Arc, RwLock, };
 
 use anyhow::Context;
 use carton::Carton;
@@ -8,58 +7,13 @@ use fbxcel_dom::any::AnyDocument;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
 
-use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, };
+use crate::memory_subsystem::{ Node, NodeKind, };
 use crate::shape::triangulator::triangulator;
 
-/// Controls how a `ShapeBlueprint` allocates memory and helps with calculating `first_index` and `vertex_offset`
-/// properties for `Mesh`s
-pub trait ShapeBlueprintState {
-	/// Calculates the first index of the mesh, which a `Mesh` uses to index into the index buffer.
-	///
-	/// * `num_indices` - The amount of index values written in the index buffer. Additional disambiguation: index values
-	/// are repeated in the index buffer, and `num_indices` includes all the repeats since it is the total number of
-	/// indices written into the index buffer.
-	fn calc_first_index(&mut self, num_indices: u32) -> u32;
-
-	/// Calculates the vertex offset of the mesh, which a 'Mesh' uses to calculate the base vertex index used to index
-	/// into the vertex buffer.
-	///
-	/// * `last_highest_index` - The highest index value from the mesh that the `vertex_offset` will be assigned to. If an
-	/// index buffer uses numbers within the range 0..=32, then the `highest_index` passed to this function should be
-	/// `32`.
-	fn calc_vertex_offset(&mut self, highest_index: i32) -> i32;
-
-	/// Prepares memory for the next mesh.
-	fn prepare_mesh_pages(&mut self);
-
-	/// Gets the node that the blueprint will store information into.
-	///
-	/// * `name`      - A descriptor for the kind of data stored in the node. Vec3 vertex information would be stored in a
-	/// separate node from Vec4 color information, with the correct node specified by `name`. The `name` does not describe
-	/// the GLSL type of data stored, so additional parameters are necessary for node allocation.
-	/// * `size`      - The expected size of the returned node.
-	/// * `align`     - The expected alignment of the returned node.
-	/// * `node_kind` - The expected kind of the returned node.
-	///
-	/// # Return value
-	/// Since an implementation of this function may allocate new nodes, a `PageError` is returned so the blueprint can
-	/// handle them gracefully. The onus of pretty-printing memory error debug is on callers.
-	/// If the unwrapped result is `None`, then the `ShapeBlueprintState` implementation does not support storing the kind
-	/// of data described by `name`, and `ShapeBlueprint` should throw away any such data it loaded.
-	fn get_named_node(
-		&self,
-		name: ShapeBlueprintDataKind,
-		size: u64,
-		align: u64,
-		node_kind: NodeKind,
-	) -> Result<Option<Node>, PageError>;
-
-	/// Wrapper function for writing data into the specified node.
-	fn write_node(&mut self, node: &Node, buffer: Vec<u8>);
-}
+use super::{ BlueprintState, Mesh, };
 
 #[derive(Debug)]
-pub enum ShapeBlueprintError {
+pub enum BlueprintError {
 	CartonError(carton::Error),
 	FBXParsingError(fbxcel_dom::any::Error),
 	FailedTriangulation(String),
@@ -67,25 +21,10 @@ pub enum ShapeBlueprintError {
 	UnsupportedVersion,
 }
 
-/// Represents buffer data associated with a particular mesh.
+/// Specifies the kind of data that was loaded from a shape file. Used to communicate what data `Blueprint` wants
+/// to store using the `BlueprintState` trait.
 #[derive(Debug)]
-pub struct Mesh {
-	/// Used for indirect rendering.
-	pub first_index: u32,
-	/// Points to the mesh's vertex indices. Indices are u16s.
-	indices: Option<Node>,
-	/// Points to the mesh's vertex vec3 data. Vertices are f32s.
-	vertices: Option<Node>,
-	/// The amount of vertices in the mesh.
-	pub vertex_count: u32,
-	/// Used for indirect rendering.
-	pub vertex_offset: i32,
-}
-
-/// Specifies the kind of data that was loaded from a shape file. Used to communicate what data `ShapeBlueprint` wants
-/// to store using the `ShapeBlueprintState` trait.
-#[derive(Debug)]
-pub enum ShapeBlueprintDataKind {
+pub enum BlueprintDataKind {
 	Esoteric(String),
 	Index,
 	Vertex,
@@ -93,25 +32,25 @@ pub enum ShapeBlueprintDataKind {
 
 /// A collection of meshes loaded from a single FBX file.
 #[derive(Debug)]
-pub struct ShapeBlueprint {
+pub struct Blueprint {
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
 }
 
-impl ShapeBlueprint {
+impl Blueprint {
 	/// Load a FBX file from a carton.
 	pub fn load(
-		file_name: &str, carton: &mut Carton, state: &mut dyn ShapeBlueprintState
-	) -> Result<Rc<ShapeBlueprint>, ShapeBlueprintError> {
+		file_name: &str, carton: &mut Carton, state: &mut dyn BlueprintState
+	) -> Result<Rc<Blueprint>, BlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
-			Err(error) => return Err(ShapeBlueprintError::CartonError(error)),
+			Err(error) => return Err(BlueprintError::CartonError(error)),
 			Ok(fbx_stream) => fbx_stream,
 		};
 
 		// use fbx library to parse the fbx
 		let document = match AnyDocument::from_seekable_reader(fbx_stream) {
-			Err(error) => return Err(ShapeBlueprintError::FBXParsingError(error)),
+			Err(error) => return Err(BlueprintError::FBXParsingError(error)),
 			Ok(document) => document,
 		};
 
@@ -164,14 +103,14 @@ impl ShapeBlueprint {
 
 			// allocate node for `Vec3` vertices
 			let vertices = state.get_named_node(
-				ShapeBlueprintDataKind::Vertex,
+				BlueprintDataKind::Vertex,
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
 				(3 * std::mem::size_of::<f32>()) as u64,
 				NodeKind::Buffer
 			)
 				.or_else(
 					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", ShapeBlueprintDataKind::Vertex);
+						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Vertex);
 						Ok(None)
 					}
 				)
@@ -179,14 +118,14 @@ impl ShapeBlueprint {
 
 			// allocate node for `u32` Indices
 			let indices = state.get_named_node(
-				ShapeBlueprintDataKind::Index,
+				BlueprintDataKind::Index,
 				(indices.len() * std::mem::size_of::<u32>()) as u64,
 				std::mem::size_of::<u32>() as u64,
 				NodeKind::Buffer
 			)
 				.or_else(
 					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", ShapeBlueprintDataKind::Index);
+						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Index);
 						Ok(None)
 					}
 				)
@@ -241,7 +180,7 @@ impl ShapeBlueprint {
 			mesh.vertex_offset = state.calc_vertex_offset(highest_index as i32);
 		}
 
-		Ok(Rc::new(ShapeBlueprint {
+		Ok(Rc::new(Blueprint {
 			meshes: mesh_representations,
 		}))
 	}

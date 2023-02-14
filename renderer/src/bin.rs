@@ -2,7 +2,7 @@ use carton::Carton;
 use renderer::shape::{ ShapeBuffer, Shape, };
 use tokio;
 
-use renderer::{ Boss, ShapeBlueprint, };
+use renderer::Boss;
 use renderer::shaders::ShaderTable;
 use renderer::state::State;
 

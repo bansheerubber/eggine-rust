@@ -9,4 +9,3 @@ pub mod testing;
 pub use boss::Boss;
 pub use pass::Pass;
 pub use memory_subsystem::Memory;
-pub use shape::ShapeBlueprint;

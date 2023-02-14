@@ -1,15 +1,15 @@
 use glam::Vec3;
 use std::rc::Rc;
 
-use crate::ShapeBlueprint;
+use crate::shape;
 
 pub struct Shape {
-	blueprint: Rc<ShapeBlueprint>,
+	blueprint: Rc<shape::Blueprint>,
 	position: Vec3
 }
 
 impl Shape {
-	pub fn new(blueprint: Rc<ShapeBlueprint>) -> Self {
+	pub fn new(blueprint: Rc<shape::Blueprint>) -> Self {
 		Shape {
 			blueprint,
 			position: Vec3::default(),
