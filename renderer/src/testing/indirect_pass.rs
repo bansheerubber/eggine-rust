@@ -67,7 +67,7 @@ impl IndirectPass {
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
 impl Pass for IndirectPass {
-	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder, boss: &mut Boss) {
+	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
 		let mut buffer = Vec::new();
 
 		for shape in self.shapes.iter() {

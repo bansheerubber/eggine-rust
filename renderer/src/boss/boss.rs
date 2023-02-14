@@ -126,8 +126,10 @@ impl Boss {
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		// write data into buffers
-		let mut memory = self.memory.write().unwrap();
-		memory.complete_write_buffers();
+		{
+			let mut memory = self.memory.write().unwrap();
+			memory.complete_write_buffers();
+		}
 
 		let triangle: [f32; 6] = [
 			0.0, 0.5,
@@ -167,6 +169,11 @@ impl Boss {
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
 		});
+
+		// encode passes
+		for pass in self.passes.iter_mut() {
+			pass.encode(&mut encoder);
+		}
 
 		// encode render pass
 		{
