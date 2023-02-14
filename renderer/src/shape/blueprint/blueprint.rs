@@ -99,6 +99,8 @@ impl Blueprint {
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
 		for (vertices, indices) in meshes.iter() {
+			state.prepare_mesh_pages();
+
 			let vertex_count = indices.len() as u32; // amount of vertices to render
 
 			// allocate node for `Vec3` vertices
@@ -167,14 +169,6 @@ impl Blueprint {
 			}
 
 			num_indices += indices.len();
-
-			// take the first_index from the indices_written property, then accumulate
-			// let first_index = shape_buffer.indices_written;
-			// shape_buffer.indices_written += index_count as u32;
-
-			// take the vertex_offset from the highest_vertex_offset property, then accumulate
-			// let vertex_offset = shape_buffer.highest_vertex_offset;
-			// shape_buffer.highest_vertex_offset += highest_index as i32;
 
 			mesh.first_index = state.calc_first_index(num_indices as u32);
 			mesh.vertex_offset = state.calc_vertex_offset(highest_index as i32);
