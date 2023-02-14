@@ -49,7 +49,7 @@ impl IndirectPass {
 			.unwrap();
 
 		// load the shaders from carton
-		let fragment_shader = "data/main.vert.spv".to_string();
+		let fragment_shader = "data/main.frag.spv".to_string();
 		let vertex_shader = "data/main.vert.spv".to_string();
 
 		let shader_table = boss.get_shader_table();
@@ -62,7 +62,7 @@ impl IndirectPass {
 			context: boss.get_context().clone(),
 			fragment_shader,
 			highest_vertex_offset: 0,
-			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
+			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
 			indices_page_written: 0,
 			indirect_command_buffer,

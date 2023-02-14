@@ -4,7 +4,7 @@ use std::sync::{ Arc, RwLock, };
 use std::time::Instant;
 
 use crate::Pass;
-use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, };
+use crate::memory_subsystem::Memory;
 use crate::shaders::{ Program, ShaderTable, };
 use crate::state::{ State, StateKey, };
 
@@ -22,10 +22,6 @@ pub struct Boss {
 	shader_table: Arc<RwLock<ShaderTable>>,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 	surface_config: wgpu::SurfaceConfiguration,
-
-	test_buffer1: Node,
-	test_buffer2: Node,
-	test_page: Page,
 }
 
 impl Boss {
@@ -53,7 +49,7 @@ impl Boss {
 		let (device, queue) = adapter
 			.request_device(
 				&wgpu::DeviceDescriptor {
-					features: wgpu::Features::empty(),
+					features: adapter.features(),
 					label: None,
 					limits: wgpu::Limits::downlevel_webgl2_defaults()
 						.using_resolution(adapter.limits()),
@@ -90,16 +86,8 @@ impl Boss {
 			window,
 		});
 
-		let mut page = Page::new(
-			6 * 4 + 4 * 3 * 4, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, context.clone()
-		);
-
 		// create the renderer container object
 		Boss {
-			test_buffer1: page.allocate_node(6 * 4, 4, NodeKind::Buffer).unwrap(),
-			test_buffer2: page.allocate_node(4 * 3 * 4, 4, NodeKind::Buffer).unwrap(),
-			test_page: page,
-
 			memory: Arc::new(RwLock::new(
 				Memory::new(context.clone())
 			)),
@@ -151,40 +139,6 @@ impl Boss {
 			memory.complete_write_buffers();
 		}
 
-		let triangle: [f32; 6] = [
-			0.0, 0.5,
-			-0.5, -0.5,
-			0.5, -0.5,
-		];
-
-		self.context.queue.write_buffer(
-			self.test_page.get_buffer(),
-			self.test_buffer1.offset,
-			unsafe {
-				std::slice::from_raw_parts(
-					triangle.as_ptr() as *const u8,
-					triangle.len() * 4 as usize,
-				)
-			}
-		);
-
-		let colors: [f32; 4 * 3] = [
-			1.0, 0.0, 0.0, 1.0,
-			0.0, 1.0, 0.0, 1.0,
-			0.0, 0.0, 1.0, 1.0,
-		];
-
-		self.context.queue.write_buffer(
-			self.test_page.get_buffer(),
-			self.test_buffer2.offset,
-			unsafe {
-				std::slice::from_raw_parts(
-					colors.as_ptr() as *const u8,
-					colors.len() * 4 as usize,
-				)
-			}
-		);
-
 		// initialize command buffer
 		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
 			label: None,
@@ -199,31 +153,6 @@ impl Boss {
 				.collect::<Vec<&wgpu::RenderPipeline>>();
 
 			pass.encode(&mut encoder, &pass_pipelines, &view);
-		}
-
-		// encode render pass
-		{
-			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-						store: true,
-					},
-					resolve_target: None,
-					view: &view,
-				})],
-				depth_stencil_attachment: None,
-				label: None,
-			});
-
-			render_pass.set_pipeline(
-				self.state_to_pipeline.values().next().unwrap()
-			);
-
-			render_pass.set_vertex_buffer(0, self.test_page.get_slice(&self.test_buffer1));
-			render_pass.set_vertex_buffer(1, self.test_page.get_slice(&self.test_buffer2));
-
-			render_pass.draw(0..3, 0..1);
 		}
 
 		self.context.queue.submit(Some(encoder.finish()));
@@ -271,30 +200,21 @@ impl Boss {
 			multiview: None,
 			primitive: wgpu::PrimitiveState {
 				conservative: false,
-				cull_mode: Some(wgpu::Face::Back),
+				cull_mode: None,
 				front_face: wgpu::FrontFace::Ccw,
 				polygon_mode: wgpu::PolygonMode::Fill,
-				strip_index_format: Some(wgpu::IndexFormat::Uint16),
+				strip_index_format: Some(wgpu::IndexFormat::Uint32),
 				topology: wgpu::PrimitiveTopology::TriangleStrip,
 				unclipped_depth: false,
 			},
 			vertex: wgpu::VertexState {
 				buffers: &[
 					wgpu::VertexBufferLayout {
-						array_stride: 4 * 2,
+						array_stride: 4 * 3,
 						attributes: &[wgpu::VertexAttribute {
-							format: wgpu::VertexFormat::Float32x2,
+							format: wgpu::VertexFormat::Float32x3,
 							offset: 0,
 							shader_location: 0,
-						}],
-						step_mode: wgpu::VertexStepMode::Vertex,
-					},
-					wgpu::VertexBufferLayout {
-						array_stride: 4 * 4,
-						attributes: &[wgpu::VertexAttribute {
-							format: wgpu::VertexFormat::Float32x4,
-							offset: 0,
-							shader_location: 1,
 						}],
 						step_mode: wgpu::VertexStepMode::Vertex,
 					},
