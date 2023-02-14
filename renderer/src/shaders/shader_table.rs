@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use crate::boss::WGPUContext;
 
-use super::{ Shader, Uniform, };
+use super::{ Program, Shader, Uniform, };
 
 #[derive(Debug)]
 pub enum ShaderError {
@@ -19,8 +19,8 @@ pub enum ShaderError {
 #[derive(Debug)]
 pub struct ShaderTable {
 	context: Rc<WGPUContext>,
-	/// Map of file names to shader objects.
-	shaders: HashMap<String, Shader>,
+	/// Map of program names to objects.
+	programs: HashMap<String, Rc<Program>>,
 }
 
 /// Describes the state of the uniform parsing state machine.
@@ -37,13 +37,20 @@ impl ShaderTable {
 	pub fn new(context: Rc<WGPUContext>) -> Self {
 		ShaderTable {
 			context,
-			shaders: HashMap::new(),
+			programs: HashMap::new(),
 		}
+	}
+
+	/// Creates a program from the supplied shaders and inserts into the shader table.
+	pub fn create_program(&mut self, name: &str, fragment_shader: Shader, vertex_shader: Shader) -> Rc<Program> {
+		let program = Rc::new(Program::new(name, fragment_shader, vertex_shader, self.context.clone()));
+		self.programs.insert(name.to_string(), program.clone());
+		return program;
 	}
 
 	/// Loads a SPIR-V shader from file. Expects a file named `[name].(frag|vert).spv` and an associated source file named
 	/// `[name].(frag|vert)`. The source file is parsed for its uniform information.
-	pub fn load_shader_from_file(&mut self, file_name: &str) -> Result<&Shader, ShaderError> {
+	pub fn load_shader_from_file(&mut self, file_name: &str) -> Result<Shader, ShaderError> {
 		// determine stage based on file name (".frag" for fragment shaders, ".vert" for vertex shaders)
 		let stage = if file_name.contains(".frag.spv") {
 			wgpu::ShaderStages::FRAGMENT
@@ -76,22 +83,17 @@ impl ShaderTable {
     });
 
 		// create a new shader helper object, also parse uniforms from source code
-		self.shaders.insert(
-			file_name.to_string(),
-			Shader {
-				file_name: file_name.to_string(),
-				module,
-				stage,
-				uniforms: self.process_uniforms_from_file(&file_name.to_string().replace(".spv", ""))?,
-			}
-		);
-
-		Ok(&self.shaders[file_name])
+		Ok(Shader {
+			file_name: file_name.to_string(),
+			module,
+			stage,
+			uniforms: self.process_uniforms_from_file(&file_name.to_string().replace(".spv", ""))?,
+		})
 	}
 
 	/// Loads a SPIR-V shader from a carton. Expects a file named `[name].(frag|vert).spv` and an associated source file
 	/// named `[name].(frag|vert)`. The source file is parsed for its uniform information.
-	pub fn load_shader_from_carton(&mut self, file_name: &str, carton: &mut Carton) -> Result<&Shader, ShaderError> {
+	pub fn load_shader_from_carton(&mut self, file_name: &str, carton: &mut Carton) -> Result<Shader, ShaderError> {
 		// determine stage based on file name (".frag" for fragment shaders, ".vert" for vertex shaders)
 		let stage = if file_name.contains(".frag.spv") {
 			wgpu::ShaderStages::FRAGMENT
@@ -116,22 +118,17 @@ impl ShaderTable {
     });
 
 		// create a new shader helper object, also parse uniforms from source code
-		self.shaders.insert(
-			file_name.to_string(),
-			Shader {
-				file_name: file_name.to_string(),
-				module,
-				stage,
-				uniforms: self.process_uniforms_from_buffer(&text_buffer)?,
-			}
-		);
-
-		Ok(&self.shaders[file_name])
+		Ok(Shader {
+			file_name: file_name.to_string(),
+			module,
+			stage,
+			uniforms: self.process_uniforms_from_buffer(&text_buffer)?,
+		})
 	}
 
 	/// Retreives the shader associated with the supplied file name.
-	pub fn get_shader(&self, file_name: &str) -> Option<&Shader> {
-		self.shaders.get(file_name)
+	pub fn get_program(&self, name: &str) -> Option<Rc<Program>> {
+		self.programs.get(name).cloned()
 	}
 
 	/// Parse uniforms from the shader source codeso the renderer can assemble `wgpu::DescriptorSetLayoutBindings`.

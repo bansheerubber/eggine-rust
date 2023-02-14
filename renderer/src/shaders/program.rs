@@ -1,29 +1,59 @@
+use std::rc::Rc;
+
+use crate::boss::WGPUContext;
+
 use super::Shader;
 
 /// Helper object for creating `wgpu::BindGroupLayout`s that are used in the render pipeline.
-pub struct Program<'a> {
-	layouts: Vec<wgpu::BindGroupLayout>,
-	pub shaders: Vec<&'a Shader>,
+#[derive(Debug)]
+pub struct Program {
+	pub context: Rc<WGPUContext>,
+	pub fragment_shader: Shader,
+	pub layouts: Vec<wgpu::BindGroupLayout>,
+	name: String,
+	pub vertex_shader: Shader,
 }
 
-impl<'q> Program<'q> {
+impl PartialEq for Program {
+	fn eq(&self, other: &Self) -> bool {
+		self.name == other.name
+	}
+}
+
+impl Program {
 	/// Creates a program from the supplied shaders.
-	pub fn new(shaders: Vec<&'q Shader>) -> Self {
-		Program {
+	pub(crate) fn new(name: &str, fragment_shader: Shader, vertex_shader: Shader, context: Rc<WGPUContext>) -> Self {
+		let mut program = Program {
+			context,
+			fragment_shader,
 			layouts: Vec::new(),
-			shaders,
+			name: name.to_string(),
+			vertex_shader,
+		};
+
+		program.create_bind_group_layouts();
+
+		return program;
+	}
+
+	/// Gets a vector containing references to the `wgpu::BindGroupLayout`s that this program created.
+	pub fn get_bind_group_layouts(&self) -> Vec<&wgpu::BindGroupLayout> {
+		let mut output = Vec::new();
+		for layout in self.layouts.iter() {
+			output.push(layout);
 		}
+
+		return output;
 	}
 
 	/// Takes the shaders and generates a `wgpu::BindGroupLayout` that is compatible with `wgpu::PipelineLayoutDescriptor`
 	/// (see `wgpu::Device::create_pipeline_layout` documentation for the requirements).
-	pub fn get_bind_group_layouts(&mut self, device: &wgpu::Device) -> Vec<&wgpu::BindGroupLayout> {
+	fn create_bind_group_layouts(&mut self) {
 		self.layouts.clear();
 
-		let mut layout_entry_sets = Vec::new();
-		for shader in self.shaders.iter() {
-			layout_entry_sets.push(shader.get_bind_group_entries());
-		}
+		let layout_entry_sets = vec![
+			self.vertex_shader.get_bind_group_entries(), self.fragment_shader.get_bind_group_entries()
+		];
 
 		// get the highest index in the map
 		let highest_index = layout_entry_sets.iter()
@@ -43,20 +73,16 @@ impl<'q> Program<'q> {
 			}
 
 			// create bind group layout from combined entry sets
-			self.layouts.push(device.create_bind_group_layout(
+			self.layouts.push(self.context.device.create_bind_group_layout(
 				&wgpu::BindGroupLayoutDescriptor {
 					entries: &entries,
 					label: None,
 				}
 			));
 		}
+	}
 
-		// the render pipeline takes a vector of `wgpu::BindGroupLayout` borrows, so that's what we return here
-		let mut layouts = Vec::new();
-		for layout in self.layouts.iter() {
-			layouts.push(layout);
-		}
-
-		return layouts;
+	pub fn get_name(&self) -> &str {
+		&self.name
 	}
 }

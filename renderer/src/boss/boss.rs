@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::Pass;
 use crate::memory_subsystem::Memory;
-use crate::shaders::{ Program, ShaderTable, };
+use crate::shaders::ShaderTable;
 use crate::state::{ State, StateKey, };
 
 use super::WGPUContext;
@@ -116,46 +116,49 @@ impl Boss {
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		// figure out the pipelines needed for the `Pass`s
-		let shader_table = self.get_shader_table();
-		let shader_table = shader_table.read().unwrap();
-
-		// collect states
 		let mut states = Vec::new();
-		for pass in self.passes.iter() {
-			let pass_states = pass.states(&shader_table);
-			states.push(pass_states);
-		}
 
-		// create pipelines
-		for pass_states in states.iter() {
-			for state in pass_states {
-				self.create_pipeline(&state);
-			}
-		}
-
-		// write data into buffers
+		// steal passes for a second
+		let passes = std::mem::take(&mut self.passes);
 		{
-			let mut memory = self.memory.write().unwrap();
-			memory.complete_write_buffers();
+			for pass in passes.iter() {
+				let pass_states = pass.states();
+				states.push(pass_states);
+			}
+
+			// create pipelines
+			for pass_states in states.iter() {
+				for state in pass_states.iter() {
+					self.create_pipeline(state);
+				}
+			}
+
+			// write data into buffers
+			{
+				let mut memory = self.memory.write().unwrap();
+				memory.complete_write_buffers();
+			}
+
+			// initialize command buffer
+			let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+				label: None,
+			});
+
+			// encode passes
+			for (pass, pass_states) in passes.iter().zip(states.iter()) {
+				let pass_pipelines = pass_states.iter()
+					.map(|x| {
+						self.get_pipeline(x).unwrap()
+					})
+					.collect::<Vec<&wgpu::RenderPipeline>>();
+
+				pass.encode(&mut encoder, &pass_pipelines, &view);
+			}
+
+			self.context.queue.submit(Some(encoder.finish()));
 		}
+		self.passes = passes; // give ownership of passes back to boss
 
-		// initialize command buffer
-		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-			label: None,
-		});
-
-		// encode passes
-		for (pass, pass_states) in self.passes.iter().zip(states.iter()) {
-			let pass_pipelines = pass_states.iter()
-				.map(|x| {
-					self.get_pipeline(x).unwrap()
-				})
-				.collect::<Vec<&wgpu::RenderPipeline>>();
-
-			pass.encode(&mut encoder, &pass_pipelines, &view);
-		}
-
-		self.context.queue.submit(Some(encoder.finish()));
 		frame.present();
 	}
 
@@ -174,14 +177,9 @@ impl Boss {
 			return;
 		}
 
-		// create program helper object
-		let mut program = Program::new(
-			vec![state.fragment_shader, state.vertex_shader]
-		);
-
 		// create the pipeline
 		let pipeline_layout = self.context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			bind_group_layouts: &program.get_bind_group_layouts(&self.context.device),
+			bind_group_layouts: &state.program.get_bind_group_layouts(),
 			label: None,
 			push_constant_ranges: &[],
 		});
@@ -191,7 +189,7 @@ impl Boss {
 			depth_stencil: None,
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
-				module: &state.fragment_shader.module,
+				module: &state.program.fragment_shader.module,
 				targets: &[Some(self.context.swapchain_format.into())],
 			}),
 			label: None,
@@ -220,7 +218,7 @@ impl Boss {
 					},
 				],
 				entry_point: "main",
-				module: &state.vertex_shader.module,
+				module: &state.program.vertex_shader.module,
 			},
 		});
 

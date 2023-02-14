@@ -1,4 +1,3 @@
-use crate::shaders::ShaderTable;
 use crate::state::State;
 
 /// Produces a ready-to-render framebuffer that is composited with other `Pass`s by the `Boss`. A `Pass` controls its
@@ -8,7 +7,7 @@ use crate::state::State;
 /// to create a `wgpu::RenderPass`.
 pub trait Pass {
 	/// Called by the `Boss` so it can prepare any needed pipelines for `encode`.
-	fn states<'a>(&self, shader_table: &'a ShaderTable) -> Vec<State<'a>>;
+	fn states<'a>(&'a self) -> Vec<State<'a>>;
 
 	/// Encodes draw calls into the specified encoder.
 	fn encode(

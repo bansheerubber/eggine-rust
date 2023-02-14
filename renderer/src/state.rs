@@ -1,4 +1,4 @@
-use super::shaders::Shader;
+use super::shaders::Program;
 
 /// The render state stores intermediate attributes that describe a render pipeline. The `Renderer` will take the
 /// intermediate data structures and translate them into the appropriate `wgpu` render pipeline. Render pipelines are
@@ -6,18 +6,15 @@ use super::shaders::Shader;
 /// `HashMap`, `State` implements its own key generator.
 #[derive(Clone, PartialEq)]
 pub struct State<'a> {
-	/// Fragment shader to be used in the pipeline.
-	pub fragment_shader: &'a Shader,
-	/// Vertex shader to be used in the pipeline.
-	pub vertex_shader: &'a Shader,
+	/// Program to be used in the pipeline.
+	pub program: &'a Program,
 }
 
 impl State<'_> {
 	/// Generate a key to be used in `HashMap`s
 	pub fn key(&self) -> StateKey {
 		StateKey {
-			fragment_shader: self.fragment_shader.file_name.to_string(),
-			vertex_shader: self.vertex_shader.file_name.to_string(),
+			program: self.program.get_name().to_string(),
 		}
 	}
 }
@@ -25,6 +22,5 @@ impl State<'_> {
 /// State key used for hash maps.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StateKey {
-	fragment_shader: String,
-	vertex_shader: String,
+	program: String,
 }
