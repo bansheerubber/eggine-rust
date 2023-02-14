@@ -13,6 +13,8 @@ pub struct IndirectPass {
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
 	indices_page: PageUUID,
+	/// The amount of bytes written to the indices page.
+	indices_page_written: u64,
 	/// The total number of indices written into the index buffer. Used to calculate the `first_index` for meshes in an
 	/// indirect indexed draw call.
 	indices_written: u32,
@@ -21,6 +23,8 @@ pub struct IndirectPass {
 	memory: Arc<RwLock<Memory>>,
 	shapes: Vec<shape::Shape>,
 	vertices_page: PageUUID,
+	/// The amount of bytes written to the vertices page.
+	vertices_page_written: u64,
 }
 
 impl IndirectPass {
@@ -45,11 +49,13 @@ impl IndirectPass {
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
+			indices_page_written: 0,
 			indirect_command_buffer,
 			indirect_command_buffer_node,
 			memory: boss.get_memory().clone(),
 			shapes: Vec::new(),
 			vertices_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
+			vertices_page_written: 0,
 		}
 	}
 
@@ -67,9 +73,10 @@ impl IndirectPass {
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
 impl Pass for IndirectPass {
-	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
+	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
 		let mut buffer = Vec::new();
 
+		let mut draw_call_count = 0;
 		for shape in self.shapes.iter() {
 			for mesh in shape.blueprint.get_meshes().iter() {
 				buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
@@ -79,13 +86,50 @@ impl Pass for IndirectPass {
 					vertex_count: mesh.vertex_count,
 					vertex_offset: mesh.vertex_offset,
 				}.as_bytes());
+
+				draw_call_count += 1;
 			}
 		}
 
-		// immediately write to the buffer
-		self.memory.read().unwrap().get_page(self.indirect_command_buffer)
+		let memory = self.memory.read().unwrap();
+
+		// ensure immediate write to the buffer
+		memory.get_page(self.indirect_command_buffer)
 			.unwrap()
 			.write_buffer(&self.indirect_command_buffer_node, &buffer);
+
+		{
+			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+					ops: wgpu::Operations {
+						load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+						store: true,
+					},
+					resolve_target: None,
+					view: &view,
+				})],
+				depth_stencil_attachment: None,
+				label: None,
+			});
+
+			// render_pass.set_pipeline(
+			// 	self.state_to_pipeline.values().next().unwrap()
+			// );
+
+			render_pass.set_index_buffer(
+				memory.get_page(self.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
+				wgpu::IndexFormat::Uint32
+			);
+
+			render_pass.set_vertex_buffer(
+				0, memory.get_page(self.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+			);
+
+			// draw all the objects
+			render_pass.multi_draw_indexed_indirect(
+				memory.get_page(self.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
+			);
+		}
 	}
 }
 
@@ -129,8 +173,14 @@ impl shape::BlueprintState for IndirectPass {
 
 	fn write_node(&mut self, name: shape::BlueprintDataKind, node: &Node, buffer: Vec<u8>) {
 		let page = match name {
-			shape::BlueprintDataKind::Index => self.indices_page,
-			shape::BlueprintDataKind::Vertex => self.vertices_page,
+			shape::BlueprintDataKind::Index => {
+				self.indices_page_written += buffer.len() as u64;
+				self.indices_page
+			},
+			shape::BlueprintDataKind::Vertex => {
+				self.vertices_page_written += buffer.len() as u64;
+				self.vertices_page
+			},
 			_ => return,
 		};
 

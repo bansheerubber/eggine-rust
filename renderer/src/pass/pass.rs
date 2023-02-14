@@ -4,7 +4,7 @@
 /// state (like render pipeline creation), so a `Pass` must communicate with the `Boss` to acquire the necessary state
 /// to create a `wgpu::RenderPass`.
 pub trait Pass {
-	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder);
+	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView);
 }
 
 impl std::fmt::Debug for dyn Pass + 'static {

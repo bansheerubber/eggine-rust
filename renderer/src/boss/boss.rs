@@ -172,7 +172,7 @@ impl Boss {
 
 		// encode passes
 		for pass in self.passes.iter_mut() {
-			pass.encode(&mut encoder);
+			pass.encode(&mut encoder, &view);
 		}
 
 		// encode render pass
