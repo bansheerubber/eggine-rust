@@ -60,7 +60,7 @@ impl IndirectPass {
 
 	/// Gives `Shape` ownership over to this `Pass` object.
 	pub fn add_shape(&mut self, shape: shape::Shape) {
-
+		self.shapes.push(shape);
 	}
 }
 
