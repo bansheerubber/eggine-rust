@@ -8,7 +8,7 @@ use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
 
 use crate::memory_subsystem::{ Node, NodeKind, };
-use crate::shape::triangulator::triangulator;
+use crate::shape;
 
 use super::{ BlueprintState, Mesh, };
 
@@ -72,7 +72,7 @@ impl Blueprint {
 					.polygon_vertices()
 					.context(format!("Could not get polygon vertices for mesh {:?}", mesh.name()))
 					.unwrap()
-					.triangulate_each(triangulator)
+					.triangulate_each(shape::triangulator)
 					.context(format!("Could not triangulate vertices for mesh {:?}", mesh.name()))
 					.unwrap();
 
@@ -89,7 +89,7 @@ impl Blueprint {
 				// get the index vector
 				let mut indices = Vec::new();
 				for vertex_index in triangulated_vertices.iter_control_point_indices() {
-					indices.push(vertex_index.unwrap().to_u32() as u32);
+					indices.push(vertex_index.unwrap().to_u32() as shape::IndexType);
 				}
 
 				meshes.push((vertices, indices));
@@ -121,8 +121,8 @@ impl Blueprint {
 			// allocate node for `u32` Indices
 			let indices = state.get_named_node(
 				BlueprintDataKind::Index,
-				(indices.len() * std::mem::size_of::<u32>()) as u64,
-				std::mem::size_of::<u32>() as u64,
+				(indices.len() * std::mem::size_of::<shape::IndexType>()) as u64,
+				std::mem::size_of::<shape::IndexType>() as u64,
 				NodeKind::Buffer
 			)
 				.or_else(
