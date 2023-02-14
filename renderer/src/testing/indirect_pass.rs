@@ -7,6 +7,7 @@ use crate::shape;
 
 /// Renders `Shape`s using a indirect buffer.
 pub struct IndirectPass {
+	blueprints: Vec<Rc<shape::Blueprint>>,
 	context: Rc<WGPUContext>,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
@@ -22,7 +23,7 @@ pub struct IndirectPass {
 }
 
 impl IndirectPass {
-	pub fn new(context: Rc<WGPUContext>, boss: &mut Boss) -> Self {
+	pub fn new(boss: &mut Boss) -> Self {
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
 
@@ -38,7 +39,8 @@ impl IndirectPass {
 			.unwrap();
 
 		IndirectPass {
-			context,
+			blueprints: Vec::new(),
+			context: boss.get_context().clone(),
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
@@ -48,6 +50,17 @@ impl IndirectPass {
 			shapes: Vec::new(),
 			vertices_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 		}
+	}
+
+	/// Gives `Blueprint` ownership over to this `Pass` object.
+	pub fn add_blueprint(&mut self, blueprint: Rc<shape::Blueprint>) -> Rc<shape::Blueprint> {
+		self.blueprints.push(blueprint);
+		return self.blueprints[self.blueprints.len() - 1].clone();
+	}
+
+	/// Gives `Shape` ownership over to this `Pass` object.
+	pub fn add_shape(&mut self, shape: shape::Shape) {
+
 	}
 }
 

@@ -1,5 +1,6 @@
 use carton::Carton;
-use renderer::shape::{ ShapeBuffer, Shape, };
+use renderer::shape;
+use renderer::testing::IndirectPass;
 use tokio;
 
 use renderer::Boss;
@@ -11,36 +12,36 @@ async fn main() {
 	let mut carton = Carton::read("resources.carton").unwrap();
 
 	let event_loop = winit::event_loop::EventLoop::new();
-	let mut renderer = Boss::new(&event_loop).await;
+	let mut boss = Boss::new(&event_loop).await;
 
 	// load the compiled shaders from the carton
-	let mut shader_table = ShaderTable::new(renderer.get_context());
+	let mut shader_table = ShaderTable::new(boss.get_context());
 	shader_table.load_shader_from_carton("data/hello.frag.spv", &mut carton).unwrap();
 	shader_table.load_shader_from_carton("data/hello.vert.spv", &mut carton).unwrap();
 
 	// create the initial render pipeline
-	renderer.create_pipeline(&State {
+	boss.create_pipeline(&State {
 		fragment_shader: shader_table.get_shader("data/hello.frag.spv").unwrap(),
 		vertex_shader: shader_table.get_shader("data/hello.vert.spv").unwrap(),
 	});
 
-	// create shape buffer used for indirect rendering
-	let mut buffer = ShapeBuffer::new(renderer.get_memory());
+	// create test indirect pass
+	let mut test_pass = IndirectPass::new(&mut boss);
 
-	let blueprint = ShapeBlueprint::load("data/test.fbx", &mut carton, renderer.get_memory(), &mut buffer).unwrap();
-	let shape = Shape::new(blueprint.clone());
+	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
+	let blueprint = test_pass.add_blueprint(blueprint);
 
-	let mut buffer = Vec::new();
-	shape.write_indirect_buffer(&mut buffer);
+	let shape = shape::Shape::new(blueprint.clone());
+	test_pass.add_shape(shape);
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {
 		match event {
 			winit::event::Event::RedrawEventsCleared => {
-				renderer.get_context().window.request_redraw();
+				boss.get_context().window.request_redraw();
 			},
 			winit::event::Event::RedrawRequested(_) => {
-				renderer.tick();
+				boss.tick();
 			},
 			winit::event::Event::WindowEvent {
 				event:
@@ -51,7 +52,7 @@ async fn main() {
 					},
 				..
 			} => {
-				renderer.resize(size.width.max(1), size.height.max(1));
+				boss.resize(size.width.max(1), size.height.max(1));
 			},
 			winit::event::Event::WindowEvent {
 				event: winit::event::WindowEvent::CloseRequested,
