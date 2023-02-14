@@ -26,13 +26,16 @@ async fn main() {
 	});
 
 	// create test indirect pass
-	let mut test_pass = IndirectPass::new(&mut boss);
+	let mut test_pass = Box::new(IndirectPass::new(&mut boss));
 
 	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	let shape = shape::Shape::new(blueprint.clone());
 	test_pass.add_shape(shape);
+
+	// set the boss's passes
+	boss.set_passes(vec![test_pass]);
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {

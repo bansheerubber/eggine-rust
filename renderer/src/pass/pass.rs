@@ -8,3 +8,9 @@ use crate::Boss;
 pub trait Pass {
 	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder, boss: &mut Boss);
 }
+
+impl std::fmt::Debug for dyn Pass + 'static {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_fmt(format_args!("{:?}", self))
+	}
+}

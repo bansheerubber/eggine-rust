@@ -6,6 +6,7 @@ use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
 use crate::{ Pass, shape, };
 
 /// Renders `Shape`s using a indirect buffer.
+#[derive(Debug)]
 pub struct IndirectPass {
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	context: Rc<WGPUContext>,

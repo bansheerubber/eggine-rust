@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use crate::shape;
 
+#[derive(Debug)]
 pub struct Shape {
 	pub blueprint: Rc<shape::Blueprint>,
 	pub position: Vec3

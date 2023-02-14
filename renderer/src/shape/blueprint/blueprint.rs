@@ -39,8 +39,8 @@ pub struct Blueprint {
 
 impl Blueprint {
 	/// Load a FBX file from a carton.
-	pub fn load(
-		file_name: &str, carton: &mut Carton, state: &mut dyn BlueprintState
+	pub fn load<T: BlueprintState>(
+		file_name: &str, carton: &mut Carton, state: &mut Box<T>
 	) -> Result<Rc<Blueprint>, BlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {

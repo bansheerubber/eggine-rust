@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 use std::time::Instant;
 
+use crate::Pass;
 use crate::memory_subsystem::{ Memory, Node, NodeKind, Page, };
 use crate::shaders::Program;
 use crate::state::{ State, StateKey, };
@@ -14,9 +15,10 @@ use super::WGPUContext;
 #[derive(Debug)]
 pub struct Boss {
 	context: Rc<WGPUContext>,
+	last_rendered_frame: Instant,
 	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
 	memory: Arc<RwLock<Memory>>,
-	last_rendered_frame: Instant,
+	passes: Vec<Box<dyn Pass>>,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 	surface_config: wgpu::SurfaceConfiguration,
 
@@ -103,6 +105,7 @@ impl Boss {
 
 			context,
 			last_rendered_frame: Instant::now(),
+			passes: Vec::new(),
 			state_to_pipeline: HashMap::new(),
 			surface_config,
 		}
@@ -271,6 +274,11 @@ impl Boss {
 		self.state_to_pipeline.insert(state.key(), render_pipeline); // cache the pipeline
 
 		&self.state_to_pipeline[&state.key()]
+	}
+
+	/// Sets the ordering of the `Pass`s that are handled each frame.
+	pub fn set_passes(&mut self, passes: Vec<Box<dyn Pass>>) {
+		self.passes = passes;
 	}
 
 	/// Gets the `WGPUContext` owned by the boss.
