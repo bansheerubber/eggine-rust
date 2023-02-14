@@ -11,8 +11,11 @@ pub trait Pass {
 
 	/// Encodes draw calls into the specified encoder.
 	fn encode(
-		&self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
+		&mut self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
 	);
+
+	/// Callback for when the `Boss` is resized.
+	fn resize(&mut self, width: u32, height: u32);
 }
 
 impl std::fmt::Debug for dyn Pass + 'static {

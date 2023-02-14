@@ -119,7 +119,7 @@ impl Boss {
 		let mut states = Vec::new();
 
 		// steal passes for a second
-		let passes = std::mem::take(&mut self.passes);
+		let mut passes = std::mem::take(&mut self.passes);
 		{
 			for pass in passes.iter() {
 				let pass_states = pass.states();
@@ -145,8 +145,9 @@ impl Boss {
 			});
 
 			// encode passes
-			for (pass, pass_states) in passes.iter().zip(states.iter()) {
-				let pass_pipelines = pass_states.iter()
+			for pass in passes.iter_mut() {
+				let states = pass.states();
+				let pass_pipelines = states.iter()
 					.map(|x| {
 						self.get_pipeline(x).unwrap()
 					})
@@ -168,6 +169,16 @@ impl Boss {
 		self.surface_config.height = height;
 
 		self.context.surface.configure(&self.context.device, &self.surface_config);
+
+		// resize passes
+		for pass in self.passes.iter_mut() {
+			pass.resize(width, height);
+		}
+	}
+
+	/// Returns the current size of the window.
+	pub fn get_window_size(&self) -> (u32, u32) {
+		(self.surface_config.width, self.surface_config.height)
 	}
 
 	/// Creates a `wgpu` pipeline based on the current render state.

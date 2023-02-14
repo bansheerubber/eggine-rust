@@ -181,7 +181,10 @@ impl ShaderTable {
 				token_state = TokenState::LayoutParameterName;
 				token_buffer = String::new();
 			} else if token_state == TokenState::LayoutParameterName
-				&& &token_buffer.as_str()[token_buffer.len() - 1..] == "="
+				&& (
+					&token_buffer.as_str()[token_buffer.len() - 1..] == "="
+					|| &token_buffer.as_str()[token_buffer.len() - 1..] == ","
+				)
 			{
 				// find "binding", "set" tokens
 				let command = &token_buffer.as_str()[..token_buffer.len() - 1].trim();
@@ -204,6 +207,7 @@ impl ShaderTable {
 					"set" => {
 						current_uniform.set = token_buffer.as_str()[..token_buffer.len() - 1].trim().parse().unwrap();
 					},
+					"std140" => {},
 					_ => panic!("Could not parse layout parameter '{}'", parameter_name),
 				}
 

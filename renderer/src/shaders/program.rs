@@ -10,6 +10,7 @@ pub struct Program {
 	pub context: Rc<WGPUContext>,
 	pub fragment_shader: Shader,
 	pub layouts: Vec<wgpu::BindGroupLayout>,
+	pub layout_entries: Vec<Vec<wgpu::BindGroupLayoutEntry>>,
 	name: String,
 	pub vertex_shader: Shader,
 }
@@ -27,6 +28,7 @@ impl Program {
 			context,
 			fragment_shader,
 			layouts: Vec::new(),
+			layout_entries: Vec::new(),
 			name: name.to_string(),
 			vertex_shader,
 		};
@@ -44,6 +46,10 @@ impl Program {
 		}
 
 		return output;
+	}
+
+	pub fn get_bind_group_layout_entries(&self) -> &Vec<Vec<wgpu::BindGroupLayoutEntry>> {
+		&self.layout_entries
 	}
 
 	/// Takes the shaders and generates a `wgpu::BindGroupLayout` that is compatible with `wgpu::PipelineLayoutDescriptor`
@@ -79,6 +85,8 @@ impl Program {
 					label: None,
 				}
 			));
+
+			self.layout_entries.push(entries);
 		}
 	}
 

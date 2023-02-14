@@ -164,6 +164,11 @@ impl Page {
 		self.context.queue.write_buffer(&self.buffer, node.offset, data);
 	}
 
+	/// Writes a node into the page's buffer.
+	pub fn write_slice(&self, node: &Node, data: &[u8]) {
+		self.context.queue.write_buffer(&self.buffer, node.offset, data);
+	}
+
 	/// Combines adjacent unused nodes into single nodes.
 	fn defragment(&mut self, index: usize) {
 		// defragment unused nodes

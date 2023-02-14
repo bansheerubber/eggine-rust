@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.69"
-bytemuck = "1.13.0"
+bytemuck = { features = ["derive"], version = "1.13.0" }
 carton = { path = "../carton" }
 fbxcel-dom = "0.0.10"
 glam = { features = ["bytemuck"], version = "0.22.0" }

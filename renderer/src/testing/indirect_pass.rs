@@ -1,4 +1,5 @@
 use carton::Carton;
+use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
@@ -7,6 +8,8 @@ use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
 use crate::shaders::Program;
 use crate::state::State;
+
+use super::VertexUniform;
 
 /// Renders `Shape`s using a indirect buffer.
 #[derive(Debug)]
@@ -26,17 +29,22 @@ pub struct IndirectPass {
 	memory: Arc<RwLock<Memory>>,
 	program: Rc<Program>,
 	shapes: Vec<shape::Shape>,
+	uniform_bind_group: wgpu::BindGroup,
 	uniforms_page: PageUUID,
 	vertices_page: PageUUID,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
-	vertex_uniform_buffer: Node,
+	vertex_uniform_node: Node,
+	window_height: u32,
+	window_width: u32,
 }
 
 impl IndirectPass {
 	pub fn new(boss: &mut Boss, carton: &mut Carton) -> Self {
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
+
+		let context = boss.get_context().clone();
 
 		// create indirect command buffer page
 		let indirect_command_buffer = memory.new_page(
@@ -49,21 +57,46 @@ impl IndirectPass {
 			.allocate_node(8_000_000, 1, NodeKind::Buffer)
 			.unwrap();
 
-		// load the shaders from carton
+		// define shader names
 		let fragment_shader = "data/main.frag.spv".to_string();
 		let vertex_shader = "data/main.vert.spv".to_string();
 
+		// lock shader table
 		let shader_table = boss.get_shader_table();
 		let mut shader_table = shader_table.write().unwrap();
 
+		// load from carton
 		let fragment_shader = shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
 		let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
 
+		// create the program
 		let program = shader_table.create_program("main-shader", fragment_shader, vertex_shader);
+
+		let uniforms_page = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+		let page = memory.get_page_mut(uniforms_page).unwrap();
+		let vertex_uniform_buffer = page.allocate_node(
+			std::mem::size_of::<VertexUniform>() as u64, 4, NodeKind::Buffer
+		).unwrap();
+
+		// create uniform buffer bind groups
+		let uniform_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: page.get_buffer(),
+						offset: vertex_uniform_buffer.offset,
+						size: NonZeroU64::new(vertex_uniform_buffer.size),
+					}),
+				}
+			],
+			label: None,
+			layout: program.get_bind_group_layouts()[0],
+		});
 
 		IndirectPass {
 			blueprints: Vec::new(),
-			context: boss.get_context().clone(),
+			context,
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
@@ -73,10 +106,13 @@ impl IndirectPass {
 			memory: boss.get_memory().clone(),
 			program,
 			shapes: Vec::new(),
-			uniforms_page: memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST),
+			uniform_bind_group,
+			uniforms_page,
 			vertices_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
-			vertex_uniform_buffer: Node::default(),
+			vertex_uniform_node: vertex_uniform_buffer,
+			window_height: boss.get_window_size().0,
+			window_width: boss.get_window_size().1,
 		}
 	}
 
@@ -90,6 +126,27 @@ impl IndirectPass {
 	pub fn add_shape(&mut self, shape: shape::Shape) {
 		self.shapes.push(shape);
 	}
+
+	fn update_uniforms(&mut self) {
+		let aspect_ratio = self.window_width as f32 / self.window_height as f32;
+
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect_ratio, 0.1, 400.0);
+		let view = glam::Mat4::look_at_rh(
+			glam::Vec3::new(2.0, 2.0, 2.0),
+			glam::Vec3::new(0.0, 0.0, 0.0),
+			glam::Vec3::Y, // y is up
+		);
+
+		let uniform = VertexUniform {
+			perspective_matrix: *(projection).as_ref(),
+			view_matrix: *(view).as_ref(),
+		};
+
+		let memory = self.memory.read().unwrap();
+		memory.get_page(self.uniforms_page)
+			.unwrap()
+			.write_slice(&self.vertex_uniform_node, bytemuck::cast_slice(&[uniform]));
+	}
 }
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
@@ -101,8 +158,11 @@ impl Pass for IndirectPass {
 	}
 
 	fn encode(
-		&self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
+		&mut self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
 	) {
+		// update the uniforms
+		self.update_uniforms();
+
 		let mut buffer = Vec::new();
 
 		// fill the command buffer with calls
@@ -128,6 +188,7 @@ impl Pass for IndirectPass {
 			.unwrap()
 			.write_buffer(&self.indirect_command_buffer_node, &buffer);
 
+		// handle the render pass stuff
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -153,11 +214,18 @@ impl Pass for IndirectPass {
 				0, memory.get_page(self.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
+			render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
 			// draw all the objects
 			render_pass.multi_draw_indexed_indirect(
 				memory.get_page(self.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
 			);
 		}
+	}
+
+	fn resize(&mut self, width: u32, height: u32) {
+		self.window_height = height;
+		self.window_width = width;
 	}
 }
 
