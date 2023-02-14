@@ -3,7 +3,7 @@ use std::sync::{ Arc, RwLock, };
 
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
-use crate::shape;
+use crate::{ Pass, shape, };
 
 /// Renders `Shape`s using a indirect buffer.
 pub struct IndirectPass {
@@ -64,6 +64,31 @@ impl IndirectPass {
 	}
 }
 
+/// Pass implementation. Indirectly render all shapes we have ownership over.
+impl Pass for IndirectPass {
+	fn encode(&mut self, encoder: &mut wgpu::CommandEncoder, boss: &mut Boss) {
+		let mut buffer = Vec::new();
+
+		for shape in self.shapes.iter() {
+			for mesh in shape.blueprint.get_meshes().iter() {
+				buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
+					base_index: mesh.first_index,
+					base_instance: 0,
+					instance_count: 1,
+					vertex_count: mesh.vertex_count,
+					vertex_offset: mesh.vertex_offset,
+				}.as_bytes());
+			}
+		}
+
+		// immediately write to the buffer
+		self.memory.read().unwrap().get_page(self.indirect_command_buffer)
+			.unwrap()
+			.write_buffer(&self.indirect_command_buffer_node, &buffer);
+	}
+}
+
+/// The way I implement indirect rendering requires seperate pages for each vertex attribute.
 impl shape::BlueprintState for IndirectPass {
 	fn calc_first_index(&mut self, num_indices: u32) -> u32 {
 		let first_index = self.indices_written;

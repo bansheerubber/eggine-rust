@@ -23,7 +23,7 @@ pub trait BlueprintState {
 	/// Prepares memory for the next mesh.
 	fn prepare_mesh_pages(&mut self);
 
-	/// Gets the node that the blueprint will store information into.
+	/// Gets the node that the blueprint will store vertex attribute information into.
 	///
 	/// * `name`      - A descriptor for the kind of data stored in the node. Vec3 vertex information would be stored in a
 	/// separate node from Vec4 color information, with the correct node specified by `name`. The `name` does not describe
