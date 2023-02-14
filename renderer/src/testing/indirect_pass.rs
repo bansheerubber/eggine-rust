@@ -138,8 +138,7 @@ impl IndirectPass {
 		);
 
 		let uniform = VertexUniform {
-			perspective_matrix: *(projection).as_ref(),
-			view_matrix: *(view).as_ref(),
+			view_perspective_matrix: *(projection * view).as_ref(),
 		};
 
 		let memory = self.memory.read().unwrap();
