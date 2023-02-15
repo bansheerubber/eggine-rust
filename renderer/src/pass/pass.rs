@@ -15,7 +15,7 @@ pub trait Pass {
 	);
 
 	/// Callback for when the `Boss` is resized.
-	fn resize(&mut self, width: u32, height: u32);
+	fn resize(&mut self, config: &wgpu::SurfaceConfiguration);
 }
 
 impl std::fmt::Debug for dyn Pass + 'static {

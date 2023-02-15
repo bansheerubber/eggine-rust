@@ -16,6 +16,8 @@ use super::VertexUniform;
 pub struct IndirectPass {
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	context: Rc<WGPUContext>,
+	depth_texture: wgpu::Texture,
+	depth_view: wgpu::TextureView,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
 	indices_page: PageUUID,
@@ -94,9 +96,14 @@ impl IndirectPass {
 			layout: program.get_bind_group_layouts()[0],
 		});
 
+		// create the depth texture
+		let (depth_texture, depth_view) = IndirectPass::create_depth_texture(&context, boss.get_surface_config());
+
 		IndirectPass {
 			blueprints: Vec::new(),
 			context,
+			depth_texture,
+			depth_view,
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
@@ -146,12 +153,44 @@ impl IndirectPass {
 			.unwrap()
 			.write_slice(&self.vertex_uniform_node, bytemuck::cast_slice(&[uniform]));
 	}
+
+	fn create_depth_texture(
+		context: &WGPUContext, config: &wgpu::SurfaceConfiguration
+	) -> (wgpu::Texture, wgpu::TextureView) {
+		let depth_texture = context.device.create_texture(&wgpu::TextureDescriptor {
+			dimension: wgpu::TextureDimension::D2,
+			format: wgpu::TextureFormat::Depth32Float,
+			label: None,
+			mip_level_count: 1,
+			sample_count: 1,
+			size: wgpu::Extent3d {
+				depth_or_array_layers: 1,
+				height: config.height,
+				width: config.width,
+			},
+			usage: wgpu::TextureUsages::TEXTURE_BINDING
+				| wgpu::TextureUsages::COPY_DST
+				| wgpu::TextureUsages::RENDER_ATTACHMENT,
+			view_formats: &[],
+		});
+
+		let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+		(depth_texture, depth_view)
+	}
 }
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
 impl Pass for IndirectPass {
 	fn states<'a>(&'a self) -> Vec<State<'a>> {
 		vec![State {
+			depth_stencil: Some(wgpu::DepthStencilState {
+				bias: wgpu::DepthBiasState::default(),
+				depth_write_enabled: true,
+				depth_compare: wgpu::CompareFunction::Less,
+				format: wgpu::TextureFormat::Depth32Float,
+				stencil: wgpu::StencilState::default(),
+			}),
 			program: &self.program,
 		}]
 	}
@@ -198,7 +237,14 @@ impl Pass for IndirectPass {
 					resolve_target: None,
 					view: &view,
 				})],
-				depth_stencil_attachment: None,
+				depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+					depth_ops: Some(wgpu::Operations {
+						load: wgpu::LoadOp::Clear(1.0),
+						store: true,
+					}),
+					stencil_ops: None,
+					view: &self.depth_view,
+				}),
 				label: None,
 			});
 
@@ -222,9 +268,13 @@ impl Pass for IndirectPass {
 		}
 	}
 
-	fn resize(&mut self, width: u32, height: u32) {
-		self.window_height = height;
-		self.window_width = width;
+	fn resize(&mut self, config: &wgpu::SurfaceConfiguration) {
+		self.window_height = config.height;
+		self.window_width = config.width;
+
+		let (depth_texture, depth_view) = IndirectPass::create_depth_texture(&self.context, config);
+		self.depth_texture = depth_texture;
+		self.depth_view = depth_view;
 	}
 }
 

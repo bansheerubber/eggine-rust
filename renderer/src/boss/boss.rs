@@ -172,7 +172,7 @@ impl Boss {
 
 		// resize passes
 		for pass in self.passes.iter_mut() {
-			pass.resize(width, height);
+			pass.resize(&self.surface_config);
 		}
 	}
 
@@ -197,7 +197,7 @@ impl Boss {
 
 		// create the render pipeline
 		let render_pipeline = self.context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-			depth_stencil: None,
+			depth_stencil: state.depth_stencil.clone(),
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
 				module: &state.program.fragment_shader.module,
@@ -258,5 +258,10 @@ impl Boss {
 	/// Gets the `ShaderTable` owned by the boss.
 	pub fn get_shader_table(&self) -> Arc<RwLock<ShaderTable>> {
 		self.shader_table.clone()
+	}
+
+	/// Gets the `wgpu::SurfaceConfiguation` owned by the boss.
+	pub fn get_surface_config(&self) -> &wgpu::SurfaceConfiguration {
+		&self.surface_config
 	}
 }
