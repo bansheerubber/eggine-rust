@@ -29,6 +29,7 @@ pub struct IndirectPass {
 	indirect_command_buffer: PageUUID,
 	indirect_command_buffer_node: Node,
 	memory: Arc<RwLock<Memory>>,
+	normals_page: PageUUID,
 	program: Rc<Program>,
 	shapes: Vec<shape::Shape>,
 	uniform_bind_group: wgpu::BindGroup,
@@ -39,6 +40,9 @@ pub struct IndirectPass {
 	vertex_uniform_node: Node,
 	window_height: u32,
 	window_width: u32,
+
+	x_angle: f32,
+	y_angle: f32,
 
 	colors_page: PageUUID,
 }
@@ -107,23 +111,27 @@ impl IndirectPass {
 			depth_texture,
 			depth_view,
 			highest_vertex_offset: 0,
-			indices_page: memory.new_page(96_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
+			indices_page: memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
 			indices_page_written: 0,
 			indirect_command_buffer,
 			indirect_command_buffer_node,
 			memory: boss.get_memory().clone(),
+			normals_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			program,
 			shapes: Vec::new(),
 			uniform_bind_group,
 			uniforms_page,
-			vertices_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
+			vertices_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
 			vertex_uniform_node: vertex_uniform_buffer,
 			window_height: boss.get_window_size().0,
 			window_width: boss.get_window_size().1,
 
-			colors_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
+			x_angle: 0.0,
+			y_angle: 0.0,
+
+			colors_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 		}
 	}
 
@@ -141,11 +149,20 @@ impl IndirectPass {
 	fn update_uniforms(&mut self) {
 		let aspect_ratio = self.window_width as f32 / self.window_height as f32;
 
+		let position = glam::Vec3 {
+			x: 10.0 * self.x_angle.cos() * self.y_angle.sin(),
+			y: 10.0 * self.x_angle.sin() * self.y_angle.sin(),
+			z: 10.0 * self.y_angle.cos(),
+		};
+
+		self.x_angle += 0.01;
+		self.y_angle = 1.0;
+
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect_ratio, 0.1, 400.0);
 		let view = glam::Mat4::look_at_rh(
-			glam::Vec3::new(5.0, 5.0, 5.0),
+			position,
 			glam::Vec3::new(0.0, 0.0, 0.0),
-			glam::Vec3::Y, // y is up
+			glam::Vec3::Z, // z is up
 		);
 
 		let uniform = VertexUniform {
@@ -202,7 +219,7 @@ impl Pass for IndirectPass {
 				write_mask: wgpu::ColorWrites::ALL,
 			})],
 			vertex_attributes: &[
-				wgpu::VertexBufferLayout {
+				wgpu::VertexBufferLayout { // vertices
 					array_stride: 4 * 3,
 					attributes: &[wgpu::VertexAttribute {
 						format: wgpu::VertexFormat::Float32x3,
@@ -211,12 +228,21 @@ impl Pass for IndirectPass {
 					}],
 					step_mode: wgpu::VertexStepMode::Vertex,
 				},
-				wgpu::VertexBufferLayout {
+				wgpu::VertexBufferLayout { // colors
 					array_stride: 4 * 3,
 					attributes: &[wgpu::VertexAttribute {
 						format: wgpu::VertexFormat::Float32x3,
 						offset: 0,
 						shader_location: 1,
+					}],
+					step_mode: wgpu::VertexStepMode::Vertex,
+				},
+				wgpu::VertexBufferLayout { // normals
+					array_stride: 4 * 3,
+					attributes: &[wgpu::VertexAttribute {
+						format: wgpu::VertexFormat::Float32x3,
+						offset: 0,
+						shader_location: 2,
 					}],
 					step_mode: wgpu::VertexStepMode::Vertex,
 				},
@@ -292,6 +318,10 @@ impl Pass for IndirectPass {
 				1, memory.get_page(self.colors_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
+			render_pass.set_vertex_buffer(
+				2, memory.get_page(self.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+			);
+
 			render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
 			// draw all the objects
@@ -339,6 +369,7 @@ impl shape::BlueprintState for IndirectPass {
 		let page = match name {
 			shape::BlueprintDataKind::Color => self.colors_page,
 			shape::BlueprintDataKind::Index => self.indices_page,
+			shape::BlueprintDataKind::Normal => self.normals_page,
 			shape::BlueprintDataKind::Vertex => self.vertices_page,
 			_ => return Ok(None),
 		};
@@ -357,6 +388,7 @@ impl shape::BlueprintState for IndirectPass {
 				self.indices_page_written += buffer.len() as u64;
 				self.indices_page
 			},
+			shape::BlueprintDataKind::Normal => self.normals_page,
 			shape::BlueprintDataKind::Vertex => {
 				self.vertices_page_written += buffer.len() as u64;
 				self.vertices_page

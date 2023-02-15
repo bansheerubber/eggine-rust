@@ -6,6 +6,7 @@ use fbxcel_dom::v7400::data::mesh::layer::TypedLayerElementHandle;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
 use rand::Rng;
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use crate::memory_subsystem::{ Node, NodeKind, };
@@ -38,6 +39,31 @@ pub enum BlueprintDataKind {
 pub struct Blueprint {
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
+}
+
+struct SortedNormal {
+	index: u32,
+	point: Vec3,
+}
+
+impl Eq for SortedNormal {}
+
+impl PartialEq for SortedNormal {
+	fn eq(&self, other: &Self) -> bool {
+		self.index == other.index
+	}
+}
+
+impl Ord for SortedNormal {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.index.cmp(&other.index)
+	}
+}
+
+impl PartialOrd for SortedNormal {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		self.index.partial_cmp(&other.index)
+	}
 }
 
 impl Blueprint {
@@ -98,7 +124,7 @@ impl Blueprint {
 				}
 
 				// get the normals vector
-				let mut normals = Vec::new();
+				let mut normals_set = BTreeSet::new();
 				let raw_normals = layer
 					.layer_element_entries()
 					.find_map(|entry| match entry.typed_layer_element() {
@@ -112,14 +138,18 @@ impl Blueprint {
 
 				for index in triangulated_vertices.triangle_vertex_indices() {
 					let normal = raw_normals.normal(&triangulated_vertices, index).unwrap();
-					normals.push(Vec3 {
-						x: normal.x as f32,
-						y: normal.y as f32,
-						z: normal.z as f32,
+
+					normals_set.insert(SortedNormal {
+						index: triangulated_vertices.control_point_index(index).unwrap().to_u32(),
+						point: Vec3 {
+							x: normal.x as f32,
+							y: normal.y as f32,
+							z: normal.z as f32,
+						},
 					});
 				}
 
-				meshes.push((vertices, indices, normals));
+				meshes.push((vertices, indices, normals_set.iter().map(|x| x.point).collect::<Vec<Vec3>>()));
 			}
 		}
 
@@ -134,7 +164,7 @@ impl Blueprint {
 			let colors = state.get_named_node(
 				BlueprintDataKind::Color,
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				(3 * std::mem::size_of::<f32>()) as u64,
+				1,
 				NodeKind::Buffer
 			)
 				.or_else(
@@ -149,7 +179,7 @@ impl Blueprint {
 			let vertices = state.get_named_node(
 				BlueprintDataKind::Vertex,
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				(3 * std::mem::size_of::<f32>()) as u64,
+				1,
 				NodeKind::Buffer
 			)
 				.or_else(
@@ -179,7 +209,7 @@ impl Blueprint {
 			let normals = state.get_named_node(
 				BlueprintDataKind::Normal,
 				(normals.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				(3 * std::mem::size_of::<f32>()) as u64,
+				1,
 				NodeKind::Buffer
 			)
 				.or_else(
