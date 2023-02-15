@@ -13,6 +13,7 @@ pub struct State<'a> {
 	pub depth_stencil: Option<wgpu::DepthStencilState>,
 	/// Program to be used in the pipeline.
 	pub program: &'a Program,
+	pub vertex_attributes: &'a [wgpu::VertexBufferLayout<'a>],
 }
 
 impl State<'_> {
@@ -20,17 +21,18 @@ impl State<'_> {
 	pub fn key(&self) -> StateKey {
 		let mut state = DefaultHasher::new();
 		self.depth_stencil.hash(&mut state);
+		self.vertex_attributes.hash(&mut state);
 
 		StateKey {
-			depth_stencil: state.finish(),
 			program: self.program.get_name().to_string(),
+			wgpu_hash: state.finish(),
 		}
 	}
 }
 
-/// State key used for hash maps.
+/// State key used for hash maps. TODO probably just make this a u64 hash? idk
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StateKey {
-	depth_stencil: u64,
 	program: String,
+	wgpu_hash: u64,
 }

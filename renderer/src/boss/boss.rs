@@ -217,26 +217,7 @@ impl Boss {
 				unclipped_depth: false,
 			},
 			vertex: wgpu::VertexState {
-				buffers: &[
-					wgpu::VertexBufferLayout {
-						array_stride: 4 * 3,
-						attributes: &[wgpu::VertexAttribute {
-							format: wgpu::VertexFormat::Float32x3,
-							offset: 0,
-							shader_location: 0,
-						}],
-						step_mode: wgpu::VertexStepMode::Vertex,
-					},
-					wgpu::VertexBufferLayout {
-						array_stride: 4 * 3,
-						attributes: &[wgpu::VertexAttribute {
-							format: wgpu::VertexFormat::Float32x3,
-							offset: 0,
-							shader_location: 1,
-						}],
-						step_mode: wgpu::VertexStepMode::Vertex,
-					},
-				],
+				buffers: state.vertex_attributes,
 				entry_point: "main",
 				module: &state.program.vertex_shader.module,
 			},
