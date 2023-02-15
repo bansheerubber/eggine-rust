@@ -132,7 +132,7 @@ impl IndirectPass {
 
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect_ratio, 0.1, 400.0);
 		let view = glam::Mat4::look_at_rh(
-			glam::Vec3::new(2.0, 2.0, 2.0),
+			glam::Vec3::new(5.0, 5.0, 5.0),
 			glam::Vec3::new(0.0, 0.0, 0.0),
 			glam::Vec3::Y, // y is up
 		);
@@ -238,7 +238,7 @@ impl shape::BlueprintState for IndirectPass {
 
 	fn calc_vertex_offset(&mut self, highest_index: i32) -> i32 {
 		let vertex_offset = self.highest_vertex_offset;
-		self.highest_vertex_offset += highest_index as i32;
+		self.highest_vertex_offset += highest_index + 1;
 		return vertex_offset;
 	}
 

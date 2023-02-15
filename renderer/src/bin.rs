@@ -15,7 +15,15 @@ async fn main() {
 	// create test indirect pass
 	let mut test_pass = Box::new(IndirectPass::new(&mut boss, &mut carton));
 
+	// load the first test shape
 	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
+	let blueprint = test_pass.add_blueprint(blueprint);
+
+	let shape = shape::Shape::new(blueprint.clone());
+	test_pass.add_shape(shape);
+
+	// load the second test shape
+	let blueprint = shape::Blueprint::load("data/test2.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	let shape = shape::Shape::new(blueprint.clone());
