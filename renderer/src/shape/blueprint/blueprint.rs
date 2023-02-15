@@ -1,11 +1,11 @@
-use std::rc::Rc;
-
 use anyhow::Context;
 use carton::Carton;
-use glam::{ Vec3, };
+use glam::Vec3;
 use fbxcel_dom::any::AnyDocument;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
+use rand::Rng;
+use std::rc::Rc;
 
 use crate::memory_subsystem::{ Node, NodeKind, };
 use crate::shape;
@@ -25,6 +25,7 @@ pub enum BlueprintError {
 /// to store using the `BlueprintState` trait.
 #[derive(Debug)]
 pub enum BlueprintDataKind {
+	Color,
 	Esoteric(String),
 	Index,
 	Vertex,
@@ -103,6 +104,21 @@ impl Blueprint {
 
 			let vertex_count = indices.len() as u32; // amount of vertices to render
 
+			// allocate node for `Vec3` colors
+			let colors = state.get_named_node(
+				BlueprintDataKind::Color,
+				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
+				(3 * std::mem::size_of::<f32>()) as u64,
+				NodeKind::Buffer
+			)
+				.or_else(
+					|_| -> Result<Option<Node>, ()> {
+						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Color);
+						Ok(None)
+					}
+				)
+				.unwrap();
+
 			// allocate node for `Vec3` vertices
 			let vertices = state.get_named_node(
 				BlueprintDataKind::Vertex,
@@ -140,6 +156,8 @@ impl Blueprint {
 				vertices,
 				vertex_count,
 				vertex_offset: 0,
+
+				colors,
 			});
 		}
 
@@ -167,6 +185,22 @@ impl Blueprint {
 
 				state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
 			}
+
+			// generate random colors & write to buffer
+			if let Some(colors_node) = &mesh.colors {
+				let mut rng = rand::thread_rng();
+
+				let mut u8_colors: Vec<u8> = Vec::new();
+				for _ in 0..vertices.len() {
+					u8_colors.extend_from_slice(bytemuck::bytes_of(&Vec3 {
+						x: rng.gen::<f32>(),
+						y: rng.gen::<f32>(),
+						z: rng.gen::<f32>(),
+					}));
+				}
+
+				state.write_node(BlueprintDataKind::Color, &colors_node, u8_colors);
+			};
 
 			num_indices += indices.len();
 

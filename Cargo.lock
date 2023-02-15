@@ -1305,6 +1305,7 @@ dependencies = [
  "carton",
  "fbxcel-dom",
  "glam",
+ "rand",
  "streams",
  "tokio",
  "wgpu",

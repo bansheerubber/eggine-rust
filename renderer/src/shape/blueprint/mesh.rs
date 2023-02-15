@@ -13,4 +13,6 @@ pub struct Mesh {
 	pub vertex_count: u32,
 	/// Used for indirect rendering.
 	pub vertex_offset: i32,
+
+	pub colors: Option<Node>,
 }

@@ -39,6 +39,8 @@ pub struct IndirectPass {
 	vertex_uniform_node: Node,
 	window_height: u32,
 	window_width: u32,
+
+	colors_page: PageUUID,
 }
 
 impl IndirectPass {
@@ -120,6 +122,8 @@ impl IndirectPass {
 			vertex_uniform_node: vertex_uniform_buffer,
 			window_height: boss.get_window_size().0,
 			window_width: boss.get_window_size().1,
+
+			colors_page: memory.new_page(256_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 		}
 	}
 
@@ -259,6 +263,10 @@ impl Pass for IndirectPass {
 				0, memory.get_page(self.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
+			render_pass.set_vertex_buffer(
+				1, memory.get_page(self.colors_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+			);
+
 			render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
 			// draw all the objects
@@ -304,6 +312,7 @@ impl shape::BlueprintState for IndirectPass {
 		node_kind: NodeKind,
 	) -> Result<Option<Node>, PageError> {
 		let page = match name {
+			shape::BlueprintDataKind::Color => self.colors_page,
 			shape::BlueprintDataKind::Index => self.indices_page,
 			shape::BlueprintDataKind::Vertex => self.vertices_page,
 			_ => return Ok(None),
@@ -318,6 +327,7 @@ impl shape::BlueprintState for IndirectPass {
 
 	fn write_node(&mut self, name: shape::BlueprintDataKind, node: &Node, buffer: Vec<u8>) {
 		let page = match name {
+			shape::BlueprintDataKind::Color => self.colors_page,
 			shape::BlueprintDataKind::Index => {
 				self.indices_page_written += buffer.len() as u64;
 				self.indices_page
