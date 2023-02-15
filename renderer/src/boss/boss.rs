@@ -135,13 +135,20 @@ impl Boss {
 
 			// write data into buffers
 			{
+				// initialize memory command buffer
+				let mut memory_encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+					label: Some("memory encoder"),
+				});
+
 				let mut memory = self.memory.write().unwrap();
-				memory.complete_write_buffers();
+				memory.complete_write_buffers(&mut memory_encoder);
+				self.context.queue.submit(Some(memory_encoder.finish()));
+				memory.recall();
 			}
 
 			// initialize command buffer
 			let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-				label: None,
+				label: Some("draw call encoder"),
 			});
 
 			// encode passes

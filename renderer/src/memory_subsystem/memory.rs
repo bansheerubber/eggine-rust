@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::num::NonZeroU64;
 use std::rc::Rc;
 
 use crate::boss::WGPUContext;
@@ -17,6 +18,8 @@ pub struct Memory {
 	pages: HashMap<PageUUID, Page>,
 	/// Data that the memory manager will write to buffers the next renderer tick.
 	queued_writes: Vec<(Vec<u8>, PageUUID, Node)>,
+	/// The staging belt used for uploading data to the GPU.
+	staging_belt: Option<wgpu::util::StagingBelt>,
 }
 
 impl Memory {
@@ -27,6 +30,7 @@ impl Memory {
 			next_page_index: 0,
 			pages: HashMap::new(),
 			queued_writes: Vec::new(),
+			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
 		}
 	}
 
@@ -56,11 +60,33 @@ impl Memory {
 	}
 
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.
-	pub(crate) fn complete_write_buffers(&mut self) {
+	pub(crate) fn complete_write_buffers(&mut self, encoder: &mut wgpu::CommandEncoder) {
+		// steal the staging belt
+		let mut staging_belt = std::mem::take(&mut self.staging_belt);
+
 		for (data, page, node) in self.queued_writes.iter() {
-			self.get_page(*page).unwrap().write_buffer(&node, data);
+			let page = self.get_page(*page).unwrap();
+
+			let mut view = staging_belt.as_mut().unwrap().write_buffer(
+				encoder,
+				page.get_buffer(),
+				node.offset,
+				NonZeroU64::new(data.len() as u64).unwrap(),
+				&self.context.device
+			);
+
+			view.copy_from_slice(&data);
 		}
 
+		self.staging_belt = staging_belt;
+
+		self.staging_belt.as_mut().unwrap().finish();
+
 		self.queued_writes.clear();
+	}
+
+	/// Invoked by the renderer after the `complete_write_buffers` commands has been submitted into the queue.
+	pub(crate) fn recall(&mut self) {
+		self.staging_belt.as_mut().unwrap().recall();
 	}
 }
