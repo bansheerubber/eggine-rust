@@ -196,6 +196,11 @@ impl Pass for IndirectPass {
 				stencil: wgpu::StencilState::default(),
 			}),
 			program: &self.program,
+			render_targets: &[Some(wgpu::ColorTargetState {
+				blend: None,
+				format: wgpu::TextureFormat::Bgra8UnormSrgb,
+				write_mask: wgpu::ColorWrites::ALL,
+			})],
 			vertex_attributes: &[
 				wgpu::VertexBufferLayout {
 					array_stride: 4 * 3,

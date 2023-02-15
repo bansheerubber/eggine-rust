@@ -13,6 +13,7 @@ pub struct State<'a> {
 	pub depth_stencil: Option<wgpu::DepthStencilState>,
 	/// Program to be used in the pipeline.
 	pub program: &'a Program,
+	pub render_targets: &'a [Option<wgpu::ColorTargetState>],
 	pub vertex_attributes: &'a [wgpu::VertexBufferLayout<'a>],
 }
 
@@ -21,6 +22,7 @@ impl State<'_> {
 	pub fn key(&self) -> StateKey {
 		let mut state = DefaultHasher::new();
 		self.depth_stencil.hash(&mut state);
+		self.render_targets.hash(&mut state);
 		self.vertex_attributes.hash(&mut state);
 
 		StateKey {
