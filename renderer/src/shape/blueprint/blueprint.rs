@@ -164,7 +164,7 @@ impl Blueprint {
 			let colors = state.get_named_node(
 				BlueprintDataKind::Color,
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				1,
+				std::mem::size_of::<f32>() as u64,
 				NodeKind::Buffer
 			)
 				.or_else(
@@ -179,7 +179,7 @@ impl Blueprint {
 			let vertices = state.get_named_node(
 				BlueprintDataKind::Vertex,
 				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				1,
+				std::mem::size_of::<f32>() as u64,
 				NodeKind::Buffer
 			)
 				.or_else(
@@ -209,7 +209,7 @@ impl Blueprint {
 			let normals = state.get_named_node(
 				BlueprintDataKind::Normal,
 				(normals.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				1,
+				std::mem::size_of::<f32>() as u64,
 				NodeKind::Buffer
 			)
 				.or_else(
