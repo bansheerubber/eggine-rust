@@ -7,6 +7,8 @@ pub struct Mesh {
 	pub first_index: u32,
 	/// Points to the mesh's vertex indices. Indices are u16s.
 	pub indices: Option<Node>,
+	/// Points to the mesh's normal vec3 data. Normals are f32s.
+	pub normals: Option<Node>,
 	/// Points to the mesh's vertex vec3 data. Vertices are f32s.
 	pub vertices: Option<Node>,
 	/// The amount of vertices in the mesh.

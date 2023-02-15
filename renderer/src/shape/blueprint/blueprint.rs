@@ -2,6 +2,7 @@ use anyhow::Context;
 use carton::Carton;
 use glam::Vec3;
 use fbxcel_dom::any::AnyDocument;
+use fbxcel_dom::v7400::data::mesh::layer::TypedLayerElementHandle;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
 use rand::Rng;
@@ -27,6 +28,7 @@ pub enum BlueprintError {
 pub enum BlueprintDataKind {
 	Color,
 	Esoteric(String),
+	Normal,
 	Index,
 	Vertex,
 }
@@ -68,6 +70,8 @@ impl Blueprint {
 			if let TypedObjectHandle::Model(TypedModelHandle::Mesh(mesh)) = object.get_typed() {
 				let geometry = mesh.geometry().unwrap();
 
+				let layer = geometry.layers().next().unwrap();
+
 				// get the vertices from the mesh and triangulate them
 				let triangulated_vertices = geometry
 					.polygon_vertices()
@@ -93,13 +97,35 @@ impl Blueprint {
 					indices.push(vertex_index.unwrap().to_u32() as shape::IndexType);
 				}
 
-				meshes.push((vertices, indices));
+				// get the normals vector
+				let mut normals = Vec::new();
+				let raw_normals = layer
+					.layer_element_entries()
+					.find_map(|entry| match entry.typed_layer_element() {
+							Ok(TypedLayerElementHandle::Normal(handle)) => Some(handle),
+							_ => None,
+					})
+					.unwrap()
+					.normals()
+					.context(format!("Could not get normals for mesh {:?}", mesh.name()))
+					.unwrap();
+
+				for index in triangulated_vertices.triangle_vertex_indices() {
+					let normal = raw_normals.normal(&triangulated_vertices, index).unwrap();
+					normals.push(Vec3 {
+						x: normal.x as f32,
+						y: normal.y as f32,
+						z: normal.z as f32,
+					});
+				}
+
+				meshes.push((vertices, indices, normals));
 			}
 		}
 
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
-		for (vertices, indices) in meshes.iter() {
+		for (vertices, indices, normals) in meshes.iter() {
 			state.prepare_mesh_pages();
 
 			let vertex_count = indices.len() as u32; // amount of vertices to render
@@ -149,10 +175,26 @@ impl Blueprint {
 				)
 				.unwrap();
 
+			// allocate node for `Vec3` normals
+			let normals = state.get_named_node(
+				BlueprintDataKind::Normal,
+				(normals.len() * 3 * std::mem::size_of::<f32>()) as u64,
+				(3 * std::mem::size_of::<f32>()) as u64,
+				NodeKind::Buffer
+			)
+				.or_else(
+					|_| -> Result<Option<Node>, ()> {
+						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Normal);
+						Ok(None)
+					}
+				)
+				.unwrap();
+
 			// push the mesh representation
 			mesh_representations.push(Mesh {
 				first_index: 0,
 				indices,
+				normals,
 				vertices,
 				vertex_count,
 				vertex_offset: 0,
@@ -164,7 +206,7 @@ impl Blueprint {
 		// schedule buffer writes
 		let mut num_indices = 0;
 		let mut highest_index = 0;
-		for ((vertices, indices), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
+		for ((vertices, indices, normals), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
 			// serialize vertices & write to buffer
 			if let Some(vertices_node) = &mesh.vertices {
 				let mut u8_vertices: Vec<u8> = Vec::new();
@@ -184,6 +226,16 @@ impl Blueprint {
 				}
 
 				state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
+			}
+
+			// serialize normals & write to buffer
+			if let Some(normals_node) = &mesh.normals {
+				let mut u8_normals: Vec<u8> = Vec::new();
+				for normal in normals {
+					u8_normals.extend_from_slice(bytemuck::bytes_of(normal));
+				}
+
+				state.write_node(BlueprintDataKind::Normal, &normals_node, u8_normals);
 			}
 
 			// generate random colors & write to buffer
