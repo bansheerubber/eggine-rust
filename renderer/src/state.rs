@@ -13,7 +13,7 @@ pub struct State<'a> {
 	pub depth_stencil: Option<wgpu::DepthStencilState>,
 	/// Program to be used in the pipeline.
 	pub program: &'a Program,
-	pub render_targets: &'a [Option<wgpu::ColorTargetState>],
+	pub render_targets: Vec<Option<wgpu::ColorTargetState>>,
 	pub vertex_attributes: &'a [wgpu::VertexBufferLayout<'a>],
 }
 

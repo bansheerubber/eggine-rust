@@ -208,7 +208,7 @@ impl Boss {
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
 				module: &state.program.fragment_shader.module,
-				targets: state.render_targets,
+				targets: &state.render_targets,
 			}),
 			label: None,
 			layout: Some(&pipeline_layout),

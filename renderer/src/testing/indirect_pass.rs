@@ -11,13 +11,23 @@ use crate::state::State;
 
 use super::VertexUniform;
 
+#[derive(Debug)]
+struct RenderTextures {
+	depth_texture: wgpu::Texture,
+	depth_view: wgpu::TextureView,
+	diffuse_format: wgpu::TextureFormat,
+	diffuse_texture: wgpu::Texture,
+	diffuse_view: wgpu::TextureView,
+	normal_format: wgpu::TextureFormat,
+	normal_texture: wgpu::Texture,
+	normal_view: wgpu::TextureView,
+}
+
 /// Renders `Shape`s using a indirect buffer.
 #[derive(Debug)]
 pub struct IndirectPass {
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	context: Rc<WGPUContext>,
-	depth_texture: wgpu::Texture,
-	depth_view: wgpu::TextureView,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
 	indices_page: PageUUID,
@@ -31,6 +41,7 @@ pub struct IndirectPass {
 	memory: Arc<RwLock<Memory>>,
 	normals_page: PageUUID,
 	program: Rc<Program>,
+	render_textures: RenderTextures,
 	shapes: Vec<shape::Shape>,
 	uniform_bind_group: wgpu::BindGroup,
 	uniforms_page: PageUUID,
@@ -102,14 +113,11 @@ impl IndirectPass {
 			layout: program.get_bind_group_layouts()[0],
 		});
 
-		// create the depth texture
-		let (depth_texture, depth_view) = IndirectPass::create_depth_texture(&context, boss.get_surface_config());
+		let render_textures = IndirectPass::create_render_textures(&context, boss.get_surface_config());
 
 		IndirectPass {
 			blueprints: Vec::new(),
 			context,
-			depth_texture,
-			depth_view,
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
@@ -119,6 +127,7 @@ impl IndirectPass {
 			memory: boss.get_memory().clone(),
 			normals_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			program,
+			render_textures,
 			shapes: Vec::new(),
 			uniform_bind_group,
 			uniforms_page,
@@ -175,9 +184,9 @@ impl IndirectPass {
 			.write_slice(&self.vertex_uniform_node, bytemuck::cast_slice(&[uniform]));
 	}
 
-	fn create_depth_texture(
+	fn create_render_textures(
 		context: &WGPUContext, config: &wgpu::SurfaceConfiguration
-	) -> (wgpu::Texture, wgpu::TextureView) {
+	) -> RenderTextures {
 		let depth_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
 			format: wgpu::TextureFormat::Depth32Float,
@@ -195,9 +204,53 @@ impl IndirectPass {
 			view_formats: &[],
 		});
 
-		let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+		let diffuse_format = config.format;
+		let diffuse_texture = context.device.create_texture(&wgpu::TextureDescriptor {
+			dimension: wgpu::TextureDimension::D2,
+			format: diffuse_format,
+			label: None,
+			mip_level_count: 1,
+			sample_count: 1,
+			size: wgpu::Extent3d {
+				depth_or_array_layers: 1,
+				height: config.height,
+				width: config.width,
+			},
+			usage: wgpu::TextureUsages::TEXTURE_BINDING
+				| wgpu::TextureUsages::COPY_DST
+				| wgpu::TextureUsages::RENDER_ATTACHMENT,
+			view_formats: &[],
+		});
 
-		(depth_texture, depth_view)
+		let normal_format = wgpu::TextureFormat::Bgra8Unorm; // TODO better format for this?
+		let normal_texture = context.device.create_texture(&wgpu::TextureDescriptor {
+			dimension: wgpu::TextureDimension::D2,
+			format: normal_format,
+			label: None,
+			mip_level_count: 1,
+			sample_count: 1,
+			size: wgpu::Extent3d {
+				depth_or_array_layers: 1,
+				height: config.height,
+				width: config.width,
+			},
+			usage: wgpu::TextureUsages::TEXTURE_BINDING
+				| wgpu::TextureUsages::COPY_DST
+				| wgpu::TextureUsages::RENDER_ATTACHMENT,
+			view_formats: &[],
+		});
+
+		RenderTextures {
+			depth_view: depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+			diffuse_view: diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+			normal_view: normal_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+
+			depth_texture,
+			diffuse_format,
+			diffuse_texture,
+			normal_format,
+			normal_texture,
+		}
 	}
 }
 
@@ -213,11 +266,10 @@ impl Pass for IndirectPass {
 				stencil: wgpu::StencilState::default(),
 			}),
 			program: &self.program,
-			render_targets: &[Some(wgpu::ColorTargetState {
-				blend: None,
-				format: wgpu::TextureFormat::Bgra8UnormSrgb,
-				write_mask: wgpu::ColorWrites::ALL,
-			})],
+			render_targets: vec![
+				Some(self.render_textures.diffuse_format.into()),
+				Some(self.render_textures.normal_format.into()),
+			],
 			vertex_attributes: &[
 				wgpu::VertexBufferLayout { // vertices
 					array_stride: 4 * 3,
@@ -284,21 +336,31 @@ impl Pass for IndirectPass {
 		// handle the render pass stuff
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-				color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-						store: true,
-					},
-					resolve_target: None,
-					view: &view,
-				})],
+				color_attachments: &[
+					Some(wgpu::RenderPassColorAttachment {
+						ops: wgpu::Operations {
+							load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+							store: true,
+						},
+						resolve_target: None,
+						view: &view,
+					}),
+					Some(wgpu::RenderPassColorAttachment {
+						ops: wgpu::Operations {
+							load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+							store: true,
+						},
+						resolve_target: None,
+						view: &self.render_textures.normal_view,
+					})
+				],
 				depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
 					depth_ops: Some(wgpu::Operations {
 						load: wgpu::LoadOp::Clear(1.0),
 						store: true,
 					}),
 					stencil_ops: None,
-					view: &self.depth_view,
+					view: &self.render_textures.depth_view,
 				}),
 				label: None,
 			});
@@ -335,9 +397,7 @@ impl Pass for IndirectPass {
 		self.window_height = config.height;
 		self.window_width = config.width;
 
-		let (depth_texture, depth_view) = IndirectPass::create_depth_texture(&self.context, config);
-		self.depth_texture = depth_texture;
-		self.depth_view = depth_view;
+		self.render_textures = IndirectPass::create_render_textures(&self.context, config);
 	}
 }
 
