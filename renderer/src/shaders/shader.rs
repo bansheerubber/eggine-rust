@@ -80,7 +80,7 @@ impl Shader {
 						binding: uniform.binding,
 						ty: wgpu::BindingType::Buffer {
 							has_dynamic_offset: false, // TODO what should this be
-							min_binding_size: NonZeroU64::new(64), // TODO what should this be
+							min_binding_size: NonZeroU64::new(144), // TODO what should this be
 							ty: wgpu::BufferBindingType::Uniform,
 						},
 						visibility: self.stage,

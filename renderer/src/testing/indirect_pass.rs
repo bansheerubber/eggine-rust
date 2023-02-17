@@ -1,4 +1,5 @@
 use carton::Carton;
+use glam::Vec4Swizzles;
 use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
@@ -14,14 +15,13 @@ use super::VertexUniform;
 #[derive(Debug)]
 struct RenderTextures {
 	combination_uniform_bind_group: wgpu::BindGroup,
-	depth_texture: wgpu::Texture,
 	depth_view: wgpu::TextureView,
 	diffuse_format: wgpu::TextureFormat,
-	diffuse_texture: wgpu::Texture,
 	diffuse_view: wgpu::TextureView,
 	normal_format: wgpu::TextureFormat,
-	normal_texture: wgpu::Texture,
 	normal_view: wgpu::TextureView,
+	specular_format: wgpu::TextureFormat,
+	specular_view: wgpu::TextureView,
 }
 
 /// Renders `Shape`s using a indirect buffer.
@@ -99,7 +99,7 @@ impl IndirectPass {
 		// handle normals for G-buffer program
 		let uniforms_page = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
 		let page = memory.get_page_mut(uniforms_page).unwrap();
-		let vertex_uniform_buffer = page.allocate_node(
+		let vertex_uniform_node = page.allocate_node(
 			std::mem::size_of::<VertexUniform>() as u64, 4, NodeKind::Buffer
 		).unwrap();
 
@@ -110,8 +110,8 @@ impl IndirectPass {
 					binding: 0,
 					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
 						buffer: page.get_buffer(),
-						offset: vertex_uniform_buffer.offset,
-						size: NonZeroU64::new(vertex_uniform_buffer.size),
+						offset: vertex_uniform_node.offset,
+						size: NonZeroU64::new(vertex_uniform_node.size),
 					}),
 				}
 			],
@@ -161,7 +161,7 @@ impl IndirectPass {
 			uniforms_page,
 			vertices_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
-			vertex_uniform_node: vertex_uniform_buffer,
+			vertex_uniform_node,
 			window_height: boss.get_window_size().0,
 			window_width: boss.get_window_size().1,
 
@@ -186,24 +186,27 @@ impl IndirectPass {
 	fn update_uniforms(&mut self) {
 		let aspect_ratio = self.window_width as f32 / self.window_height as f32;
 
-		let position = glam::Vec3 {
-			x: 10.0 * self.x_angle.cos() * self.y_angle.sin(),
-			y: 10.0 * self.x_angle.sin() * self.y_angle.sin(),
-			z: 10.0 * self.y_angle.cos(),
-		};
+		let position = glam::Vec4::new(
+			7.0 * self.x_angle.cos() * self.y_angle.sin(),
+			7.0 * self.x_angle.sin() * self.y_angle.sin(),
+			7.0 * self.y_angle.cos(),
+			0.0,
+		);
 
 		self.x_angle += 0.01;
 		self.y_angle = 1.0;
 
-		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect_ratio, 0.1, 400.0);
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 400.0);
 		let view = glam::Mat4::look_at_rh(
-			position,
+			position.xyz(),
 			glam::Vec3::new(0.0, 0.0, 0.0),
 			glam::Vec3::Z, // z is up
 		);
 
 		let uniform = VertexUniform {
-			view_perspective_matrix: *(projection * view).as_ref(),
+			camera_position: *(position).as_ref(),
+			perspective_matrix: *(projection).as_ref(),
+			view_matrix: *(view).as_ref(),
 		};
 
 		let memory = self.memory.read().unwrap();
@@ -274,6 +277,26 @@ impl IndirectPass {
 
 		let normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+		let specular_format = config.format;
+		let specular_texture = context.device.create_texture(&wgpu::TextureDescriptor {
+			dimension: wgpu::TextureDimension::D2,
+			format: specular_format,
+			label: None,
+			mip_level_count: 1,
+			sample_count: 1,
+			size: wgpu::Extent3d {
+				depth_or_array_layers: 1,
+				height: config.height,
+				width: config.width,
+			},
+			usage: wgpu::TextureUsages::TEXTURE_BINDING
+				| wgpu::TextureUsages::COPY_DST
+				| wgpu::TextureUsages::RENDER_ATTACHMENT,
+			view_formats: &[],
+		});
+
+		let specular_view = specular_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
 		// create the samplers for the G-buffer
 		let diffuse_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
 			label: None,
@@ -287,6 +310,17 @@ impl IndirectPass {
 		});
 
 		let normal_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: None,
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		let specular_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
 			label: None,
 			address_mode_u: wgpu::AddressMode::ClampToEdge,
 			address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -316,6 +350,14 @@ impl IndirectPass {
 					binding: 3,
 					resource: wgpu::BindingResource::Sampler(&normal_sampler),
 				},
+				wgpu::BindGroupEntry {
+					binding: 4,
+					resource: wgpu::BindingResource::TextureView(&specular_view),
+				},
+				wgpu::BindGroupEntry {
+					binding: 5,
+					resource: wgpu::BindingResource::Sampler(&specular_sampler),
+				},
 			],
 			label: None,
 			layout: combination_program.get_bind_group_layouts()[0],
@@ -323,14 +365,13 @@ impl IndirectPass {
 
 		RenderTextures {
 			combination_uniform_bind_group,
-			depth_texture,
 			depth_view,
 			diffuse_format,
-			diffuse_texture,
 			diffuse_view,
 			normal_format,
-			normal_texture,
 			normal_view,
+			specular_format,
+			specular_view,
 		}
 	}
 }
@@ -351,6 +392,7 @@ impl Pass for IndirectPass {
 				render_targets: vec![
 					Some(self.render_textures.diffuse_format.into()),
 					Some(self.render_textures.normal_format.into()),
+					Some(self.render_textures.specular_format.into()),
 				],
 				vertex_attributes: &[
 					wgpu::VertexBufferLayout { // vertices
@@ -445,7 +487,15 @@ impl Pass for IndirectPass {
 						},
 						resolve_target: None,
 						view: &self.render_textures.normal_view,
-					})
+					}),
+					Some(wgpu::RenderPassColorAttachment {
+						ops: wgpu::Operations {
+							load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+							store: true,
+						},
+						resolve_target: None,
+						view: &self.render_textures.specular_view,
+					}),
 				],
 				depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
 					depth_ops: Some(wgpu::Operations {
