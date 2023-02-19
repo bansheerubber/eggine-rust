@@ -1,4 +1,5 @@
 /target
 /scratch
-/data
 *.carton
+*.fbx
+*.spv
