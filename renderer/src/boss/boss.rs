@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{ HashMap, VecDeque, };
+use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 use std::time::Instant;
@@ -10,11 +11,31 @@ use crate::state::{ State, StateKey, };
 
 use super::WGPUContext;
 
+#[derive(Debug)]
+struct DebugContext {
+	frametimes: VecDeque<u64>,
+	frametimes_count: usize,
+	last_second: u64,
+	time_accumulator: f64,
+}
+
+impl DebugContext {
+	fn default() -> Self {
+		DebugContext {
+			frametimes: VecDeque::new(),
+			frametimes_count: 60,
+			last_second: 0,
+			time_accumulator: 0.0,
+		}
+	}
+}
+
 /// The boss coordinates the different components needed for rendering (memory management, passes, etc) and glues
 /// together their independent logic to generate frames. The boss has executive control over all the components.
 #[derive(Debug)]
 pub struct Boss {
 	context: Rc<WGPUContext>,
+	debug: DebugContext,
 	last_rendered_frame: Instant,
 	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
 	memory: Arc<RwLock<Memory>>,
@@ -94,6 +115,7 @@ impl Boss {
 			shader_table: Arc::new(RwLock::new(ShaderTable::new(context.clone()))),
 
 			context,
+			debug: DebugContext::default(),
 			last_rendered_frame: Instant::now(),
 			passes: Vec::new(),
 			state_to_pipeline: HashMap::new(),
@@ -108,8 +130,38 @@ impl Boss {
 	/// #4. Submit command buffer to queue
 	/// #5. Present frame
 	pub fn tick(&mut self) {
-		// let frametime = Instant::now() - self.last_rendered_frame;
+		let frametime = Instant::now() - self.last_rendered_frame;
 		self.last_rendered_frame = Instant::now();
+		let deltatime = frametime.as_secs_f64();
+
+		self.debug.time_accumulator += deltatime;
+
+		/*if self.debug.frametimes.len() >= self.debug.frametimes_count {
+			self.debug.frametimes.pop_front();
+		}
+
+		self.debug.frametimes.push_back(frametime.as_micros() as u64);
+
+		let average = self.debug.frametimes.iter().sum::<u64>() as f32 / self.debug.frametimes.len() as f32;
+		let maximum = *self.debug.frametimes.iter().max().unwrap() as f32;
+
+		let lows_99_percent = self.debug.frametimes.iter()
+			.filter(|x| **x as f32 > maximum * 0.99)
+			.map(|x| *x)
+			.collect::<Vec<u64>>();
+
+		let lows_99_percent = lows_99_percent.iter().sum::<u64>() as f32 / lows_99_percent.len() as f32;
+
+		let lows_50_percent = self.debug.frametimes.iter()
+			.filter(|x| **x as f32 > maximum * 0.5)
+			.map(|x| *x)
+			.collect::<Vec<u64>>();
+
+		let lows_50_percent = lows_50_percent.iter().sum::<u64>() as f32 / lows_50_percent.len() as f32;
+
+		if self.debug.last_second != self.debug.time_accumulator as u64 {
+			println!("{} {} {}", average, lows_99_percent, lows_50_percent);
+		}*/
 
 		// prepare framebuffer
 		let frame = self.context.surface.get_current_texture().expect("Could not acquire next texture");
@@ -168,6 +220,8 @@ impl Boss {
 		self.passes = passes; // give ownership of passes back to boss
 
 		frame.present();
+
+		self.debug.last_second = self.debug.time_accumulator as u64;
 	}
 
 	/// Resizes the surface to the supplied width and height.
