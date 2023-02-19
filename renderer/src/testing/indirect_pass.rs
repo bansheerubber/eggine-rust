@@ -474,7 +474,7 @@ impl Pass for IndirectPass {
 				color_attachments: &[
 					Some(wgpu::RenderPassColorAttachment {
 						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+							load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
 							store: true,
 						},
 						resolve_target: None,
@@ -482,7 +482,7 @@ impl Pass for IndirectPass {
 					}),
 					Some(wgpu::RenderPassColorAttachment {
 						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+							load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
 							store: true,
 						},
 						resolve_target: None,
@@ -490,7 +490,7 @@ impl Pass for IndirectPass {
 					}),
 					Some(wgpu::RenderPassColorAttachment {
 						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+							load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
 							store: true,
 						},
 						resolve_target: None,
