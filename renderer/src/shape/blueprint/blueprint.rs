@@ -6,7 +6,8 @@ use fbxcel_dom::v7400::data::mesh::layer::TypedLayerElementHandle;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
 use rand::Rng;
-use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::rc::Rc;
 
 use crate::memory_subsystem::{ Node, NodeKind, };
@@ -41,28 +42,30 @@ pub struct Blueprint {
 	meshes: Vec<Mesh>,
 }
 
-struct SortedNormal {
-	index: u32,
-	point: Vec3,
+/// Used for constructing the indexed vertex buffers.
+#[derive(Clone, Debug)]
+struct Vertex {
+	normal: Vec3,
+	position: Vec3,
 }
 
-impl Eq for SortedNormal {}
+impl Eq for Vertex {}
 
-impl PartialEq for SortedNormal {
+impl PartialEq for Vertex {
 	fn eq(&self, other: &Self) -> bool {
-		self.index == other.index
+		self.normal == other.normal && self.position == other.position
 	}
 }
 
-impl Ord for SortedNormal {
-	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.index.cmp(&other.index)
-	}
-}
+impl Hash for Vertex {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.normal.x.to_bits().hash(state);
+		self.normal.y.to_bits().hash(state);
+		self.normal.z.to_bits().hash(state);
 
-impl PartialOrd for SortedNormal {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		self.index.partial_cmp(&other.index)
+		self.position.x.to_bits().hash(state);
+		self.position.y.to_bits().hash(state);
+		self.position.z.to_bits().hash(state);
 	}
 }
 
@@ -108,23 +111,18 @@ impl Blueprint {
 					.unwrap();
 
 				// get the raw vertex data
-				let mut vertices = Vec::new();
-				for vertex in triangulated_vertices.polygon_vertices().raw_control_points().unwrap() {
+				let mut vertices: Vec<Vec3> = Vec::new();
+				for vertex in triangulated_vertices.triangle_vertex_indices() {
+					let vertex = triangulated_vertices.control_point(vertex).unwrap();
 					vertices.push(Vec3 {
-						x: vertex.x as f32,
-						y: vertex.y as f32,
-						z: vertex.z as f32,
+							x: vertex.x as f32,
+					 		y: vertex.y as f32,
+						 	z: vertex.z as f32,
 					});
 				}
 
-				// get the index vector
-				let mut indices = Vec::new();
-				for vertex_index in triangulated_vertices.iter_control_point_indices() {
-					indices.push(vertex_index.unwrap().to_u32() as shape::IndexType);
-				}
-
 				// get the normals vector
-				let mut normals_set = BTreeSet::new();
+				let mut normals = Vec::new();
 				let raw_normals = layer
 					.layer_element_entries()
 					.find_map(|entry| match entry.typed_layer_element() {
@@ -138,18 +136,46 @@ impl Blueprint {
 
 				for index in triangulated_vertices.triangle_vertex_indices() {
 					let normal = raw_normals.normal(&triangulated_vertices, index).unwrap();
-
-					normals_set.insert(SortedNormal {
-						index: triangulated_vertices.control_point_index(index).unwrap().to_u32(),
-						point: Vec3 {
+					normals.push(
+						Vec3 {
 							x: normal.x as f32,
 							y: normal.y as f32,
 							z: normal.z as f32,
-						},
-					});
+						}
+					);
 				}
 
-				meshes.push((vertices, indices, normals_set.iter().map(|x| x.point).collect::<Vec<Vec3>>()));
+				// build the indexed buffers for positions + normals, indexed buffers are deduplicated on position/normal pairs.
+				// we need to deduplicate vertex position + normals so we can abuse the memory savings we get from using indexed
+				// draw calls. without deduplication, indexed draw calls make no sense
+				let mut lookup: HashMap<Vertex, u32> = HashMap::new();
+				let mut deduplicated_vertices: Vec<Vec3> = Vec::new();
+				let mut deduplicated_normals: Vec<Vec3> = Vec::new();
+				let mut indices: Vec<u32> = Vec::new();
+				let mut next_index = 0;
+
+				// go through vertices/normals, build a hash map that is used for deduplication
+				for (position, normal) in vertices.iter().zip(normals.iter()) {
+					let vertex = Vertex {
+						normal: normal.clone(),
+						position: position.clone(),
+					};
+
+					if lookup.contains_key(&vertex) {
+						let index = lookup.get(&vertex).unwrap();
+						indices.push(*index);
+					} else { // if we have a unique vertex, then add its position/normal to the deduplicated output
+						deduplicated_vertices.push(position.clone());
+						deduplicated_normals.push(normal.clone());
+						indices.push(next_index);
+
+						lookup.insert(vertex, next_index);
+
+						next_index += 1
+					}
+				}
+
+				meshes.push((deduplicated_vertices, indices, deduplicated_normals));
 			}
 		}
 

@@ -187,9 +187,9 @@ impl IndirectPass {
 		let aspect_ratio = self.window_width as f32 / self.window_height as f32;
 
 		let position = glam::Vec4::new(
-			7.0 * self.x_angle.cos() * self.y_angle.sin(),
-			7.0 * self.x_angle.sin() * self.y_angle.sin(),
-			7.0 * self.y_angle.cos(),
+			10.0 * self.x_angle.cos() * self.y_angle.sin(),
+			10.0 * self.x_angle.sin() * self.y_angle.sin(),
+			10.0 * self.y_angle.cos(),
 			0.0,
 		);
 
