@@ -12,7 +12,7 @@ glam = { features = ["bytemuck"], version = "0.22.0" }
 rand = "0.8.5"
 streams = { path = "../streams" }
 tokio = { features = ["full"], version = "1.22.0" }
-wgpu = { features = ["spirv"], version = "0.15.0" }
+wgpu = { features = ["spirv"], path = "../../wgpu/wgpu" }
 winit = "0.28.1"
 
 [lib]

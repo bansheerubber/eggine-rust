@@ -9,4 +9,5 @@ pub struct Uniform {
 	pub name: String,
 	/// The set of the uniform as found in the shader source.
 	pub set: u32,
+	pub storage: bool,
 }

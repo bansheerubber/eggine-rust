@@ -10,7 +10,8 @@ use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
 use crate::shaders::Program;
 use crate::state::State;
 
-use super::VertexUniform;
+use super::GlobalUniform;
+use super::uniforms::ObjectUniform;
 
 #[derive(Debug)]
 struct RenderTextures {
@@ -30,6 +31,7 @@ pub struct IndirectPass {
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	combination_program: Rc<Program>,
 	context: Rc<WGPUContext>,
+	global_uniform_node: Node,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
 	indices_page: PageUUID,
@@ -42,6 +44,8 @@ pub struct IndirectPass {
 	indirect_command_buffer_node: Node,
 	memory: Arc<RwLock<Memory>>,
 	normals_page: PageUUID,
+	object_storage_page: PageUUID,
+	object_storage_node: Node,
 	program: Rc<Program>,
 	render_textures: RenderTextures,
 	shapes: Vec<shape::Shape>,
@@ -50,7 +54,6 @@ pub struct IndirectPass {
 	vertices_page: PageUUID,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
-	vertex_uniform_node: Node,
 	window_height: u32,
 	window_width: u32,
 
@@ -58,6 +61,8 @@ pub struct IndirectPass {
 	y_angle: f32,
 
 	colors_page: PageUUID,
+
+	object_uniforms: [ObjectUniform; 50_000],
 }
 
 impl IndirectPass {
@@ -96,24 +101,42 @@ impl IndirectPass {
 			shader_table.create_program("main-shader", fragment_shader, vertex_shader)
 		};
 
-		// handle normals for G-buffer program
-		let uniforms_page = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-		let page = memory.get_page_mut(uniforms_page).unwrap();
-		let vertex_uniform_node = page.allocate_node(
-			std::mem::size_of::<VertexUniform>() as u64, 4, NodeKind::Buffer
+		// create the uniforms page
+		let uniforms_page_uuid = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+		let uniform_page = memory.get_page_mut(uniforms_page_uuid).unwrap();
+		let global_uniform_node = uniform_page.allocate_node(
+			std::mem::size_of::<GlobalUniform>() as u64, 4, NodeKind::Buffer
 		).unwrap();
 
-		// create G-buffer uniform buffer bind groups
+		// create the storage buffer for object uniforms
+		let object_storage_page_uuid = memory.new_page(
+			5_000_000,
+			wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+		);
+		let object_page = memory.get_page_mut(object_storage_page_uuid).unwrap();
+		let object_storage_node = object_page.allocate_node(
+			std::mem::size_of::<ObjectUniform>() as u64 * 50_000, 4, NodeKind::Buffer
+		).unwrap();
+
+		// create uniforms bind groups
 		let uniform_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
 			entries: &[
 				wgpu::BindGroupEntry {
 					binding: 0,
 					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: page.get_buffer(),
-						offset: vertex_uniform_node.offset,
-						size: NonZeroU64::new(vertex_uniform_node.size),
+						buffer: memory.get_page(uniforms_page_uuid).unwrap().get_buffer(),
+						offset: global_uniform_node.offset,
+						size: NonZeroU64::new(global_uniform_node.size),
 					}),
-				}
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: memory.get_page(object_storage_page_uuid).unwrap().get_buffer(),
+						offset: object_storage_node.offset,
+						size: NonZeroU64::new(object_storage_node.size),
+					}),
+				},
 			],
 			label: None,
 			layout: program.get_bind_group_layouts()[0],
@@ -146,6 +169,7 @@ impl IndirectPass {
 			blueprints: Vec::new(),
 			combination_program,
 			context,
+			global_uniform_node,
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_written: 0,
@@ -154,14 +178,15 @@ impl IndirectPass {
 			indirect_command_buffer_node,
 			memory: boss.get_memory().clone(),
 			normals_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
+			object_storage_page: object_storage_page_uuid,
+			object_storage_node,
 			program,
 			render_textures,
 			shapes: Vec::new(),
 			uniform_bind_group,
-			uniforms_page,
+			uniforms_page: uniforms_page_uuid,
 			vertices_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
-			vertex_uniform_node,
 			window_height: boss.get_window_size().0,
 			window_width: boss.get_window_size().1,
 
@@ -169,6 +194,8 @@ impl IndirectPass {
 			y_angle: 0.0,
 
 			colors_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
+
+			object_uniforms: [ObjectUniform::default(); 50_000],
 		}
 	}
 
@@ -203,7 +230,7 @@ impl IndirectPass {
 			glam::Vec3::Z, // z is up
 		);
 
-		let uniform = VertexUniform {
+		let uniform = GlobalUniform {
 			camera_position: *(position).as_ref(),
 			perspective_matrix: *(projection).as_ref(),
 			view_matrix: *(view).as_ref(),
@@ -212,7 +239,7 @@ impl IndirectPass {
 		let memory = self.memory.read().unwrap();
 		memory.get_page(self.uniforms_page)
 			.unwrap()
-			.write_slice(&self.vertex_uniform_node, bytemuck::cast_slice(&[uniform]));
+			.write_slice(&self.global_uniform_node, bytemuck::cast_slice(&[uniform]));
 	}
 
 	fn create_render_textures(
@@ -446,7 +473,7 @@ impl Pass for IndirectPass {
 		let mut buffer = Vec::new();
 
 		// fill the command buffer with calls
-		let mut draw_call_count = 0;
+		let mut draw_call_count: u32 = 0;
 		for shape in self.shapes.iter() {
 			for mesh in shape.blueprint.get_meshes().iter() {
 				buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
@@ -456,6 +483,10 @@ impl Pass for IndirectPass {
 					vertex_count: mesh.vertex_count,
 					vertex_offset: mesh.vertex_offset,
 				}.as_bytes());
+
+				self.object_uniforms[draw_call_count as usize] = ObjectUniform {
+					model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
+				};
 
 				draw_call_count += 1;
 			}
@@ -467,6 +498,11 @@ impl Pass for IndirectPass {
 		memory.get_page(self.indirect_command_buffer)
 			.unwrap()
 			.write_buffer(&self.indirect_command_buffer_node, &buffer);
+
+		// write object uniforms to storage buffer
+		memory.get_page(self.object_storage_page)
+			.unwrap()
+			.write_slice(&self.object_storage_node, bytemuck::cast_slice(&self.object_uniforms[0..draw_call_count as usize]));
 
 		// render to the G-buffer
 		{

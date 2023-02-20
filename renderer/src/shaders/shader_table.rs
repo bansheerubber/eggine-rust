@@ -158,6 +158,7 @@ impl ShaderTable {
 			kind: String::new(),
 			name: String::new(),
 			set: 0,
+			storage: false,
 		};
 
 		let mut token_state = TokenState::None;
@@ -226,7 +227,7 @@ impl ShaderTable {
 
 				if split.len() < 4 {
 					continue;
-					}
+				}
 
 				// only store into current uniform if we're dealing with one
 				if split[0] == "uniform" {
@@ -244,6 +245,25 @@ impl ShaderTable {
 						kind: String::new(),
 						name: String::new(),
 						set: 0,
+						storage: false,
+					};
+				} else if split[0] == "readonly" && split[1] == "buffer" {
+					let kind = String::from(split[2]);
+					let name = String::from(split[3].replace(";", ""));
+
+					current_uniform.kind = kind;
+					current_uniform.name = name;
+					current_uniform.storage = true;
+
+					uniforms.push(current_uniform);
+
+					// reinitialize current uniform
+					current_uniform = Uniform {
+						binding: 0,
+						kind: String::new(),
+						name: String::new(),
+						set: 0,
+						storage: false,
 					};
 				}
 

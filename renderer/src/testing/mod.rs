@@ -3,4 +3,4 @@ mod indirect_pass;
 mod uniforms;
 
 pub use indirect_pass::IndirectPass;
-pub use uniforms::VertexUniform;
+pub use uniforms::GlobalUniform;

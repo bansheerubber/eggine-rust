@@ -72,7 +72,7 @@ impl Boss {
 				&wgpu::DeviceDescriptor {
 					features: adapter.features(),
 					label: None,
-					limits: wgpu::Limits::downlevel_webgl2_defaults()
+					limits: wgpu::Limits::default()
 						.using_resolution(adapter.limits()),
 				},
 				None

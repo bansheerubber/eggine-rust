@@ -75,15 +75,30 @@ impl Shader {
 					}
 				},
 				_ => {
-					wgpu::BindGroupLayoutEntry { // a normal uniform
-						count: None,
-						binding: uniform.binding,
-						ty: wgpu::BindingType::Buffer {
-							has_dynamic_offset: false, // TODO what should this be
-							min_binding_size: NonZeroU64::new(144), // TODO what should this be
-							ty: wgpu::BufferBindingType::Uniform,
-						},
-						visibility: self.stage,
+					if uniform.storage {
+						wgpu::BindGroupLayoutEntry { // a normal uniform
+							count: None,
+							binding: uniform.binding,
+							ty: wgpu::BindingType::Buffer {
+								has_dynamic_offset: false, // TODO what should this be
+								min_binding_size: None, // TODO what should this be
+								ty: wgpu::BufferBindingType::Storage {
+									read_only: true, // TODO what should this be
+								},
+							},
+							visibility: self.stage,
+						}
+					} else {
+						wgpu::BindGroupLayoutEntry { // a normal uniform
+							count: None,
+							binding: uniform.binding,
+							ty: wgpu::BindingType::Buffer {
+								has_dynamic_offset: false, // TODO what should this be
+								min_binding_size: None, // TODO what should this be
+								ty: wgpu::BufferBindingType::Uniform,
+							},
+							visibility: self.stage,
+						}
 					}
 				}
 			};
