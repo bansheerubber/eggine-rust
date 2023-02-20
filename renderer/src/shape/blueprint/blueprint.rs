@@ -1,11 +1,10 @@
 use anyhow::Context;
 use carton::Carton;
-use glam::Vec3;
+use glam::{ Vec2, Vec3, };
 use fbxcel_dom::any::AnyDocument;
 use fbxcel_dom::v7400::data::mesh::layer::TypedLayerElementHandle;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
-use rand::Rng;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -30,8 +29,9 @@ pub enum BlueprintError {
 pub enum BlueprintDataKind {
 	Color,
 	Esoteric(String),
-	Normal,
 	Index,
+	Normal,
+	UV,
 	Vertex,
 }
 
@@ -47,13 +47,14 @@ pub struct Blueprint {
 struct Vertex {
 	normal: Vec3,
 	position: Vec3,
+	uv: Vec2,
 }
 
 impl Eq for Vertex {}
 
 impl PartialEq for Vertex {
 	fn eq(&self, other: &Self) -> bool {
-		self.normal == other.normal && self.position == other.position
+		self.normal == other.normal && self.position == other.position && self.uv == other.uv
 	}
 }
 
@@ -66,6 +67,9 @@ impl Hash for Vertex {
 		self.position.x.to_bits().hash(state);
 		self.position.y.to_bits().hash(state);
 		self.position.z.to_bits().hash(state);
+
+		self.uv.x.to_bits().hash(state);
+		self.uv.y.to_bits().hash(state);
 	}
 }
 
@@ -145,20 +149,49 @@ impl Blueprint {
 					);
 				}
 
+				// get the UVs vector
+				let mut uvs = Vec::new();
+				let raw_uvs = layer
+					.layer_element_entries()
+					.find_map(|entry| match entry.typed_layer_element() {
+							Ok(TypedLayerElementHandle::Uv(handle)) => Some(handle),
+							_ => None,
+					})
+					.unwrap()
+					.uv()
+					.context(format!("Could not get normals for mesh {:?}", mesh.name()))
+					.unwrap();
+
+				for index in triangulated_vertices.triangle_vertex_indices() {
+					let uv = raw_uvs.uv(&triangulated_vertices, index).unwrap();
+					uvs.push(
+						Vec2 {
+							x: uv.x as f32,
+							y: uv.y as f32,
+						}
+					);
+				}
+
 				// build the indexed buffers for positions + normals, indexed buffers are deduplicated on position/normal pairs.
 				// we need to deduplicate vertex position + normals so we can abuse the memory savings we get from using indexed
 				// draw calls. without deduplication, indexed draw calls make no sense
 				let mut lookup: HashMap<Vertex, u32> = HashMap::new();
 				let mut deduplicated_vertices: Vec<Vec3> = Vec::new();
 				let mut deduplicated_normals: Vec<Vec3> = Vec::new();
+				let mut deduplicated_uvs: Vec<Vec2> = Vec::new();
 				let mut indices: Vec<u32> = Vec::new();
 				let mut next_index = 0;
 
 				// go through vertices/normals, build a hash map that is used for deduplication
-				for (position, normal) in vertices.iter().zip(normals.iter()) {
+				for i in 0..vertices.len(){
+					let position = vertices[i];
+					let normal = normals[i];
+					let uv = uvs[i];
+
 					let vertex = Vertex {
 						normal: normal.clone(),
 						position: position.clone(),
+						uv: uv.clone(),
 					};
 
 					if lookup.contains_key(&vertex) {
@@ -167,6 +200,8 @@ impl Blueprint {
 					} else { // if we have a unique vertex, then add its position/normal to the deduplicated output
 						deduplicated_vertices.push(position.clone());
 						deduplicated_normals.push(normal.clone());
+						deduplicated_uvs.push(uv.clone());
+
 						indices.push(next_index);
 
 						lookup.insert(vertex, next_index);
@@ -175,31 +210,16 @@ impl Blueprint {
 					}
 				}
 
-				meshes.push((deduplicated_vertices, indices, deduplicated_normals));
+				meshes.push((deduplicated_vertices, deduplicated_normals, deduplicated_uvs, indices));
 			}
 		}
 
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
-		for (vertices, indices, normals) in meshes.iter() {
+		for (vertices, uvs, normals, indices) in meshes.iter() {
 			state.prepare_mesh_pages();
 
 			let vertex_count = indices.len() as u32; // amount of vertices to render
-
-			// allocate node for `Vec3` colors
-			let colors = state.get_named_node(
-				BlueprintDataKind::Color,
-				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				std::mem::size_of::<f32>() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Color);
-						Ok(None)
-					}
-				)
-				.unwrap();
 
 			// allocate node for `Vec3` vertices
 			let vertices = state.get_named_node(
@@ -211,21 +231,6 @@ impl Blueprint {
 				.or_else(
 					|_| -> Result<Option<Node>, ()> {
 						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Vertex);
-						Ok(None)
-					}
-				)
-				.unwrap();
-
-			// allocate node for `u32` Indices
-			let indices = state.get_named_node(
-				BlueprintDataKind::Index,
-				(indices.len() * std::mem::size_of::<shape::IndexType>()) as u64,
-				std::mem::size_of::<shape::IndexType>() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Index);
 						Ok(None)
 					}
 				)
@@ -246,23 +251,52 @@ impl Blueprint {
 				)
 				.unwrap();
 
+			// allocate node for `Vec2` uvs
+			let uvs = state.get_named_node(
+				BlueprintDataKind::UV,
+				(uvs.len() * 2 * std::mem::size_of::<f32>()) as u64,
+				std::mem::size_of::<f32>() as u64,
+				NodeKind::Buffer
+			)
+				.or_else(
+					|_| -> Result<Option<Node>, ()> {
+						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::UV);
+						Ok(None)
+					}
+				)
+				.unwrap();
+
+			// allocate node for `u32` Indices
+			let indices = state.get_named_node(
+				BlueprintDataKind::Index,
+				(indices.len() * std::mem::size_of::<shape::IndexType>()) as u64,
+				std::mem::size_of::<shape::IndexType>() as u64,
+				NodeKind::Buffer
+			)
+				.or_else(
+					|_| -> Result<Option<Node>, ()> {
+						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Index);
+						Ok(None)
+					}
+				)
+				.unwrap();
+
 			// push the mesh representation
 			mesh_representations.push(Mesh {
 				first_index: 0,
 				indices,
 				normals,
+				uvs,
 				vertices,
 				vertex_count,
 				vertex_offset: 0,
-
-				colors,
 			});
 		}
 
 		// schedule buffer writes
 		let mut num_indices = 0;
 		let mut highest_index = 0;
-		for ((vertices, indices, normals), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
+		for ((vertices, normals, uvs, indices), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
 			// serialize vertices & write to buffer
 			if let Some(vertices_node) = &mesh.vertices {
 				let mut u8_vertices: Vec<u8> = Vec::new();
@@ -271,17 +305,6 @@ impl Blueprint {
 				}
 
 				state.write_node(BlueprintDataKind::Vertex, &vertices_node, u8_vertices);
-			}
-
-			// serialize indices & write to buffer
-			if let Some(indices_node) = &mesh.indices {
-				let mut u8_indices: Vec<u8> = Vec::new();
-				for index in indices {
-					highest_index = std::cmp::max(highest_index, *index);
-					u8_indices.extend_from_slice(bytemuck::bytes_of(index));
-				}
-
-				state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
 			}
 
 			// serialize normals & write to buffer
@@ -294,21 +317,26 @@ impl Blueprint {
 				state.write_node(BlueprintDataKind::Normal, &normals_node, u8_normals);
 			}
 
-			// generate random colors & write to buffer
-			if let Some(colors_node) = &mesh.colors {
-				let mut rng = rand::thread_rng();
-
-				let mut u8_colors: Vec<u8> = Vec::new();
-				for _ in 0..vertices.len() {
-					u8_colors.extend_from_slice(bytemuck::bytes_of(&Vec3 {
-						x: rng.gen::<f32>(),
-						y: rng.gen::<f32>(),
-						z: rng.gen::<f32>(),
-					}));
+			// serialize uvs & write to buffer
+			if let Some(uvs_node) = &mesh.uvs {
+				let mut u8_uvs: Vec<u8> = Vec::new();
+				for uv in uvs {
+					u8_uvs.extend_from_slice(bytemuck::bytes_of(uv));
 				}
 
-				state.write_node(BlueprintDataKind::Color, &colors_node, u8_colors);
-			};
+				state.write_node(BlueprintDataKind::UV, &uvs_node, u8_uvs);
+			}
+
+			// serialize indices & write to buffer
+			if let Some(indices_node) = &mesh.indices {
+				let mut u8_indices: Vec<u8> = Vec::new();
+				for index in indices {
+					highest_index = std::cmp::max(highest_index, *index);
+					u8_indices.extend_from_slice(bytemuck::bytes_of(index));
+				}
+
+				state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
+			}
 
 			num_indices += indices.len();
 

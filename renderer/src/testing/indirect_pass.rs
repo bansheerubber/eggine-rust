@@ -51,6 +51,7 @@ pub struct IndirectPass {
 	shapes: Vec<shape::Shape>,
 	uniform_bind_group: wgpu::BindGroup,
 	uniforms_page: PageUUID,
+	uvs_page: PageUUID,
 	vertices_page: PageUUID,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
@@ -59,8 +60,6 @@ pub struct IndirectPass {
 
 	x_angle: f32,
 	y_angle: f32,
-
-	colors_page: PageUUID,
 
 	object_uniforms: [ObjectUniform; 50_000],
 }
@@ -185,6 +184,7 @@ impl IndirectPass {
 			shapes: Vec::new(),
 			uniform_bind_group,
 			uniforms_page: uniforms_page_uuid,
+			uvs_page: memory.new_page(22_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
 			window_height: boss.get_window_size().0,
@@ -192,8 +192,6 @@ impl IndirectPass {
 
 			x_angle: 0.0,
 			y_angle: 0.0,
-
-			colors_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 
 			object_uniforms: [ObjectUniform::default(); 50_000],
 		}
@@ -431,7 +429,7 @@ impl Pass for IndirectPass {
 						}],
 						step_mode: wgpu::VertexStepMode::Vertex,
 					},
-					wgpu::VertexBufferLayout { // colors
+					wgpu::VertexBufferLayout { // normals
 						array_stride: 4 * 3,
 						attributes: &[wgpu::VertexAttribute {
 							format: wgpu::VertexFormat::Float32x3,
@@ -440,10 +438,10 @@ impl Pass for IndirectPass {
 						}],
 						step_mode: wgpu::VertexStepMode::Vertex,
 					},
-					wgpu::VertexBufferLayout { // normals
-						array_stride: 4 * 3,
+					wgpu::VertexBufferLayout { // uvs
+						array_stride: 4 * 2,
 						attributes: &[wgpu::VertexAttribute {
-							format: wgpu::VertexFormat::Float32x3,
+							format: wgpu::VertexFormat::Float32x2,
 							offset: 0,
 							shader_location: 2,
 						}],
@@ -556,11 +554,11 @@ impl Pass for IndirectPass {
 			);
 
 			render_pass.set_vertex_buffer(
-				1, memory.get_page(self.colors_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				1, memory.get_page(self.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
 			render_pass.set_vertex_buffer(
-				2, memory.get_page(self.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				2, memory.get_page(self.uvs_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
 			// bind uniforms
@@ -634,9 +632,9 @@ impl shape::BlueprintState for IndirectPass {
 		node_kind: NodeKind,
 	) -> Result<Option<Node>, PageError> {
 		let page = match name {
-			shape::BlueprintDataKind::Color => self.colors_page,
 			shape::BlueprintDataKind::Index => self.indices_page,
 			shape::BlueprintDataKind::Normal => self.normals_page,
+			shape::BlueprintDataKind::UV => self.uvs_page,
 			shape::BlueprintDataKind::Vertex => self.vertices_page,
 			_ => return Ok(None),
 		};
@@ -650,12 +648,12 @@ impl shape::BlueprintState for IndirectPass {
 
 	fn write_node(&mut self, name: shape::BlueprintDataKind, node: &Node, buffer: Vec<u8>) {
 		let page = match name {
-			shape::BlueprintDataKind::Color => self.colors_page,
 			shape::BlueprintDataKind::Index => {
 				self.indices_page_written += buffer.len() as u64;
 				self.indices_page
 			},
 			shape::BlueprintDataKind::Normal => self.normals_page,
+			shape::BlueprintDataKind::UV => self.uvs_page,
 			shape::BlueprintDataKind::Vertex => {
 				self.vertices_page_written += buffer.len() as u64;
 				self.vertices_page
