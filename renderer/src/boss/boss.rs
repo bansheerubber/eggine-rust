@@ -273,8 +273,8 @@ impl Boss {
 				cull_mode: None,
 				front_face: wgpu::FrontFace::Ccw,
 				polygon_mode: wgpu::PolygonMode::Fill,
-				strip_index_format: Some(wgpu::IndexFormat::Uint32),
-				topology: wgpu::PrimitiveTopology::TriangleStrip,
+				strip_index_format: None,
+				topology: wgpu::PrimitiveTopology::TriangleList,
 				unclipped_depth: false,
 			},
 			vertex: wgpu::VertexState {
