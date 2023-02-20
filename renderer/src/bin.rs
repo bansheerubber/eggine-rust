@@ -26,8 +26,10 @@ async fn main() {
 	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
-	let mut shape = shape::Shape::new(blueprint.clone());
-	test_pass.add_shape(shape);
+	for _ in 0..10 {
+		let shape = shape::Shape::new(blueprint.clone());
+		test_pass.add_shape(shape);
+	}
 
 	// set the boss's passes
 	boss.set_passes(vec![test_pass]);

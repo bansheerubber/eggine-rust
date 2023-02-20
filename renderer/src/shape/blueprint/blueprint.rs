@@ -85,6 +85,7 @@ impl Blueprint {
 		};
 
 		// use fbx library to parse the fbx
+		// TODO this parser is really slow
 		let document = match AnyDocument::from_seekable_reader(fbx_stream) {
 			Err(error) => return Err(BlueprintError::FBXParsingError(error)),
 			Ok(document) => document,
