@@ -284,7 +284,7 @@ impl IndirectPass {
 
 		let diffuse_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-		let normal_format = wgpu::TextureFormat::Bgra8Unorm; // TODO better format for this?
+		let normal_format = wgpu::TextureFormat::Rgb10a2Unorm; // TODO better format for this?
 		let normal_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
 			format: normal_format,
