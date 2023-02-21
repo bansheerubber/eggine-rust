@@ -71,7 +71,7 @@ impl Program {
 		for i in 0..highest_index {
 			let mut entries: Vec<wgpu::BindGroupLayoutEntry> = Vec::new();
 			for map in layout_entry_sets.iter() {
-				if highest_index > map.len() {
+				if i >= map.len() {
 					continue;
 				}
 
