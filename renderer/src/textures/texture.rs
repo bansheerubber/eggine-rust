@@ -32,27 +32,23 @@ impl Texture {
 		};
 
 		let mut data = Vec::new();
-		for i in 0..raw_data.len() / divisor {
-			let r = raw_data[i * divisor];
-			let g = raw_data[i * divisor + 1];
-			let b = raw_data[i * divisor + 2];
-			let a = if header.channels == qoi::Channels::Rgb {
-				255
-			} else {
-				raw_data[i * divisor + 3]
-			};
+		for y in (0..header.height).rev() { // reverse the image on the y-axis
+			for x in 0..header.width {
+				let index = (header.height * y + x) as usize;
 
-			data.push(r);
-			data.push(g);
-			data.push(b);
-			data.push(a);
+				let r = raw_data[index * divisor];
+				let g = raw_data[index * divisor + 1];
+				let b = raw_data[index * divisor + 2];
+				let a = if header.channels == qoi::Channels::Rgb {
+					255
+				} else {
+					raw_data[index * divisor + 3]
+				};
 
-			// pad with zeros
-			if (data.len() / 4) % header.width as usize == 0 && i != 0 && data.len() % 256 != 0 {
-				let padding = 256 - data.len() % 256; // the amount of bytes we have to pad
-				for _ in 0..padding {
-					data.push(0);
-				}
+				data.push(r);
+				data.push(g);
+				data.push(b);
+				data.push(a);
 			}
 		}
 

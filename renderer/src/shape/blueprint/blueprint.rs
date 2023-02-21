@@ -217,7 +217,7 @@ impl Blueprint {
 
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
-		for (vertices, uvs, normals, indices) in meshes.iter() {
+		for (vertices, normals, uvs, indices) in meshes.iter() {
 			state.prepare_mesh_pages();
 
 			let vertex_count = indices.len() as u32; // amount of vertices to render

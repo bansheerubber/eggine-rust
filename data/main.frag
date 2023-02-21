@@ -27,8 +27,10 @@ void main() {
 	// calculate ambient coefficient
 	float ambientCoefficient = 0.02;
 
+	vec4 textureColor = texture(sampler2DArray(modelTexture, modelSampler), vec3(vUV, 0));
+
 	// upload to the G-buffer
-	color = vec4(1.0, 0.0, 0.0, 1.0) * diffuseCoefficient + vec4(0.2, 0.2, 0.2, 1.0) * ambientCoefficient;
+	color = textureColor * diffuseCoefficient + vec4(0.2, 0.2, 0.2, 1.0) * ambientCoefficient;
 	normal = vec4((vNormal + vec3(1.0, 1.0, 1.0)) * 0.5, 1.0);
 	specular = vec4(0.5, 0.5, 0.5, 1.0) * specularCoefficient * diffuseCoefficient;
 }

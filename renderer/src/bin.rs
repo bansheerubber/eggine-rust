@@ -28,7 +28,7 @@ async fn main() {
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	// load a test texture
-	let texture = textures::Texture::load("data/test.qoi", &mut carton, &mut test_pass).unwrap();
+	let texture = textures::Texture::load("data/gecc.qoi", &mut carton, &mut test_pass).unwrap();
 
 	for _ in 0..10 {
 		let mut shape = shape::Shape::new(blueprint.clone());
