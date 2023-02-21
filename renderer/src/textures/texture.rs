@@ -6,9 +6,16 @@ use super::{ Error, State, };
 
 #[derive(Debug)]
 pub struct Texture {
+	file_name: String,
 	height: u16,
 	layer: u32,
 	width: u16,
+}
+
+impl PartialEq for Texture {
+	fn eq(&self, other: &Self) -> bool {
+		self.file_name == other.file_name
+	}
 }
 
 impl Texture {
@@ -58,6 +65,7 @@ impl Texture {
 		state.write_texture(layer, data);
 
 		Ok(Rc::new(Texture {
+			file_name: file_name.to_string(),
 			height: header.height as u16,
 			layer,
 			width: header.width as u16,
