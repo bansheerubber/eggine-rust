@@ -38,8 +38,15 @@ pub enum BlueprintDataKind {
 /// A collection of meshes loaded from a single FBX file.
 #[derive(Debug)]
 pub struct Blueprint {
+	file_name: String,
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
+}
+
+impl Hash for Blueprint {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.file_name.hash(state);
+	}
 }
 
 /// Used for constructing the indexed vertex buffers.
@@ -346,6 +353,7 @@ impl Blueprint {
 		}
 
 		Ok(Rc::new(Blueprint {
+			file_name: file_name.to_string(),
 			meshes: mesh_representations,
 		}))
 	}

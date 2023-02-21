@@ -1,9 +1,11 @@
+mod batch_parameters;
 mod blueprint;
 mod shape;
 mod triangulator;
 
 pub type IndexType = u32;
 
+pub(crate) use batch_parameters::BatchParameters;
 pub use blueprint::Blueprint;
 pub use blueprint::BlueprintDataKind;
 pub use blueprint::BlueprintError;

@@ -1311,6 +1311,7 @@ dependencies = [
  "carton",
  "fbxcel-dom",
  "glam",
+ "lazy_static",
  "qoi",
  "rand",
  "streams",

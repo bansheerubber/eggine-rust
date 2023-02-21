@@ -6,7 +6,9 @@ use super::{ Error, State, };
 
 #[derive(Debug)]
 pub struct Texture {
+	height: u16,
 	layer: u32,
+	width: u16,
 }
 
 impl Texture {
@@ -56,7 +58,13 @@ impl Texture {
 		state.write_texture(layer, data);
 
 		Ok(Rc::new(Texture {
+			height: header.height as u16,
 			layer,
+			width: header.width as u16,
 		}))
+	}
+
+	pub fn get_size(&self) -> (u16, u16) {
+		(self.width, self.height)
 	}
 }
