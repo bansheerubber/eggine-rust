@@ -14,9 +14,10 @@ use crate::textures;
 use super::GlobalUniform;
 use super::uniforms::ObjectUniform;
 
+/// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
 #[derive(Debug)]
 struct RenderTextures {
-	combination_uniform_bind_group: wgpu::BindGroup,
+	composite_bind_group: wgpu::BindGroup,
 	depth_view: wgpu::TextureView,
 	diffuse_format: wgpu::TextureFormat,
 	diffuse_view: wgpu::TextureView,
@@ -24,46 +25,64 @@ struct RenderTextures {
 	normal_view: wgpu::TextureView,
 	specular_format: wgpu::TextureFormat,
 	specular_view: wgpu::TextureView,
+	window_height: u32,
+	window_width: u32,
 }
 
-/// Renders `Shape`s using a indirect buffer.
+/// Stores program related information used by the pass object.
+#[derive(Debug)]
+struct Programs {
+	composite_program: Rc<Program>,
+	g_buffer_program: Rc<Program>,
+	object_uniforms: [ObjectUniform; 5_000],
+	texture_bind_group: wgpu::BindGroup,
+	uniform_bind_group: wgpu::BindGroup,
+}
+
+/// Stores references to the pages allocated by the pass object.
+#[derive(Debug)]
+struct AllocatedMemory {
+	global_uniform_node: Node,
+	indices_page: PageUUID,
+	indirect_command_buffer: PageUUID,
+	indirect_command_buffer_node: Node,
+	normals_page: PageUUID,
+	object_storage_page: PageUUID,
+	object_storage_node: Node,
+	uniforms_page: PageUUID,
+	uvs_page: PageUUID,
+	vertices_page: PageUUID,
+}
+
+/// Renders `Shape`s using deferred shading w/ indirect draw calls.
 #[derive(Debug)]
 pub struct IndirectPass<'a> {
+	/// The pages and nodes allocated on the GPU.
+	allocated_memory: AllocatedMemory,
+	/// The blueprints used by the shapes rendered by this pass implementation.
 	blueprints: Vec<Rc<shape::Blueprint>>,
-	combination_program: Rc<Program>,
+	/// Stores `wgpu` created objects required for basic rendering operations.
 	context: Rc<WGPUContext>,
-	global_uniform_node: Node,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	highest_vertex_offset: i32,
-	indices_page: PageUUID,
 	/// The amount of bytes written to the indices page.
 	indices_page_written: u64,
 	/// The total number of indices written into the index buffer. Used to calculate the `first_index` for meshes in an
 	/// indirect indexed draw call.
 	indices_written: u32,
-	indirect_command_buffer: PageUUID,
-	indirect_command_buffer_node: Node,
+	/// Reference to the memory subsystem, used to allocate/write data.
 	memory: Arc<RwLock<Memory<'a>>>,
-	normals_page: PageUUID,
-	object_storage_page: PageUUID,
-	object_storage_node: Node,
-	program: Rc<Program>,
+	/// Program related information.
+	programs: Programs,
+	/// The render textures used in the initial passes in the deferred shading pipeline.
 	render_textures: RenderTextures,
+	/// The shapes rendered each tick.
 	shapes: Vec<shape::Shape>,
-	texture_bind_group: wgpu::BindGroup,
-	uniform_bind_group: wgpu::BindGroup,
-	uniforms_page: PageUUID,
-	uvs_page: PageUUID,
-	vertices_page: PageUUID,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
-	window_height: u32,
-	window_width: u32,
 
 	x_angle: f32,
 	y_angle: f32,
-
-	object_uniforms: [ObjectUniform; 50_000],
 }
 
 impl<'a> IndirectPass<'a> {
@@ -73,156 +92,173 @@ impl<'a> IndirectPass<'a> {
 
 		let context = boss.get_context().clone();
 
-		// create indirect command buffer page
-		let indirect_command_buffer = memory.new_page(
-			8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
-		);
+		// allocate memory
+		let allocated_memory = {
+			// create indirect command buffer page
+			let indirect_command_buffer = memory.new_page(
+				8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
+			);
 
-		// create node that fills entire indirect command buffer page
-		let indirect_command_buffer_node = memory.get_page_mut(indirect_command_buffer)
-			.unwrap()
-			.allocate_node(8_000_000, 1, NodeKind::Buffer)
-			.unwrap();
+			// create node that fills entire indirect command buffer page
+			let indirect_command_buffer_node = memory.get_page_mut(indirect_command_buffer)
+				.unwrap()
+				.allocate_node(8_000_000, 1, NodeKind::Buffer)
+				.unwrap();
 
-		// create the G-buffer generating program
-		let program = {
-			// define shader names
-			let fragment_shader = "data/main.frag.spv".to_string();
-			let vertex_shader = "data/main.vert.spv".to_string();
+			// create the uniforms page
+			let uniforms_page_uuid = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+			let uniform_page = memory.get_page_mut(uniforms_page_uuid).unwrap();
+			let global_uniform_node = uniform_page.allocate_node(
+				std::mem::size_of::<GlobalUniform>() as u64, 4, NodeKind::Buffer
+			).unwrap();
 
-			// lock shader table
-			let shader_table = boss.get_shader_table();
-			let mut shader_table = shader_table.write().unwrap();
+			// create the storage buffer for object uniforms
+			let object_storage_page_uuid = memory.new_page(
+				5_000_000,
+				wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+			);
+			let object_page = memory.get_page_mut(object_storage_page_uuid).unwrap();
+			let object_storage_node = object_page.allocate_node(
+				std::mem::size_of::<ObjectUniform>() as u64 * 5_000, 4, NodeKind::Buffer
+			).unwrap();
 
-			// load from carton
-			let fragment_shader = shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
-			let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
+			// create vertex attribute pages
+			let vertices_page = memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+			let normals_page = memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+			let uvs_page = memory.new_page(24_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+			let indices_page = memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
 
-			// create the program
-			shader_table.create_program("main-shader", fragment_shader, vertex_shader)
+			AllocatedMemory {
+				global_uniform_node,
+				indices_page,
+				indirect_command_buffer,
+				indirect_command_buffer_node,
+				normals_page,
+				object_storage_page: object_storage_page_uuid,
+				object_storage_node,
+				uniforms_page: uniforms_page_uuid,
+				uvs_page,
+				vertices_page,
+			}
 		};
 
-		// create the uniforms page
-		let uniforms_page_uuid = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-		let uniform_page = memory.get_page_mut(uniforms_page_uuid).unwrap();
-		let global_uniform_node = uniform_page.allocate_node(
-			std::mem::size_of::<GlobalUniform>() as u64, 4, NodeKind::Buffer
-		).unwrap();
+		// create programs/bind groups
+		let programs = {
+			// create the G-buffer generating program
+			let g_buffer_program = {
+				// define shader names
+				let fragment_shader = "data/main.frag.spv".to_string();
+				let vertex_shader = "data/main.vert.spv".to_string();
 
-		// create the storage buffer for object uniforms
-		let object_storage_page_uuid = memory.new_page(
-			5_000_000,
-			wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
-		);
-		let object_page = memory.get_page_mut(object_storage_page_uuid).unwrap();
-		let object_storage_node = object_page.allocate_node(
-			std::mem::size_of::<ObjectUniform>() as u64 * 50_000, 4, NodeKind::Buffer
-		).unwrap();
+				// lock shader table
+				let shader_table = boss.get_shader_table();
+				let mut shader_table = shader_table.write().unwrap();
 
-		// create uniforms bind groups
-		let uniform_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-			entries: &[
-				wgpu::BindGroupEntry {
-					binding: 0,
-					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: memory.get_page(uniforms_page_uuid).unwrap().get_buffer(),
-						offset: global_uniform_node.offset,
-						size: NonZeroU64::new(global_uniform_node.size),
-					}),
-				},
-				wgpu::BindGroupEntry {
-					binding: 1,
-					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-						buffer: memory.get_page(object_storage_page_uuid).unwrap().get_buffer(),
-						offset: object_storage_node.offset,
-						size: NonZeroU64::new(object_storage_node.size),
-					}),
-				},
-			],
-			label: None,
-			layout: program.get_bind_group_layouts()[0],
-		});
+				// load from carton
+				let fragment_shader = shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
+				let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
 
-		let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-			label: None,
-			address_mode_u: wgpu::AddressMode::ClampToEdge,
-			address_mode_v: wgpu::AddressMode::ClampToEdge,
-			address_mode_w: wgpu::AddressMode::ClampToEdge,
-			mag_filter: wgpu::FilterMode::Linear,
-			min_filter: wgpu::FilterMode::Nearest,
-			mipmap_filter: wgpu::FilterMode::Nearest,
-			..Default::default()
-		});
+				// create the program
+				shader_table.create_program("main-shader", fragment_shader, vertex_shader)
+			};
 
-		let texture_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-			entries: &[
-				wgpu::BindGroupEntry {
-					binding: 0,
-					resource: wgpu::BindingResource::TextureView(memory.get_texture_view()),
-				},
-				wgpu::BindGroupEntry {
-					binding: 1,
-					resource: wgpu::BindingResource::Sampler(&sampler),
-				},
-			],
-			label: None,
-			layout: program.get_bind_group_layouts()[1],
-		});
+			// create uniforms bind groups
+			let uniform_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+				entries: &[
+					wgpu::BindGroupEntry {
+						binding: 0,
+						resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+							buffer: memory.get_page(allocated_memory.uniforms_page).unwrap().get_buffer(),
+							offset: allocated_memory.global_uniform_node.offset,
+							size: NonZeroU64::new(allocated_memory.global_uniform_node.size),
+						}),
+					},
+					wgpu::BindGroupEntry {
+						binding: 1,
+						resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+							buffer: memory.get_page(allocated_memory.object_storage_page).unwrap().get_buffer(),
+							offset: allocated_memory.object_storage_node.offset,
+							size: NonZeroU64::new(allocated_memory.object_storage_node.size),
+						}),
+					},
+				],
+				label: None,
+				layout: g_buffer_program.get_bind_group_layouts()[0],
+			});
 
-		// create the G-buffer combination program
-		let combination_program = {
-			// define shader names
-			let fragment_shader = "data/combine.frag.spv".to_string();
-			let vertex_shader = "data/combine.vert.spv".to_string();
+			let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
+				label: None,
+				address_mode_u: wgpu::AddressMode::ClampToEdge,
+				address_mode_v: wgpu::AddressMode::ClampToEdge,
+				address_mode_w: wgpu::AddressMode::ClampToEdge,
+				mag_filter: wgpu::FilterMode::Linear,
+				min_filter: wgpu::FilterMode::Nearest,
+				mipmap_filter: wgpu::FilterMode::Nearest,
+				..Default::default()
+			});
 
-			// lock shader table
-			let shader_table = boss.get_shader_table();
-			let mut shader_table = shader_table.write().unwrap();
+			let texture_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+				entries: &[
+					wgpu::BindGroupEntry {
+						binding: 0,
+						resource: wgpu::BindingResource::TextureView(memory.get_texture_view()),
+					},
+					wgpu::BindGroupEntry {
+						binding: 1,
+						resource: wgpu::BindingResource::Sampler(&sampler),
+					},
+				],
+				label: None,
+				layout: g_buffer_program.get_bind_group_layouts()[1],
+			});
 
-			// load from carton
-			let fragment_shader = shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
-			let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
+			// create the G-buffer combination program
+			let composite_program = {
+				// define shader names
+				let fragment_shader = "data/combine.frag.spv".to_string();
+				let vertex_shader = "data/combine.vert.spv".to_string();
 
-			// create the program
-			shader_table.create_program("combination-shader", fragment_shader, vertex_shader)
+				// lock shader table
+				let shader_table = boss.get_shader_table();
+				let mut shader_table = shader_table.write().unwrap();
+
+				// load from carton
+				let fragment_shader = shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
+				let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
+
+				// create the program
+				shader_table.create_program("combination-shader", fragment_shader, vertex_shader)
+			};
+
+			Programs {
+				composite_program,
+				g_buffer_program,
+    		object_uniforms: [ObjectUniform::default(); 5_000],
+				texture_bind_group,
+				uniform_bind_group,
+			}
 		};
 
-		// create the G-buffer
+		// create render textures
 		let render_textures = IndirectPass::create_render_textures(
-			&context, boss.get_surface_config(), combination_program.clone()
+			&context, boss.get_surface_config(), programs.composite_program.clone()
 		);
 
 		IndirectPass {
+			allocated_memory,
 			blueprints: Vec::new(),
-			combination_program,
 			context,
-			global_uniform_node,
 			highest_vertex_offset: 0,
-			indices_page: memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
 			indices_page_written: 0,
 			indices_written: 0,
-			indirect_command_buffer,
-			indirect_command_buffer_node,
 			memory: boss.get_memory().clone(),
-			normals_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
-			object_storage_page: object_storage_page_uuid,
-			object_storage_node,
-			program,
+			programs,
 			render_textures,
 			shapes: Vec::new(),
-			texture_bind_group,
-			uniform_bind_group,
-			uniforms_page: uniforms_page_uuid,
-			uvs_page: memory.new_page(22_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
-			vertices_page: memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
 			vertices_page_written: 0,
-			window_height: boss.get_window_size().0,
-			window_width: boss.get_window_size().1,
 
 			x_angle: 0.0,
 			y_angle: 0.0,
-
-			object_uniforms: [ObjectUniform::default(); 50_000],
 		}
 	}
 
@@ -237,8 +273,9 @@ impl<'a> IndirectPass<'a> {
 		self.shapes.push(shape);
 	}
 
+	/// Prepares the uniforms for the current tick.
 	fn update_uniforms(&mut self) {
-		let aspect_ratio = self.window_width as f32 / self.window_height as f32;
+		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
 			10.0 * self.x_angle.cos() * self.y_angle.sin(),
@@ -264,14 +301,16 @@ impl<'a> IndirectPass<'a> {
 		};
 
 		let memory = self.memory.read().unwrap();
-		memory.get_page(self.uniforms_page)
+		memory.get_page(self.allocated_memory.uniforms_page)
 			.unwrap()
-			.write_slice(&self.global_uniform_node, bytemuck::cast_slice(&[uniform]));
+			.write_slice(&self.allocated_memory.global_uniform_node, bytemuck::cast_slice(&[uniform]));
 	}
 
+	/// Recreates render textures used in the G-buffer.
 	fn create_render_textures(
 		context: &WGPUContext, config: &wgpu::SurfaceConfiguration, combination_program: Rc<Program>
 	) -> RenderTextures {
+		// create the depth texture
 		let depth_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
 			format: wgpu::TextureFormat::Depth32Float,
@@ -291,6 +330,7 @@ impl<'a> IndirectPass<'a> {
 
 		let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+		// create the diffuse texture
 		let diffuse_format = config.format;
 		let diffuse_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
@@ -311,6 +351,7 @@ impl<'a> IndirectPass<'a> {
 
 		let diffuse_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+		// create the normal texture
 		let normal_format = wgpu::TextureFormat::Rgb10a2Unorm; // TODO better format for this?
 		let normal_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
@@ -331,6 +372,7 @@ impl<'a> IndirectPass<'a> {
 
 		let normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+		// create the specular texture
 		let specular_format = config.format;
 		let specular_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
@@ -386,7 +428,7 @@ impl<'a> IndirectPass<'a> {
 		});
 
 		// create G-buffer combiner uniform buffer bind groups
-		let combination_uniform_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+		let composite_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
 			entries: &[
 				wgpu::BindGroupEntry {
 					binding: 0,
@@ -418,7 +460,7 @@ impl<'a> IndirectPass<'a> {
 		});
 
 		RenderTextures {
-			combination_uniform_bind_group,
+			composite_bind_group,
 			depth_view,
 			diffuse_format,
 			diffuse_view,
@@ -426,6 +468,8 @@ impl<'a> IndirectPass<'a> {
 			normal_view,
 			specular_format,
 			specular_view,
+			window_height: config.height,
+			window_width: config.width,
 		}
 	}
 }
@@ -434,7 +478,7 @@ impl<'a> IndirectPass<'a> {
 impl Pass for IndirectPass<'_> {
 	fn states<'a>(&'a self) -> Vec<State<'a>> {
 		vec![
-			State {
+			State { // state for the G-buffer stage
 				depth_stencil: Some(wgpu::DepthStencilState {
 					bias: wgpu::DepthBiasState::default(),
 					depth_write_enabled: true,
@@ -442,7 +486,7 @@ impl Pass for IndirectPass<'_> {
 					format: wgpu::TextureFormat::Depth32Float,
 					stencil: wgpu::StencilState::default(),
 				}),
-				program: &self.program,
+				program: &self.programs.g_buffer_program,
 				render_targets: vec![
 					Some(self.render_textures.diffuse_format.into()),
 					Some(self.render_textures.normal_format.into()),
@@ -478,9 +522,9 @@ impl Pass for IndirectPass<'_> {
 					},
 				],
 			},
-			State {
+			State { // state for the composite stage
 				depth_stencil: None,
-				program: &self.combination_program,
+				program: &self.programs.composite_program,
 				render_targets: vec![Some(wgpu::ColorTargetState {
 					blend: None,
 					format: wgpu::TextureFormat::Bgra8UnormSrgb,
@@ -491,6 +535,7 @@ impl Pass for IndirectPass<'_> {
 		]
 	}
 
+	/// Encode all draw commands.
 	fn encode(
 		&mut self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
 	) {
@@ -511,7 +556,7 @@ impl Pass for IndirectPass<'_> {
 					vertex_offset: mesh.vertex_offset,
 				}.as_bytes());
 
-				self.object_uniforms[draw_call_count as usize] = ObjectUniform {
+				self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
 					model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
 				};
 
@@ -522,14 +567,17 @@ impl Pass for IndirectPass<'_> {
 		let memory = self.memory.read().unwrap();
 
 		// ensure immediate write to the buffer
-		memory.get_page(self.indirect_command_buffer)
+		memory.get_page(self.allocated_memory.indirect_command_buffer)
 			.unwrap()
-			.write_buffer(&self.indirect_command_buffer_node, &buffer);
+			.write_buffer(&self.allocated_memory.indirect_command_buffer_node, &buffer);
 
 		// write object uniforms to storage buffer
-		memory.get_page(self.object_storage_page)
+		memory.get_page(self.allocated_memory.object_storage_page)
 			.unwrap()
-			.write_slice(&self.object_storage_node, bytemuck::cast_slice(&self.object_uniforms[0..draw_call_count as usize]));
+			.write_slice(
+				&self.allocated_memory.object_storage_node,
+				bytemuck::cast_slice(&self.programs.object_uniforms[0..draw_call_count as usize])
+			);
 
 		// render to the G-buffer
 		{
@@ -573,30 +621,31 @@ impl Pass for IndirectPass<'_> {
 
 			render_pass.set_pipeline(pipelines[0]);
 
+			// set vertex attributes
 			render_pass.set_index_buffer(
-				memory.get_page(self.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
+				memory.get_page(self.allocated_memory.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
 				wgpu::IndexFormat::Uint32
 			);
 
 			render_pass.set_vertex_buffer(
-				0, memory.get_page(self.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				0, memory.get_page(self.allocated_memory.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
 			render_pass.set_vertex_buffer(
-				1, memory.get_page(self.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				1, memory.get_page(self.allocated_memory.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
 			render_pass.set_vertex_buffer(
-				2, memory.get_page(self.uvs_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				2, memory.get_page(self.allocated_memory.uvs_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 			);
 
 			// bind uniforms
-			render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-			render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
+			render_pass.set_bind_group(0, &self.programs.uniform_bind_group, &[]);
+			render_pass.set_bind_group(1, &self.programs.texture_bind_group, &[]);
 
 			// draw all the objects
 			render_pass.multi_draw_indexed_indirect(
-				memory.get_page(self.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
+				memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
 			);
 		}
 
@@ -620,18 +669,16 @@ impl Pass for IndirectPass<'_> {
 			render_pass.set_pipeline(pipelines[1]);
 
 			// bind uniforms
-			render_pass.set_bind_group(0, &self.render_textures.combination_uniform_bind_group, &[]);
+			render_pass.set_bind_group(0, &self.render_textures.composite_bind_group, &[]);
 
 			render_pass.draw(0..3, 0..1);
 		}
 	}
 
+	/// Handle a window resize.
 	fn resize(&mut self, config: &wgpu::SurfaceConfiguration) {
-		self.window_height = config.height;
-		self.window_width = config.width;
-
 		self.render_textures = IndirectPass::create_render_textures(
-			&self.context, config, self.combination_program.clone()
+			&self.context, config, self.programs.composite_program.clone()
 		);
 	}
 }
@@ -662,10 +709,10 @@ impl shape::BlueprintState for IndirectPass<'_> {
 		node_kind: NodeKind,
 	) -> Result<Option<Node>, PageError> {
 		let page = match name {
-			shape::BlueprintDataKind::Index => self.indices_page,
-			shape::BlueprintDataKind::Normal => self.normals_page,
-			shape::BlueprintDataKind::UV => self.uvs_page,
-			shape::BlueprintDataKind::Vertex => self.vertices_page,
+			shape::BlueprintDataKind::Index => self.allocated_memory.indices_page,
+			shape::BlueprintDataKind::Normal => self.allocated_memory.normals_page,
+			shape::BlueprintDataKind::UV => self.allocated_memory.uvs_page,
+			shape::BlueprintDataKind::Vertex => self.allocated_memory.vertices_page,
 			_ => return Ok(None),
 		};
 
@@ -680,13 +727,13 @@ impl shape::BlueprintState for IndirectPass<'_> {
 		let page = match name {
 			shape::BlueprintDataKind::Index => {
 				self.indices_page_written += buffer.len() as u64;
-				self.indices_page
+				self.allocated_memory.indices_page
 			},
-			shape::BlueprintDataKind::Normal => self.normals_page,
-			shape::BlueprintDataKind::UV => self.uvs_page,
+			shape::BlueprintDataKind::Normal => self.allocated_memory.normals_page,
+			shape::BlueprintDataKind::UV => self.allocated_memory.uvs_page,
 			shape::BlueprintDataKind::Vertex => {
 				self.vertices_page_written += buffer.len() as u64;
-				self.vertices_page
+				self.allocated_memory.vertices_page
 			},
 			_ => return,
 		};
