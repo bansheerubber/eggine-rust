@@ -14,21 +14,21 @@ use super::{ DebugContext, WGPUContext, };
 /// The boss coordinates the different components needed for rendering (memory management, passes, etc) and glues
 /// together their independent logic to generate frames. The boss has executive control over all the components.
 #[derive(Debug)]
-pub struct Boss {
+pub struct Boss<'a> {
 	context: Rc<WGPUContext>,
 	debug: DebugContext,
 	last_rendered_frame: Instant,
 	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
-	memory: Arc<RwLock<Memory>>,
+	memory: Arc<RwLock<Memory<'a>>>,
 	passes: Vec<Box<dyn Pass>>,
 	shader_table: Arc<RwLock<ShaderTable>>,
 	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
 	surface_config: wgpu::SurfaceConfiguration,
 }
 
-impl Boss {
+impl<'a> Boss<'a> {
 	/// Creates a new renderer. Acquires a surface using `winit` and acquires a device using `wgpu`.
-	pub async fn new(event_loop: &winit::event_loop::EventLoop<()>) -> Self {
+	pub async fn new<'q>(event_loop: &'q winit::event_loop::EventLoop<()>) -> Boss<'a> {
 		let window = winit::window::Window::new(&event_loop).unwrap();
 
 		let size = window.inner_size();
@@ -256,7 +256,7 @@ impl Boss {
 	}
 
 	/// Gets the `Memory` owned by the boss.
-	pub fn get_memory(&self) -> Arc<RwLock<Memory>> {
+	pub fn get_memory(&self) -> Arc<RwLock<Memory<'a>>> {
 		self.memory.clone()
 	}
 

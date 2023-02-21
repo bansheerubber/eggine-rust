@@ -2,7 +2,7 @@
 pub trait State {
 	fn prepare_new_texture(&mut self);
 
-	fn create_texture(&mut self, descriptor: &wgpu::TextureDescriptor) -> wgpu::Texture;
+	fn reserve_texture(&mut self) -> u32;
 
-	fn write_texture(&mut self, texture: &wgpu::Texture, descriptor: &wgpu::TextureDescriptor, data: Vec<u8>);
+	fn write_texture(&mut self, layer: u32, data: Vec<u8>);
 }

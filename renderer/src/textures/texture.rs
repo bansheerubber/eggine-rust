@@ -6,7 +6,7 @@ use super::{ Error, State, };
 
 #[derive(Debug)]
 pub struct Texture {
-	texture: wgpu::Texture,
+	layer: u32,
 }
 
 impl Texture {
@@ -24,13 +24,6 @@ impl Texture {
 
 		let raw_data = decoder.decode_to_vec().unwrap();
 		let header = decoder.header();
-
-		// translate QOI format to image format
-		let format = if header.colorspace == qoi::ColorSpace::Srgb {
-			wgpu::TextureFormat::Rgba8UnormSrgb
-		} else {
-			wgpu::TextureFormat::Rgba8Unorm
-		};
 
 		let divisor = if header.channels == qoi::Channels::Rgb {
 			3
@@ -55,7 +48,7 @@ impl Texture {
 			data.push(a);
 
 			// pad with zeros
-			if (data.len() / 4) % header.width as usize == 0 && i != 0 {
+			if (data.len() / 4) % header.width as usize == 0 && i != 0 && data.len() % 256 != 0 {
 				let padding = 256 - data.len() % 256; // the amount of bytes we have to pad
 				for _ in 0..padding {
 					data.push(0);
@@ -63,26 +56,11 @@ impl Texture {
 			}
 		}
 
-		let descriptor = wgpu::TextureDescriptor {
-			dimension: wgpu::TextureDimension::D2,
-			format,
-			label: None,
-			mip_level_count: 1,
-			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-			sample_count: 1,
-			size: wgpu::Extent3d {
-				depth_or_array_layers: 1,
-				height: header.height,
-				width: header.width,
-			},
-			view_formats: &[],
-		};
-
-		let texture = state.create_texture(&descriptor);
-		state.write_texture(&texture, &descriptor, data);
+		let layer = state.reserve_texture();
+		state.write_texture(layer, data);
 
 		Ok(Rc::new(Texture {
-			texture,
+			layer,
 		}))
 	}
 }

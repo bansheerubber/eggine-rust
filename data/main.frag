@@ -9,6 +9,9 @@ layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 normal;
 layout(location = 2) out vec4 specular;
 
+layout(set = 1, binding = 0) uniform texture2DArray modelTexture;
+layout(set = 1, binding = 1) uniform sampler modelSampler;
+
 void main() {
 	vec3 normalizedNormal = normalize(vNormal); // renormalize to hide problems w/ shader parameter interpolation
 

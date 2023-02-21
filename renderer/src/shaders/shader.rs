@@ -1,4 +1,4 @@
-use std::num::{NonZeroU64, NonZeroU32};
+use std::num::NonZeroU32;
 
 use super::Uniform;
 

@@ -28,7 +28,7 @@ struct RenderTextures {
 
 /// Renders `Shape`s using a indirect buffer.
 #[derive(Debug)]
-pub struct IndirectPass {
+pub struct IndirectPass<'a> {
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	combination_program: Rc<Program>,
 	context: Rc<WGPUContext>,
@@ -43,13 +43,14 @@ pub struct IndirectPass {
 	indices_written: u32,
 	indirect_command_buffer: PageUUID,
 	indirect_command_buffer_node: Node,
-	memory: Arc<RwLock<Memory>>,
+	memory: Arc<RwLock<Memory<'a>>>,
 	normals_page: PageUUID,
 	object_storage_page: PageUUID,
 	object_storage_node: Node,
 	program: Rc<Program>,
 	render_textures: RenderTextures,
 	shapes: Vec<shape::Shape>,
+	texture_bind_group: wgpu::BindGroup,
 	uniform_bind_group: wgpu::BindGroup,
 	uniforms_page: PageUUID,
 	uvs_page: PageUUID,
@@ -65,8 +66,8 @@ pub struct IndirectPass {
 	object_uniforms: [ObjectUniform; 50_000],
 }
 
-impl IndirectPass {
-	pub fn new(boss: &mut Boss, carton: &mut Carton) -> Self {
+impl<'a> IndirectPass<'a> {
+	pub fn new<'q>(boss: &mut Boss<'q>, carton: &mut Carton) -> IndirectPass<'q> {
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
 
@@ -142,6 +143,32 @@ impl IndirectPass {
 			layout: program.get_bind_group_layouts()[0],
 		});
 
+		let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: None,
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		let texture_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::TextureView(memory.get_texture_view()),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Sampler(&sampler),
+				},
+			],
+			label: None,
+			layout: program.get_bind_group_layouts()[1],
+		});
+
 		// create the G-buffer combination program
 		let combination_program = {
 			// define shader names
@@ -172,8 +199,8 @@ impl IndirectPass {
 			global_uniform_node,
 			highest_vertex_offset: 0,
 			indices_page: memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST),
-			indices_written: 0,
 			indices_page_written: 0,
+			indices_written: 0,
 			indirect_command_buffer,
 			indirect_command_buffer_node,
 			memory: boss.get_memory().clone(),
@@ -183,6 +210,7 @@ impl IndirectPass {
 			program,
 			render_textures,
 			shapes: Vec::new(),
+			texture_bind_group,
 			uniform_bind_group,
 			uniforms_page: uniforms_page_uuid,
 			uvs_page: memory.new_page(22_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST),
@@ -403,7 +431,7 @@ impl IndirectPass {
 }
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
-impl Pass for IndirectPass {
+impl Pass for IndirectPass<'_> {
 	fn states<'a>(&'a self) -> Vec<State<'a>> {
 		vec![
 			State {
@@ -564,6 +592,7 @@ impl Pass for IndirectPass {
 
 			// bind uniforms
 			render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+			render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
 
 			// draw all the objects
 			render_pass.multi_draw_indexed_indirect(
@@ -608,7 +637,7 @@ impl Pass for IndirectPass {
 }
 
 /// The way I implement indirect rendering requires seperate pages for each vertex attribute.
-impl shape::BlueprintState for IndirectPass {
+impl shape::BlueprintState for IndirectPass<'_> {
 	fn calc_first_index(&mut self, num_indices: u32) -> u32 {
 		let first_index = self.indices_written;
 		self.indices_written += num_indices as u32;
@@ -667,25 +696,43 @@ impl shape::BlueprintState for IndirectPass {
 	}
 }
 
-impl textures::State for IndirectPass {
+impl textures::State for IndirectPass<'_> {
 	fn prepare_new_texture(&mut self) {
 		// don't need to do anything
 	}
 
-	fn create_texture(&mut self, descriptor: &wgpu::TextureDescriptor) -> wgpu::Texture {
-		self.context.device.create_texture(&descriptor)
+	fn reserve_texture(&mut self) -> u32 {
+		let mut memory = self.memory.write().unwrap();
+		let layer = memory.next_texture_layer;
+		memory.next_texture_layer += 1;
+		return layer;
 	}
 
-	fn write_texture(&mut self, texture: &wgpu::Texture, descriptor: &wgpu::TextureDescriptor, data: Vec<u8>) {
+	fn write_texture(&mut self, layer: u32, data: Vec<u8>) {
+		let memory = self.memory.read().unwrap();
+
 		self.context.queue.write_texture(
-			texture.as_image_copy(),
+			wgpu::ImageCopyTexture {
+				aspect: wgpu::TextureAspect::All,
+				mip_level: 0,
+				origin: wgpu::Origin3d {
+					x: 0,
+					y: 0,
+					z: layer,
+				},
+				texture: memory.get_texture(),
+			},
 			&data,
 			wgpu::ImageDataLayout {
-				bytes_per_row: NonZeroU32::new((descriptor.size.width / 256 + 1) * 256),
+				bytes_per_row: NonZeroU32::new(memory.get_texture_descriptor().size.width * 4),
 				offset: 0,
-				rows_per_image: NonZeroU32::new(descriptor.size.height),
+				rows_per_image: NonZeroU32::new(memory.get_texture_descriptor().size.height),
 			},
-			descriptor.size
+			wgpu::Extent3d {
+				depth_or_array_layers: 1,
+				height: memory.get_texture_descriptor().size.height,
+				width: memory.get_texture_descriptor().size.width,
+			}
 		)
 	}
 }
