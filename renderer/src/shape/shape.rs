@@ -12,7 +12,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Shape {
-	pub blueprint: Rc<shape::Blueprint>,
+	blueprint: Rc<shape::Blueprint>,
 	id: u64,
 	pub position: Vec3,
 	texture: Option<Rc<textures::Texture>>,
@@ -49,5 +49,9 @@ impl Shape {
 
 	pub fn set_texture(&mut self, texture: Option<Rc<textures::Texture>>) {
 		self.texture = texture;
+	}
+
+	pub fn get_blueprint(&self) -> Rc<shape::Blueprint> {
+		self.blueprint.clone()
 	}
 }

@@ -1,9 +1,11 @@
 use carton::Carton;
 use glam::Vec4Swizzles;
+use std::collections::HashMap;
 use std::num::{ NonZeroU64, NonZeroU32, };
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
+use crate::shape::{ BatchParameters, BatchParametersKey, };
 use crate::{ Pass, shape, };
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
@@ -59,6 +61,8 @@ struct AllocatedMemory {
 pub struct IndirectPass<'a> {
 	/// The pages and nodes allocated on the GPU.
 	allocated_memory: AllocatedMemory,
+	/// The batches of shapes used during rendering.
+	batches: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	/// Stores `wgpu` created objects required for basic rendering operations.
@@ -76,8 +80,6 @@ pub struct IndirectPass<'a> {
 	programs: Programs,
 	/// The render textures used in the initial passes in the deferred shading pipeline.
 	render_textures: RenderTextures,
-	/// The shapes rendered each tick.
-	shapes: Vec<shape::Shape>,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
 
@@ -246,6 +248,7 @@ impl<'a> IndirectPass<'a> {
 
 		IndirectPass {
 			allocated_memory,
+			batches: HashMap::new(),
 			blueprints: Vec::new(),
 			context,
 			highest_vertex_offset: 0,
@@ -254,7 +257,6 @@ impl<'a> IndirectPass<'a> {
 			memory: boss.get_memory().clone(),
 			programs,
 			render_textures,
-			shapes: Vec::new(),
 			vertices_page_written: 0,
 
 			x_angle: 0.0,
@@ -264,13 +266,25 @@ impl<'a> IndirectPass<'a> {
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
 	pub fn add_blueprint(&mut self, blueprint: Rc<shape::Blueprint>) -> Rc<shape::Blueprint> {
+		// create new batches
+		if let Some(texture) = blueprint.get_texture() {
+			let parameters = BatchParameters::new(texture.clone());
+			let key = parameters.make_key();
+
+			self.batches.insert(key, parameters);
+		}
+
 		self.blueprints.push(blueprint);
-		return self.blueprints[self.blueprints.len() - 1].clone();
+		self.blueprints[self.blueprints.len() - 1].clone()
 	}
 
 	/// Gives `Shape` ownership over to this `Pass` object.
 	pub fn add_shape(&mut self, shape: shape::Shape) {
-		self.shapes.push(shape);
+		let batch = self.batches.get_mut(&BatchParametersKey {
+			texture: shape.get_blueprint().get_texture().as_ref().unwrap().clone(),
+		}).unwrap();
+
+		batch.add_shape(Rc::new(shape));
 	}
 
 	/// Prepares the uniforms for the current tick.
@@ -542,111 +556,121 @@ impl Pass for IndirectPass<'_> {
 		// update the uniforms
 		self.update_uniforms();
 
-		let mut buffer = Vec::new();
+		let mut g_buffer_load_op = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
+		let mut depth_buffer_load_op = wgpu::LoadOp::Clear(1.0);
 
-		// fill the command buffer with calls
-		let mut draw_call_count: u32 = 0;
-		for shape in self.shapes.iter() {
-			for mesh in shape.blueprint.get_meshes().iter() {
-				buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
-					base_index: mesh.first_index,
-					base_instance: 0,
-					instance_count: 1,
-					vertex_count: mesh.vertex_count,
-					vertex_offset: mesh.vertex_offset,
-				}.as_bytes());
+		// G-buffer render pass for every single batch
+		for batch in self.batches.values() {
+			// fill the command buffer with calls
+			let mut buffer = Vec::new();
+			let mut draw_call_count: u32 = 0;
 
-				self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
-					model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
-				};
+			for shape in batch.get_shapes() {
+				for mesh in shape.get_blueprint().get_meshes().iter() {
+					buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
+						base_index: mesh.first_index,
+						base_instance: 0,
+						instance_count: 1,
+						vertex_count: mesh.vertex_count,
+						vertex_offset: mesh.vertex_offset,
+					}.as_bytes());
 
-				draw_call_count += 1;
+					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
+						model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
+					};
+
+					draw_call_count += 1;
+				}
 			}
-		}
 
-		let memory = self.memory.read().unwrap();
+			let memory = self.memory.read().unwrap();
 
-		// ensure immediate write to the buffer
-		memory.get_page(self.allocated_memory.indirect_command_buffer)
-			.unwrap()
-			.write_buffer(&self.allocated_memory.indirect_command_buffer_node, &buffer);
+			// ensure immediate write to the buffer
+			memory.get_page(self.allocated_memory.indirect_command_buffer)
+				.unwrap()
+				.write_buffer(&self.allocated_memory.indirect_command_buffer_node, &buffer);
 
-		// write object uniforms to storage buffer
-		memory.get_page(self.allocated_memory.object_storage_page)
-			.unwrap()
-			.write_slice(
-				&self.allocated_memory.object_storage_node,
-				bytemuck::cast_slice(&self.programs.object_uniforms[0..draw_call_count as usize])
-			);
+			// write object uniforms to storage buffer
+			memory.get_page(self.allocated_memory.object_storage_page)
+				.unwrap()
+				.write_slice(
+					&self.allocated_memory.object_storage_node,
+					bytemuck::cast_slice(&self.programs.object_uniforms[0..draw_call_count as usize])
+				);
 
-		// render to the G-buffer
-		{
-			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-				color_attachments: &[
-					Some(wgpu::RenderPassColorAttachment {
-						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+			// do the render pass
+			{
+				let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+					color_attachments: &[
+						Some(wgpu::RenderPassColorAttachment {
+							ops: wgpu::Operations {
+								load: g_buffer_load_op,
+								store: true,
+							},
+							resolve_target: None,
+							view: &self.render_textures.diffuse_view,
+						}),
+						Some(wgpu::RenderPassColorAttachment {
+							ops: wgpu::Operations {
+								load: g_buffer_load_op,
+								store: true,
+							},
+							resolve_target: None,
+							view: &self.render_textures.normal_view,
+						}),
+						Some(wgpu::RenderPassColorAttachment {
+							ops: wgpu::Operations {
+								load: g_buffer_load_op,
+								store: true,
+							},
+							resolve_target: None,
+							view: &self.render_textures.specular_view,
+						}),
+					],
+					depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+						depth_ops: Some(wgpu::Operations {
+							load: depth_buffer_load_op,
 							store: true,
-						},
-						resolve_target: None,
-						view: &self.render_textures.diffuse_view,
+						}),
+						stencil_ops: None,
+						view: &self.render_textures.depth_view,
 					}),
-					Some(wgpu::RenderPassColorAttachment {
-						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-							store: true,
-						},
-						resolve_target: None,
-						view: &self.render_textures.normal_view,
-					}),
-					Some(wgpu::RenderPassColorAttachment {
-						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-							store: true,
-						},
-						resolve_target: None,
-						view: &self.render_textures.specular_view,
-					}),
-				],
-				depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-					depth_ops: Some(wgpu::Operations {
-						load: wgpu::LoadOp::Clear(1.0),
-						store: true,
-					}),
-					stencil_ops: None,
-					view: &self.render_textures.depth_view,
-				}),
-				label: None,
-			});
+					label: None,
+				});
 
-			render_pass.set_pipeline(pipelines[0]);
+				render_pass.set_pipeline(pipelines[0]);
 
-			// set vertex attributes
-			render_pass.set_index_buffer(
-				memory.get_page(self.allocated_memory.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
-				wgpu::IndexFormat::Uint32
-			);
+				// set vertex attributes
+				render_pass.set_index_buffer(
+					memory.get_page(self.allocated_memory.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
+					wgpu::IndexFormat::Uint32
+				);
 
-			render_pass.set_vertex_buffer(
-				0, memory.get_page(self.allocated_memory.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
-			);
+				render_pass.set_vertex_buffer(
+					0, memory.get_page(self.allocated_memory.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
 
-			render_pass.set_vertex_buffer(
-				1, memory.get_page(self.allocated_memory.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
-			);
+				render_pass.set_vertex_buffer(
+					1, memory.get_page(self.allocated_memory.normals_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
 
-			render_pass.set_vertex_buffer(
-				2, memory.get_page(self.allocated_memory.uvs_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
-			);
+				render_pass.set_vertex_buffer(
+					2, memory.get_page(self.allocated_memory.uvs_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
 
-			// bind uniforms
-			render_pass.set_bind_group(0, &self.programs.uniform_bind_group, &[]);
-			render_pass.set_bind_group(1, &self.programs.texture_bind_group, &[]);
+				// bind uniforms
+				render_pass.set_bind_group(0, &self.programs.uniform_bind_group, &[]);
+				render_pass.set_bind_group(1, &self.programs.texture_bind_group, &[]);
 
-			// draw all the objects
-			render_pass.multi_draw_indexed_indirect(
-				memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
-			);
+				// draw all the objects
+				render_pass.multi_draw_indexed_indirect(
+					memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
+				);
+			}
+
+			// set clear ops
+			g_buffer_load_op = wgpu::LoadOp::Load;
+			depth_buffer_load_op = wgpu::LoadOp::Load;
 		}
 
 		// combine the textures in the G-buffer

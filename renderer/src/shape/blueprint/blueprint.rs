@@ -10,7 +10,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 use crate::memory_subsystem::{ Node, NodeKind, };
-use crate::shape;
+use crate::{ shape, textures, };
 
 use super::{ BlueprintState, Mesh, };
 
@@ -38,9 +38,11 @@ pub enum BlueprintDataKind {
 /// A collection of meshes loaded from a single FBX file.
 #[derive(Debug)]
 pub struct Blueprint {
+	/// The FBX we loaded the blueprint from.
 	file_name: String,
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
+	texture: Option<Rc<textures::Texture>>,
 }
 
 impl Hash for Blueprint {
@@ -355,10 +357,15 @@ impl Blueprint {
 		Ok(Rc::new(Blueprint {
 			file_name: file_name.to_string(),
 			meshes: mesh_representations,
+			texture: None,
 		}))
 	}
 
 	pub fn get_meshes(&self) -> &Vec<Mesh> {
 		&self.meshes
+	}
+
+	pub fn get_texture(&self) -> &Option<Rc<textures::Texture>> {
+		&self.texture
 	}
 }

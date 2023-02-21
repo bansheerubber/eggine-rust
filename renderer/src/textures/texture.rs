@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::rc::Rc;
 
 use carton::Carton;
@@ -10,6 +11,12 @@ pub struct Texture {
 	height: u16,
 	layer: u32,
 	width: u16,
+}
+
+impl Hash for Texture {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.file_name.hash(state);
+	}
 }
 
 impl PartialEq for Texture {

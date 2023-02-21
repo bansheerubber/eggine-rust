@@ -6,6 +6,7 @@ mod triangulator;
 pub type IndexType = u32;
 
 pub(crate) use batch_parameters::BatchParameters;
+pub(crate) use batch_parameters::BatchParametersKey;
 pub use blueprint::Blueprint;
 pub use blueprint::BlueprintDataKind;
 pub use blueprint::BlueprintError;
