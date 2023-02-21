@@ -5,6 +5,7 @@ pub mod shaders;
 pub mod shape;
 pub mod state;
 pub mod testing;
+pub mod textures;
 
 pub use boss::Boss;
 pub use pass::Pass;

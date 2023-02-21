@@ -1,6 +1,6 @@
 use carton::Carton;
 use glam::Vec4Swizzles;
-use std::num::NonZeroU64;
+use std::num::{ NonZeroU64, NonZeroU32, };
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
@@ -9,6 +9,7 @@ use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
 use crate::shaders::Program;
 use crate::state::State;
+use crate::textures;
 
 use super::GlobalUniform;
 use super::uniforms::ObjectUniform;
@@ -663,5 +664,28 @@ impl shape::BlueprintState for IndirectPass {
 
 		let mut memory = self.memory.write().unwrap();
 		memory.write_buffer(page, node, buffer);
+	}
+}
+
+impl textures::State for IndirectPass {
+	fn prepare_new_texture(&mut self) {
+		// don't need to do anything
+	}
+
+	fn create_texture(&mut self, descriptor: &wgpu::TextureDescriptor) -> wgpu::Texture {
+		self.context.device.create_texture(&descriptor)
+	}
+
+	fn write_texture(&mut self, texture: &wgpu::Texture, descriptor: &wgpu::TextureDescriptor, data: Vec<u8>) {
+		self.context.queue.write_texture(
+			texture.as_image_copy(),
+			&data,
+			wgpu::ImageDataLayout {
+				bytes_per_row: NonZeroU32::new((descriptor.size.width / 256 + 1) * 256),
+				offset: 0,
+				rows_per_image: NonZeroU32::new(descriptor.size.height),
+			},
+			descriptor.size
+		)
 	}
 }

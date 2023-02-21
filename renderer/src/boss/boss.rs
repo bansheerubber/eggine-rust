@@ -69,7 +69,7 @@ impl Boss {
 			alpha_mode: swapchain_capabilities.alpha_modes[0],
 			format: swapchain_format,
 			height: size.height,
-			present_mode: wgpu::PresentMode::Immediate,
+			present_mode: wgpu::PresentMode::Fifo,
 			usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: vec![],
 			width: size.width,

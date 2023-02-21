@@ -1,5 +1,6 @@
 use carton::Carton;
 use renderer::shape;
+use renderer::textures;
 use renderer::testing::IndirectPass;
 use tokio;
 
@@ -26,8 +27,12 @@ async fn main() {
 	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
+	// load a test texture
+	let texture = textures::Texture::load("data/test.qoi", &mut carton, &mut test_pass).unwrap();
+
 	for _ in 0..10 {
-		let shape = shape::Shape::new(blueprint.clone());
+		let mut shape = shape::Shape::new(blueprint.clone());
+		shape.set_texture(Some(texture.clone()));
 		test_pass.add_shape(shape);
 	}
 
