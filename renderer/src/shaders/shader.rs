@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroU32};
 
 use super::Uniform;
 
@@ -49,10 +49,21 @@ impl Shader {
 		];
 
 		for uniform in self.uniforms.iter() {
+			// handle array types
+			let count = if uniform.kind.contains("[") {
+				NonZeroU32::new(
+					*&uniform.kind[uniform.kind.find("[").unwrap() + 1..uniform.kind.find("]").unwrap()]
+						.parse::<u32>()
+						.unwrap()
+				)
+			} else {
+				None
+			};
+
 			let layout_entry = match uniform.kind.as_str() {
 				"sampler" => { // sampler uniform
 					wgpu::BindGroupLayoutEntry {
-						count: None,
+						count,
 						binding: uniform.binding,
 						ty: wgpu::BindingType::Sampler(
 							wgpu::SamplerBindingType::Filtering // TODO what should this be
@@ -60,9 +71,23 @@ impl Shader {
 						visibility: self.stage,
 					}
 				},
+				"texture2DArray" => {
+					wgpu::BindGroupLayoutEntry {
+						count,
+						binding: uniform.binding,
+						ty: wgpu::BindingType::Texture {
+							multisampled: false, // TODO what should this be
+							sample_type: wgpu::TextureSampleType::Float {
+								filterable: true, // TODO what should this be
+							},
+							view_dimension: wgpu::TextureViewDimension::D2Array, // TODO what should this be
+						},
+						visibility: self.stage,
+					}
+				},
 				"texture2D" => { // texture uniform w/ some default options
 					wgpu::BindGroupLayoutEntry {
-						count: None,
+						count,
 						binding: uniform.binding,
 						ty: wgpu::BindingType::Texture {
 							multisampled: false, // TODO what should this be
@@ -77,7 +102,7 @@ impl Shader {
 				_ => {
 					if uniform.storage {
 						wgpu::BindGroupLayoutEntry { // a normal uniform
-							count: None,
+							count,
 							binding: uniform.binding,
 							ty: wgpu::BindingType::Buffer {
 								has_dynamic_offset: false, // TODO what should this be
@@ -90,7 +115,7 @@ impl Shader {
 						}
 					} else {
 						wgpu::BindGroupLayoutEntry { // a normal uniform
-							count: None,
+							count,
 							binding: uniform.binding,
 							ty: wgpu::BindingType::Buffer {
 								has_dynamic_offset: false, // TODO what should this be
