@@ -1,6 +1,5 @@
 use carton::Carton;
 use renderer::shape;
-use renderer::textures;
 use renderer::testing::IndirectPass;
 use tokio;
 
@@ -14,10 +13,7 @@ async fn main() {
 	let mut boss = Boss::new(&event_loop).await;
 
 	// create test indirect pass
-	let mut test_pass = Box::new(IndirectPass::new(&mut boss, &mut carton));
-
-	// load a test texture
-	let texture = textures::Texture::load("data/gecc.qoi", &mut carton, &mut test_pass).unwrap();
+	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
 	// load the first test shape
 	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
@@ -31,8 +27,7 @@ async fn main() {
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	for _ in 0..10 {
-		let mut shape = shape::Shape::new(blueprint.clone());
-		shape.set_texture(Some(texture.clone()));
+		let shape = shape::Shape::new(blueprint.clone());
 		test_pass.add_shape(shape);
 	}
 

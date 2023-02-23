@@ -5,7 +5,7 @@ use std::rc::Rc;
 use crate::boss::WGPUContext;
 use crate::textures;
 
-use super::{ Node, Page, TextureRoot, };
+use super::{ Node, Page, TextureCell, TextureRoot, };
 use super::page::PageUUID;
 
 /// Keeps track of all allocated `Page`s, also helps `Page`s upload their data to wgpu buffers.
@@ -15,6 +15,8 @@ pub struct Memory<'a> {
 	context: Rc<WGPUContext>,
 	/// The UUID to use for the next allocated page.
 	next_page_index: PageUUID,
+	/// Placeholder texture for when a mesh does not have a loaded texture.
+	none_texture: Option<Rc<textures::Texture>>,
 	/// The pages allocated by this memory manager.
 	pages: HashMap<PageUUID, Page>,
 	/// Data that the memory manager will write to buffers the next renderer tick.
@@ -62,6 +64,7 @@ impl<'a> Memory<'a> {
 
 			context,
 			next_page_index: 0,
+			none_texture: None,
 			pages: HashMap::new(),
 			queued_writes: Vec::new(),
 			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
@@ -159,6 +162,22 @@ impl<'a> Memory<'a> {
 				}
 			)
 		}
+	}
+
+	/// Gets the texture cell of the specified texture.
+	pub fn get_paged_texture(&self, texture: &Rc<textures::Texture>) -> &TextureCell {
+		let (layer, cell_index) = self.uploaded_textures.get(texture.get_file_name()).unwrap();
+		self.texture_tree[*layer].get_cell(*cell_index)
+	}
+
+	/// Sets the none texture.
+	pub fn set_none_texture(&mut self, texture: Rc<textures::Texture>) {
+		self.none_texture = Some(texture);
+	}
+
+	/// Gets the none texture.
+	pub fn get_none_texture(&self) -> Option<Rc<textures::Texture>> {
+		self.none_texture.clone()
 	}
 
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.

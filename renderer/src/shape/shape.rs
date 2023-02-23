@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use crate::{ shape, textures, };
+use crate::shape;
 
 lazy_static! {
 	static ref NEXT_SHAPE_GUID: Mutex<u64> = Mutex::new(0);
@@ -15,7 +15,6 @@ pub struct Shape {
 	blueprint: Rc<shape::Blueprint>,
 	id: u64,
 	pub position: Vec3,
-	texture: Option<Rc<textures::Texture>>,
 }
 
 impl Hash for Shape {
@@ -43,12 +42,7 @@ impl Shape {
 			blueprint,
 			id: id,
 			position: Vec3::default(),
-			texture: None,
 		}
-	}
-
-	pub fn set_texture(&mut self, texture: Option<Rc<textures::Texture>>) {
-		self.texture = texture;
 	}
 
 	pub fn get_blueprint(&self) -> Rc<shape::Blueprint> {

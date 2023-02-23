@@ -18,6 +18,7 @@ layout(std140, set = 0, binding = 0) uniform vertexBlock
 
 struct ObjectData {
 	mat4 model;
+	vec4 textureOffset;
 };
 
 layout(std140, set = 0, binding = 1) readonly buffer objectBlock
@@ -31,6 +32,6 @@ void main() {
 	// pass some stuff to the fragment shader
 	position = vVertex;
 	normal = vNormal;
-	uv = vUV;
+	uv = vUV * ob.objects[gl_DrawID].textureOffset.z + ob.objects[gl_DrawID].textureOffset.xy;
 	camera = vb.cameraPosition;
 }

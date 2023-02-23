@@ -48,6 +48,10 @@ impl BatchParameters {
 		self.shapes.iter()
 	}
 
+	pub fn get_texture(&self) -> Rc<textures::Texture> {
+		self.texture.clone()
+	}
+
 	pub fn make_key(&self) -> BatchParametersKey {
 		BatchParametersKey {
 			texture: self.texture.clone(),

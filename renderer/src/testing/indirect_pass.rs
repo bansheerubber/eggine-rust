@@ -88,7 +88,7 @@ pub struct IndirectPass<'a> {
 }
 
 impl<'a> IndirectPass<'a> {
-	pub fn new<'q>(boss: &mut Boss<'q>, carton: &mut Carton) -> IndirectPass<'q> {
+	pub fn new<'q>(boss: &mut Boss<'q>, carton: &mut Carton) -> Box<IndirectPass<'q>> {
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
 
@@ -246,33 +246,51 @@ impl<'a> IndirectPass<'a> {
 			&context, boss.get_surface_config(), programs.composite_program.clone()
 		);
 
-		IndirectPass {
-			allocated_memory,
-			batches: HashMap::new(),
-			blueprints: Vec::new(),
-			context,
-			highest_vertex_offset: 0,
-			indices_page_written: 0,
-			indices_written: 0,
-			memory: boss.get_memory().clone(),
-			programs,
-			render_textures,
-			vertices_page_written: 0,
+		let mut pass = Box::new(
+			IndirectPass {
+				allocated_memory,
+				batches: HashMap::new(),
+				blueprints: Vec::new(),
+				context,
+				highest_vertex_offset: 0,
+				indices_page_written: 0,
+				indices_written: 0,
+				memory: boss.get_memory().clone(),
+				programs,
+				render_textures,
+				vertices_page_written: 0,
 
-			x_angle: 0.0,
-			y_angle: 0.0,
-		}
+				x_angle: 0.0,
+				y_angle: 0.0,
+			}
+		);
+
+		drop(memory);
+
+		// allocate none texture
+		let none_texture = textures::Texture::load("data/none.qoi", carton, &mut pass).unwrap();
+
+		let memory = boss.get_memory();
+		let mut memory = memory.write().unwrap();
+		memory.set_none_texture(none_texture);
+
+		return pass;
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
 	pub fn add_blueprint(&mut self, blueprint: Rc<shape::Blueprint>) -> Rc<shape::Blueprint> {
 		// create new batches
-		if let Some(texture) = blueprint.get_texture() {
-			let parameters = BatchParameters::new(texture.clone());
-			let key = parameters.make_key();
+		let texture = if blueprint.get_texture().is_none() {
+			let memory = self.memory.read().unwrap();
+			memory.get_none_texture().unwrap()
+		} else {
+			blueprint.get_texture().as_ref().unwrap().clone()
+		};
 
-			self.batches.insert(key, parameters);
-		}
+		let parameters = BatchParameters::new(texture.clone());
+		let key = parameters.make_key();
+
+		self.batches.insert(key, parameters);
 
 		self.blueprints.push(blueprint);
 		self.blueprints[self.blueprints.len() - 1].clone()
@@ -280,8 +298,15 @@ impl<'a> IndirectPass<'a> {
 
 	/// Gives `Shape` ownership over to this `Pass` object.
 	pub fn add_shape(&mut self, shape: shape::Shape) {
+		let texture = if shape.get_blueprint().get_texture().is_none() {
+			let memory = self.memory.read().unwrap();
+			memory.get_none_texture().unwrap()
+		} else {
+			shape.get_blueprint().get_texture().as_ref().unwrap().clone()
+		};
+
 		let batch = self.batches.get_mut(&BatchParametersKey {
-			texture: shape.get_blueprint().get_texture().as_ref().unwrap().clone(),
+			texture,
 		}).unwrap();
 
 		batch.add_shape(Rc::new(shape));
@@ -565,6 +590,9 @@ impl Pass for IndirectPass<'_> {
 			let mut buffer = Vec::new();
 			let mut draw_call_count: u32 = 0;
 
+			let texture = batch.get_texture();
+
+			let memory = self.memory.read().unwrap();
 			for shape in batch.get_shapes() {
 				for mesh in shape.get_blueprint().get_meshes().iter() {
 					buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
@@ -575,15 +603,20 @@ impl Pass for IndirectPass<'_> {
 						vertex_offset: mesh.vertex_offset,
 					}.as_bytes());
 
+					let texture = memory.get_paged_texture(&texture);
 					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
 						model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
+						texture_offset: glam::Vec4::new(
+							texture.get_position().x as f32 / 2048.0,
+							texture.get_position().y as f32 / 2048.0,
+							texture.get_size() as f32 / 2048.0,
+							texture.get_size() as f32 / 2048.0
+						).to_array(),
 					};
 
 					draw_call_count += 1;
 				}
 			}
-
-			let memory = self.memory.read().unwrap();
 
 			// ensure immediate write to the buffer
 			memory.get_page(self.allocated_memory.indirect_command_buffer)

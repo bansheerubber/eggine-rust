@@ -47,6 +47,10 @@ impl TextureCell {
 	pub fn get_position(&self) -> &IVec2 {
 		&self.position
 	}
+
+	pub fn get_size(&self) -> u16 {
+		self.size
+	}
 }
 
 #[derive(Clone, Debug)]
