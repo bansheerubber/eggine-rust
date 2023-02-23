@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::num::NonZeroU64;
+use std::num::{ NonZeroU32, NonZeroU64,  };
 use std::rc::Rc;
 
 use crate::boss::WGPUContext;
+use crate::textures;
 
-use super::{ Node, Page, };
+use super::{ Node, Page, TextureRoot, };
 use super::page::PageUUID;
 
 /// Keeps track of all allocated `Page`s, also helps `Page`s upload their data to wgpu buffers.
@@ -14,8 +15,6 @@ pub struct Memory<'a> {
 	context: Rc<WGPUContext>,
 	/// The UUID to use for the next allocated page.
 	next_page_index: PageUUID,
-	/// The layer to use for the next reserved texture.
-	pub(crate) next_texture_layer: u32,
 	/// The pages allocated by this memory manager.
 	pages: HashMap<PageUUID, Page>,
 	/// Data that the memory manager will write to buffers the next renderer tick.
@@ -26,13 +25,21 @@ pub struct Memory<'a> {
 	texture: wgpu::Texture,
 	/// The descriptor for the texture.
 	texture_descriptor: wgpu::TextureDescriptor<'a>,
+	/// The physical locations of the textures on the GPU.
+	texture_tree: Vec<TextureRoot>,
 	/// The texture view for the memory's texture.
 	texture_view: wgpu::TextureView,
+	/// Lookup table for the textures currently uploaded on the GPU.
+	uploaded_textures: HashMap<String, (usize, usize)>,
 }
 
 impl<'a> Memory<'a> {
 	/// Create a new memory manager that uses the supplied queue to write to buffers.
 	pub fn new(context: Rc<WGPUContext>) -> Self {
+		// TODO dynamically figure this out from GPU configuration
+		let layer_count = 20;
+		let texture_size = 2048;
+
 		let texture_descriptor = wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
 			format: wgpu::TextureFormat::Rgba8Unorm,
@@ -41,12 +48,13 @@ impl<'a> Memory<'a> {
 			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
 			sample_count: 1,
 			size: wgpu::Extent3d {
-				depth_or_array_layers: 20,
-				height: 256,
-				width: 256,
+				depth_or_array_layers: layer_count,
+				height: texture_size,
+				width: texture_size,
 			},
 			view_formats: &[],
 		};
+
 		let texture = context.device.create_texture(&texture_descriptor);
 
 		Memory {
@@ -54,12 +62,13 @@ impl<'a> Memory<'a> {
 
 			context,
 			next_page_index: 0,
-			next_texture_layer: 0,
 			pages: HashMap::new(),
 			queued_writes: Vec::new(),
 			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
 			texture,
+			texture_tree: vec![TextureRoot::new(texture_size as u16); layer_count as usize],
 			texture_descriptor,
+			uploaded_textures: HashMap::new(),
 		}
 	}
 
@@ -101,6 +110,55 @@ impl<'a> Memory<'a> {
 	/// Returns a reference to the memory's texture descriptor.
 	pub fn get_texture_descriptor(&self) -> &'a wgpu::TextureDescriptor {
 		&self.texture_descriptor
+	}
+
+	/// Finds a spot for the texture and uploads it to the GPU.
+	pub fn upload_texture(&mut self, texture: Rc<textures::Texture>) {
+		if self.uploaded_textures.contains_key(texture.get_file_name()) { // skip upload if already uploaded
+			return;
+		}
+
+		// figure out where to put the texture
+		let mut cell_index = None;
+		let mut layer = 0;
+		for i in 0..self.texture_tree.len() {
+			cell_index = self.texture_tree[i].allocate_texture(texture.clone());
+			if cell_index.is_some() {
+				layer = i;
+				break;
+			}
+		}
+
+		if let Some(cell_index) = cell_index {
+			self.uploaded_textures.insert(texture.get_file_name().to_string(), (layer, cell_index));
+
+			let position = self.texture_tree[layer].get_cell(cell_index).get_position();
+
+			// do the upload
+			self.context.queue.write_texture(
+				wgpu::ImageCopyTexture {
+					aspect: wgpu::TextureAspect::All,
+					mip_level: 0,
+					origin: wgpu::Origin3d {
+						x: position.x as u32,
+						y: position.y as u32,
+						z: layer as u32,
+					},
+					texture: &self.texture,
+				},
+				texture.get_data(),
+				wgpu::ImageDataLayout {
+					bytes_per_row: NonZeroU32::new(texture.get_size().0 as u32 * 4),
+					offset: 0,
+					rows_per_image: None, // required if there's multiple images
+				},
+				wgpu::Extent3d {
+					depth_or_array_layers: 1,
+					height: texture.get_size().1 as u32,
+					width: texture.get_size().0 as u32,
+				}
+			)
+		}
 	}
 
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.

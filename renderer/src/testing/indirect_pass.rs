@@ -1,7 +1,7 @@
 use carton::Carton;
 use glam::Vec4Swizzles;
 use std::collections::HashMap;
-use std::num::{ NonZeroU64, NonZeroU32, };
+use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
@@ -772,38 +772,8 @@ impl textures::State for IndirectPass<'_> {
 		// don't need to do anything
 	}
 
-	fn reserve_texture(&mut self) -> u32 {
+	fn write_texture(&mut self, texture: Rc<textures::Texture>) {
 		let mut memory = self.memory.write().unwrap();
-		let layer = memory.next_texture_layer;
-		memory.next_texture_layer += 1;
-		return layer;
-	}
-
-	fn write_texture(&mut self, layer: u32, data: Vec<u8>) {
-		let memory = self.memory.read().unwrap();
-
-		self.context.queue.write_texture(
-			wgpu::ImageCopyTexture {
-				aspect: wgpu::TextureAspect::All,
-				mip_level: 0,
-				origin: wgpu::Origin3d {
-					x: 0,
-					y: 0,
-					z: layer,
-				},
-				texture: memory.get_texture(),
-			},
-			&data,
-			wgpu::ImageDataLayout {
-				bytes_per_row: NonZeroU32::new(memory.get_texture_descriptor().size.width * 4),
-				offset: 0,
-				rows_per_image: NonZeroU32::new(memory.get_texture_descriptor().size.height),
-			},
-			wgpu::Extent3d {
-				depth_or_array_layers: 1,
-				height: memory.get_texture_descriptor().size.height,
-				width: memory.get_texture_descriptor().size.width,
-			}
-		)
+		memory.upload_texture(texture);
 	}
 }

@@ -16,6 +16,9 @@ async fn main() {
 	// create test indirect pass
 	let mut test_pass = Box::new(IndirectPass::new(&mut boss, &mut carton));
 
+	// load a test texture
+	let texture = textures::Texture::load("data/gecc.qoi", &mut carton, &mut test_pass).unwrap();
+
 	// load the first test shape
 	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
@@ -26,9 +29,6 @@ async fn main() {
 	// load the second test shape
 	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
-
-	// load a test texture
-	let texture = textures::Texture::load("data/gecc.qoi", &mut carton, &mut test_pass).unwrap();
 
 	for _ in 0..10 {
 		let mut shape = shape::Shape::new(blueprint.clone());

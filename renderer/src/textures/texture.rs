@@ -7,9 +7,9 @@ use super::{ Error, State, };
 
 #[derive(Debug)]
 pub struct Texture {
+	data: Vec<u8>,
 	file_name: String,
 	height: u16,
-	layer: u32,
 	width: u16,
 }
 
@@ -68,18 +68,27 @@ impl Texture {
 			}
 		}
 
-		let layer = state.reserve_texture();
-		state.write_texture(layer, data);
-
-		Ok(Rc::new(Texture {
+		let texture = Rc::new(Texture {
+			data,
 			file_name: file_name.to_string(),
 			height: header.height as u16,
-			layer,
 			width: header.width as u16,
-		}))
+		});
+
+		state.write_texture(texture.clone());
+
+		Ok(texture)
 	}
 
 	pub fn get_size(&self) -> (u16, u16) {
 		(self.width, self.height)
+	}
+
+	pub fn get_file_name(&self) -> &str {
+		&self.file_name
+	}
+
+	pub fn get_data(&self) -> &Vec<u8> {
+		&self.data
 	}
 }

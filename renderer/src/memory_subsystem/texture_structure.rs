@@ -1,8 +1,9 @@
+use glam::IVec2;
 use std::rc::Rc;
 
 use crate::textures;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum TextureCellChild {
 	TopLeft = 0,
 	TopRight = 1,
@@ -10,7 +11,19 @@ pub enum TextureCellChild {
 	BottomLeft = 3,
 }
 
-#[derive(Debug, PartialEq)]
+impl From<usize> for TextureCellChild {
+	fn from(value: usize) -> Self {
+		match value {
+			0 => TextureCellChild::TopLeft,
+			1 => TextureCellChild::TopRight,
+			2 => TextureCellChild::BottomRight,
+			3 => TextureCellChild::BottomLeft,
+			_ => TextureCellChild::TopLeft,
+		}
+	}
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum TextureCellKind {
 	/// Reference to the texture being stored in this cell.
 	Allocated(Rc<textures::Texture>),
@@ -19,14 +32,24 @@ pub enum TextureCellKind {
 	Unallocated,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TextureCell {
+	/// The tagged union containing the data the cell stores.
+	kind: TextureCellKind,
+	/// Where the cell is located physically within the `TextureRoot`. The origin point of a cell is the upper-left corner
+	/// of it.
+	position: IVec2,
 	/// Size of the cell.
 	size: u16,
-	kind: TextureCellKind,
 }
 
-#[derive(Debug)]
+impl TextureCell {
+	pub fn get_position(&self) -> &IVec2 {
+		&self.position
+	}
+}
+
+#[derive(Clone, Debug)]
 pub struct TextureRoot {
 	cells: Vec<TextureCell>,
 	/// The size of the largest `TextureCell`.
@@ -37,8 +60,9 @@ impl TextureRoot {
 	pub fn new(maximum_size: u16) -> Self {
 		TextureRoot {
 			cells: vec![TextureCell {
-				size: maximum_size,
 				kind: TextureCellKind::Unallocated,
+				position: IVec2::new(0, 0),
+				size: maximum_size,
 			}],
 			maximum_size,
 		}
@@ -79,7 +103,7 @@ impl TextureRoot {
 			// allocate children for the cell
 			let mut children = [0; 4];
 			for i in 0..4 {
-				children[i] = self.create_cell(split_size);
+				children[i] = self.create_cell(TextureCellChild::from(i), split_target, split_size);
 			}
 
 			// update the cell kind
@@ -94,6 +118,17 @@ impl TextureRoot {
 		} else {
 			None
 		}
+	}
+
+	/// Finds an empty cell and allocates the texture to it.
+	pub fn allocate_texture(&mut self, texture: Rc<textures::Texture>) -> Option<usize> {
+		let Some(cell_index) = self.find_empty_cell(texture.get_size().0) else {
+			return None;
+		};
+
+		self.cells[cell_index].kind = TextureCellKind::Allocated(texture);
+
+		Some(cell_index)
 	}
 
 	/// Returns the percentage of cells that have a texture allocated to them.
@@ -116,11 +151,24 @@ impl TextureRoot {
 		return allocated_total as f32 / total as f32;
 	}
 
+	pub fn get_cell(&self, index: usize) -> &TextureCell {
+		&self.cells[index]
+	}
+
 	/// Create a new unallocated cell.
-	fn create_cell(&mut self, size: u16) -> usize {
+	fn create_cell(&mut self, corner: TextureCellChild, parent: usize, size: u16) -> usize {
+		let parent = &self.cells[parent];
+		let position = match corner {
+			TextureCellChild::TopLeft => parent.position,
+			TextureCellChild::TopRight => IVec2::new(size as i32, 0) + parent.position,
+			TextureCellChild::BottomRight => IVec2::new(size as i32, size as i32) + parent.position,
+			TextureCellChild::BottomLeft => IVec2::new(0, size as i32) + parent.position,
+		};
+
 		self.cells.push(TextureCell {
-			size,
 			kind: TextureCellKind::Unallocated,
+			position,
+			size,
 		});
 
 		return self.cells.len() - 1;
