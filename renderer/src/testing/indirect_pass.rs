@@ -287,10 +287,15 @@ impl<'a> IndirectPass<'a> {
 			blueprint.get_texture().as_ref().unwrap().clone()
 		};
 
-		let parameters = BatchParameters::new(texture.clone());
-		let key = parameters.make_key();
+		let key = BatchParametersKey {
+			texture: texture.clone(),
+		};
 
-		self.batches.insert(key, parameters);
+		if !self.batches.contains_key(&key) {
+			let parameters = BatchParameters::new(texture);
+			let key = parameters.make_key();
+			self.batches.insert(key, parameters);
+		}
 
 		self.blueprints.push(blueprint);
 		self.blueprints[self.blueprints.len() - 1].clone()
@@ -699,11 +704,11 @@ impl Pass for IndirectPass<'_> {
 				render_pass.multi_draw_indexed_indirect(
 					memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
 				);
-			}
 
-			// set clear ops
-			g_buffer_load_op = wgpu::LoadOp::Load;
-			depth_buffer_load_op = wgpu::LoadOp::Load;
+				// set clear ops
+				g_buffer_load_op = wgpu::LoadOp::Load;
+				depth_buffer_load_op = wgpu::LoadOp::Load;
+			}
 		}
 
 		// combine the textures in the G-buffer
