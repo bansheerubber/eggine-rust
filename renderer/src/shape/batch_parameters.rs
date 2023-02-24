@@ -3,7 +3,8 @@ use std::collections::hash_set::Iter;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use crate::{ shape, textures, };
+use crate::memory_subsystem::textures;
+use crate::shape;
 
 /// The parameters that are used in the batching algorithm to generate the smallest number of shape batches.
 #[derive(Debug)]

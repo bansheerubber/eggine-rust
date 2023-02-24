@@ -8,10 +8,9 @@ use std::sync::{ Arc, RwLock, };
 use crate::shape::{ BatchParameters, BatchParametersKey, };
 use crate::{ Pass, shape, };
 use crate::boss::{ Boss, WGPUContext, };
-use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
 use crate::shaders::Program;
 use crate::state::State;
-use crate::textures;
 
 use super::GlobalUniform;
 use super::uniforms::ObjectUniform;

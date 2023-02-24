@@ -3,9 +3,8 @@ use std::num::{ NonZeroU32, NonZeroU64,  };
 use std::rc::Rc;
 
 use crate::boss::WGPUContext;
-use crate::textures;
 
-use super::{ Node, Page, TextureCell, TextureRoot, };
+use super::{ Node, Page, textures, };
 use super::page::PageUUID;
 
 /// Keeps track of all allocated `Page`s, also helps `Page`s upload their data to wgpu buffers.
@@ -24,13 +23,13 @@ pub struct Memory<'a> {
 	/// The staging belt used for uploading data to the GPU.
 	staging_belt: Option<wgpu::util::StagingBelt>,
 	/// The texture array stored on the GPU.
-	texture: wgpu::Texture,
+	texture_array: wgpu::Texture,
 	/// The descriptor for the texture.
-	texture_descriptor: wgpu::TextureDescriptor<'a>,
-	/// The physical locations of the textures on the GPU.
-	texture_tree: Vec<TextureRoot>,
+	texture_array_descriptor: wgpu::TextureDescriptor<'a>,
 	/// The texture view for the memory's texture.
-	texture_view: wgpu::TextureView,
+	texture_array_view: wgpu::TextureView,
+	/// The physical locations of the textures on the GPU.
+	texture_tree: Vec<textures::TextureRoot>,
 	/// Lookup table for the textures currently uploaded on the GPU.
 	uploaded_textures: HashMap<String, (usize, usize)>,
 }
@@ -60,7 +59,7 @@ impl<'a> Memory<'a> {
 		let texture = context.device.create_texture(&texture_descriptor);
 
 		Memory {
-			texture_view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+			texture_array_view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
 
 			context,
 			next_page_index: 0,
@@ -68,9 +67,9 @@ impl<'a> Memory<'a> {
 			pages: HashMap::new(),
 			queued_writes: Vec::new(),
 			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
-			texture,
-			texture_tree: vec![TextureRoot::new(texture_size as u16); layer_count as usize],
-			texture_descriptor,
+			texture_array: texture,
+			texture_array_descriptor: texture_descriptor,
+			texture_tree: vec![textures::TextureRoot::new(texture_size as u16); layer_count as usize],
 			uploaded_textures: HashMap::new(),
 		}
 	}
@@ -102,17 +101,17 @@ impl<'a> Memory<'a> {
 
 	/// Returns reference to the memory's texture.
 	pub fn get_texture(&self) -> &wgpu::Texture {
-		&self.texture
+		&self.texture_array
 	}
 
 	/// Returns reference to the memory's texture view.
 	pub fn get_texture_view(&self) -> &wgpu::TextureView {
-		&self.texture_view
+		&self.texture_array_view
 	}
 
 	/// Returns a reference to the memory's texture descriptor.
 	pub fn get_texture_descriptor(&self) -> &'a wgpu::TextureDescriptor {
-		&self.texture_descriptor
+		&self.texture_array_descriptor
 	}
 
 	/// Finds a spot for the texture and uploads it to the GPU.
@@ -147,7 +146,7 @@ impl<'a> Memory<'a> {
 						y: position.y as u32,
 						z: layer as u32,
 					},
-					texture: &self.texture,
+					texture: &self.texture_array,
 				},
 				texture.get_data(),
 				wgpu::ImageDataLayout {
@@ -165,7 +164,7 @@ impl<'a> Memory<'a> {
 	}
 
 	/// Gets the texture cell of the specified texture.
-	pub fn get_paged_texture(&self, texture: &Rc<textures::Texture>) -> &TextureCell {
+	pub fn get_paged_texture(&self, texture: &Rc<textures::Texture>) -> &textures::TextureCell {
 		let (layer, cell_index) = self.uploaded_textures.get(texture.get_file_name()).unwrap();
 		self.texture_tree[*layer].get_cell(*cell_index)
 	}

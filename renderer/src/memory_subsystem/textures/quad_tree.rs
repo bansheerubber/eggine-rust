@@ -1,7 +1,7 @@
 use glam::IVec2;
 use std::rc::Rc;
 
-use crate::textures;
+use super::Texture;
 
 #[derive(Clone, Debug)]
 pub enum TextureCellChild {
@@ -26,7 +26,7 @@ impl From<usize> for TextureCellChild {
 #[derive(Clone, Debug, PartialEq)]
 pub enum TextureCellKind {
 	/// Reference to the texture being stored in this cell.
-	Allocated(Rc<textures::Texture>),
+	Allocated(Rc<Texture>),
 	/// The four leaves of the cell.
 	Parent([usize; 4]),
 	Unallocated,
@@ -125,7 +125,7 @@ impl TextureRoot {
 	}
 
 	/// Finds an empty cell and allocates the texture to it.
-	pub fn allocate_texture(&mut self, texture: Rc<textures::Texture>) -> Option<usize> {
+	pub fn allocate_texture(&mut self, texture: Rc<Texture>) -> Option<usize> {
 		let Some(cell_index) = self.find_empty_cell(texture.get_size().0) else {
 			return None;
 		};
