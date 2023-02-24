@@ -245,7 +245,16 @@ impl<'a> IndirectPass<'a> {
 			&context, boss.get_surface_config(), programs.composite_program.clone()
 		);
 
-		let mut pass = Box::new(
+		drop(memory);
+
+		// allocate none texture
+		let none_texture = textures::Texture::load_qoi("data/none.qoi", carton).unwrap();
+
+		let memory = boss.get_memory();
+		let mut memory = memory.write().unwrap();
+		memory.set_none_texture(none_texture);
+
+		Box::new(
 			IndirectPass {
 				allocated_memory,
 				batches: HashMap::new(),
@@ -262,18 +271,7 @@ impl<'a> IndirectPass<'a> {
 				x_angle: 0.0,
 				y_angle: 0.0,
 			}
-		);
-
-		drop(memory);
-
-		// allocate none texture
-		let none_texture = textures::Texture::load_qoi("data/none.qoi", carton, &mut pass).unwrap();
-
-		let memory = boss.get_memory();
-		let mut memory = memory.write().unwrap();
-		memory.set_none_texture(none_texture);
-
-		return pass;
+		)
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
@@ -801,16 +799,5 @@ impl shape::BlueprintState for IndirectPass<'_> {
 
 		let mut memory = self.memory.write().unwrap();
 		memory.write_buffer(page, node, buffer);
-	}
-}
-
-impl textures::State for IndirectPass<'_> {
-	fn prepare_new_texture(&mut self) {
-		// don't need to do anything
-	}
-
-	fn write_texture(&mut self, texture: Rc<textures::Texture>) {
-		let mut memory = self.memory.write().unwrap();
-		memory.upload_texture(texture);
 	}
 }

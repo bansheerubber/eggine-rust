@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use carton::Carton;
 
-use super::{ Error, State, };
+use super::Error;
 
 /// Describes the byte format of a texture.
 #[derive(Debug)]
@@ -37,9 +37,7 @@ impl PartialEq for Texture {
 
 impl Texture {
 	/// Load a QOI file from a carton.
-	pub fn load_qoi<T: State>(
-		file_name: &str, carton: &mut Carton, state: &mut Box<T>
-	) -> Result<Rc<Texture>, Error> {
+	pub fn load_qoi(file_name: &str, carton: &mut Carton) -> Result<Rc<Texture>, Error> {
 		// load the FBX up from the carton
 		let qoi_stream = match carton.get_file_data(file_name) {
 			Err(error) => return Err(Error::CartonError(error)),
@@ -84,8 +82,6 @@ impl Texture {
 			height: header.height as u16,
 			width: header.width as u16,
 		});
-
-		state.write_texture(texture.clone());
 
 		Ok(texture)
 	}
