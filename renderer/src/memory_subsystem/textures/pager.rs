@@ -2,7 +2,7 @@ use carton::Carton;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::{ Error, Texture, TextureCell, TextureData, TextureRoot, };
+use super::{ Error, Texture, Cell, TextureData, Tree, };
 
 /// Manages a quad-tree that describes the physical location of textures on the GPU. Maintain ownership of textures and
 /// interacts with the memory subsystem to allocate/deallocate them as needed.
@@ -13,7 +13,7 @@ pub struct Pager {
 	/// The textures loaded from carton.
 	textures: Vec<Rc<Texture>>,
 	/// The physical locations of the textures on the GPU.
-	tree: Vec<TextureRoot>,
+	tree: Vec<Tree>,
 }
 
 impl Pager {
@@ -22,7 +22,7 @@ impl Pager {
 		Pager {
 			gpu_allocated_textures: HashMap::new(),
 			textures: Vec::new(),
-			tree: vec![TextureRoot::new(size); layer_count as usize],
+			tree: vec![Tree::new(size); layer_count as usize],
 		}
 	}
 
@@ -106,7 +106,7 @@ impl Pager {
 	}
 
 	/// Returns the cell a texture belongs to.
-	pub fn get_cell(&self, texture: &Rc<Texture>) -> Option<&TextureCell> {
+	pub fn get_cell(&self, texture: &Rc<Texture>) -> Option<&Cell> {
 		if !self.is_gpu_allocated(&texture) {
 			return None;
 		}

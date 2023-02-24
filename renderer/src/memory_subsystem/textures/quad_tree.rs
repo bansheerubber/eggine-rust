@@ -4,27 +4,27 @@ use std::rc::Rc;
 use super::Texture;
 
 #[derive(Clone, Debug)]
-pub enum TextureCellChild {
+pub enum CellChildIndex {
 	TopLeft = 0,
 	TopRight = 1,
 	BottomRight = 2,
 	BottomLeft = 3,
 }
 
-impl From<usize> for TextureCellChild {
+impl From<usize> for CellChildIndex {
 	fn from(value: usize) -> Self {
 		match value {
-			0 => TextureCellChild::TopLeft,
-			1 => TextureCellChild::TopRight,
-			2 => TextureCellChild::BottomRight,
-			3 => TextureCellChild::BottomLeft,
-			_ => TextureCellChild::TopLeft,
+			0 => CellChildIndex::TopLeft,
+			1 => CellChildIndex::TopRight,
+			2 => CellChildIndex::BottomRight,
+			3 => CellChildIndex::BottomLeft,
+			_ => CellChildIndex::TopLeft,
 		}
 	}
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum TextureCellKind {
+pub enum CellKind {
 	/// Reference to the texture being stored in this cell.
 	Allocated(Rc<Texture>),
 	/// The four leaves of the cell.
@@ -33,9 +33,9 @@ pub enum TextureCellKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct TextureCell {
+pub struct Cell {
 	/// The tagged union containing the data the cell stores.
-	kind: TextureCellKind,
+	kind: CellKind,
 	/// Where the cell is located physically within the `TextureRoot`. The origin point of a cell is the upper-left corner
 	/// of it.
 	position: IVec2,
@@ -43,7 +43,7 @@ pub struct TextureCell {
 	size: u16,
 }
 
-impl TextureCell {
+impl Cell {
 	pub fn get_position(&self) -> &IVec2 {
 		&self.position
 	}
@@ -54,17 +54,17 @@ impl TextureCell {
 }
 
 #[derive(Clone, Debug)]
-pub struct TextureRoot {
-	cells: Vec<TextureCell>,
+pub struct Tree {
+	cells: Vec<Cell>,
 	/// The size of the largest `TextureCell`.
 	maximum_size: u16,
 }
 
-impl TextureRoot {
+impl Tree {
 	pub fn new(maximum_size: u16) -> Self {
-		TextureRoot {
-			cells: vec![TextureCell {
-				kind: TextureCellKind::Unallocated,
+		Tree {
+			cells: vec![Cell {
+				kind: CellKind::Unallocated,
 				position: IVec2::new(0, 0),
 				size: maximum_size,
 			}],
@@ -84,7 +84,7 @@ impl TextureRoot {
 		for i in 0..self.cells.len() {
 			let cell = &self.cells[i];
 
-			if cell.kind != TextureCellKind::Unallocated {
+			if cell.kind != CellKind::Unallocated {
 				continue;
 			}
 
@@ -107,11 +107,11 @@ impl TextureRoot {
 			// allocate children for the cell
 			let mut children = [0; 4];
 			for i in 0..4 {
-				children[i] = self.create_cell(TextureCellChild::from(i), split_target, split_size);
+				children[i] = self.create_cell(CellChildIndex::from(i), split_target, split_size);
 			}
 
 			// update the cell kind
-			self.cells[split_target].kind = TextureCellKind::Parent(children);
+			self.cells[split_target].kind = CellKind::Parent(children);
 
 			// if we found the correct size, then return the first new cell
 			if split_size == size {
@@ -130,7 +130,7 @@ impl TextureRoot {
 			return None;
 		};
 
-		self.cells[cell_index].kind = TextureCellKind::Allocated(texture);
+		self.cells[cell_index].kind = CellKind::Allocated(texture);
 
 		Some(cell_index)
 	}
@@ -141,12 +141,12 @@ impl TextureRoot {
 		let mut allocated_total = 0;
 		for cell in self.cells.iter() {
 			match cell.kind {
-    		TextureCellKind::Allocated(_) => {
+    		CellKind::Allocated(_) => {
 					allocated_total += 1;
 					total += 1;
 				},
-    		TextureCellKind::Parent(_) => {},
-    		TextureCellKind::Unallocated => {
+    		CellKind::Parent(_) => {},
+    		CellKind::Unallocated => {
 					total += 1;
 				}
 			}
@@ -155,22 +155,22 @@ impl TextureRoot {
 		return allocated_total as f32 / total as f32;
 	}
 
-	pub fn get_cell(&self, index: usize) -> &TextureCell {
+	pub fn get_cell(&self, index: usize) -> &Cell {
 		&self.cells[index]
 	}
 
 	/// Create a new unallocated cell.
-	fn create_cell(&mut self, corner: TextureCellChild, parent: usize, size: u16) -> usize {
+	fn create_cell(&mut self, corner: CellChildIndex, parent: usize, size: u16) -> usize {
 		let parent = &self.cells[parent];
 		let position = match corner {
-			TextureCellChild::TopLeft => parent.position,
-			TextureCellChild::TopRight => IVec2::new(size as i32, 0) + parent.position,
-			TextureCellChild::BottomRight => IVec2::new(size as i32, size as i32) + parent.position,
-			TextureCellChild::BottomLeft => IVec2::new(0, size as i32) + parent.position,
+			CellChildIndex::TopLeft => parent.position,
+			CellChildIndex::TopRight => IVec2::new(size as i32, 0) + parent.position,
+			CellChildIndex::BottomRight => IVec2::new(size as i32, size as i32) + parent.position,
+			CellChildIndex::BottomLeft => IVec2::new(0, size as i32) + parent.position,
 		};
 
-		self.cells.push(TextureCell {
-			kind: TextureCellKind::Unallocated,
+		self.cells.push(Cell {
+			kind: CellKind::Unallocated,
 			position,
 			size,
 		});
