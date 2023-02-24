@@ -5,9 +5,19 @@ use carton::Carton;
 
 use super::{ Error, State, };
 
+/// Describes the byte format of a texture.
+#[derive(Debug)]
+pub enum TextureData {
+	Astc(Vec<u8>, wgpu::AstcBlock),
+	Raw(Vec<u8>),
+}
+
+/// Describes attributes of a texture that was loaded from the carton. Textures are tightly coupled with the memory
+/// subsystem, but require a representation that is external of the texture quad tree manager so textures can be backed
+/// by CPU memory.
 #[derive(Debug)]
 pub struct Texture {
-	data: Vec<u8>,
+	data: TextureData,
 	file_name: String,
 	height: u16,
 	width: u16,
@@ -27,7 +37,7 @@ impl PartialEq for Texture {
 
 impl Texture {
 	/// Load a QOI file from a carton.
-	pub fn load<T: State>(
+	pub fn load_qoi<T: State>(
 		file_name: &str, carton: &mut Carton, state: &mut Box<T>
 	) -> Result<Rc<Texture>, Error> {
 		// load the FBX up from the carton
@@ -69,7 +79,7 @@ impl Texture {
 		}
 
 		let texture = Rc::new(Texture {
-			data,
+			data: TextureData::Raw(data),
 			file_name: file_name.to_string(),
 			height: header.height as u16,
 			width: header.width as u16,
@@ -80,15 +90,18 @@ impl Texture {
 		Ok(texture)
 	}
 
+	/// Gets the width and height of the texture.
 	pub fn get_size(&self) -> (u16, u16) {
 		(self.width, self.height)
 	}
 
+	/// Gets the texture's file name.
 	pub fn get_file_name(&self) -> &str {
 		&self.file_name
 	}
 
-	pub fn get_data(&self) -> &Vec<u8> {
+	/// Gets the pixel data loaded from the carton.
+	pub fn get_data(&self) -> &TextureData {
 		&self.data
 	}
 }

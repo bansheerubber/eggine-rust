@@ -267,7 +267,7 @@ impl<'a> IndirectPass<'a> {
 		drop(memory);
 
 		// allocate none texture
-		let none_texture = textures::Texture::load("data/none.qoi", carton, &mut pass).unwrap();
+		let none_texture = textures::Texture::load_qoi("data/none.qoi", carton, &mut pass).unwrap();
 
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();

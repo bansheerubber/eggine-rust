@@ -10,3 +10,4 @@ pub use quad_tree::TextureCellKind;
 pub use quad_tree::TextureRoot;
 pub use state::State;
 pub use texture::Texture;
+pub use texture::TextureData;

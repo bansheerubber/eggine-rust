@@ -136,6 +136,24 @@ impl<'a> Memory<'a> {
 
 			let position = self.texture_tree[layer].get_cell(cell_index).get_position();
 
+			let data = match self.texture_array_descriptor.format {
+				wgpu::TextureFormat::Astc { block: _, channel: _, } => {
+					if let textures::TextureData::Astc(data, _) = texture.get_data() {
+						data
+					} else {
+						panic!("Expected Astc texture format for {}", texture.get_file_name())
+					}
+				},
+				wgpu::TextureFormat::Rgba8Unorm => {
+					if let textures::TextureData::Raw(data) = texture.get_data() {
+						data
+					} else {
+						panic!("Expected raw texture format for {}", texture.get_file_name())
+					}
+				},
+				_ => todo!(),
+			};
+
 			// do the upload
 			self.context.queue.write_texture(
 				wgpu::ImageCopyTexture {
@@ -148,7 +166,7 @@ impl<'a> Memory<'a> {
 					},
 					texture: &self.texture_array,
 				},
-				texture.get_data(),
+				&data,
 				wgpu::ImageDataLayout {
 					bytes_per_row: NonZeroU32::new(texture.get_size().0 as u32 * 4),
 					offset: 0,
