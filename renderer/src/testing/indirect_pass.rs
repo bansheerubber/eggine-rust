@@ -8,7 +8,7 @@ use std::sync::{ Arc, RwLock, };
 use crate::shape::{ BatchParameters, BatchParametersKey, };
 use crate::{ Pass, shape, };
 use crate::boss::{ Boss, WGPUContext, };
-use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
 use crate::shaders::Program;
 use crate::state::State;
 
@@ -248,10 +248,9 @@ impl<'a> IndirectPass<'a> {
 		drop(memory);
 
 		// allocate none texture
-		let none_texture = textures::Texture::load_qoi("data/none.qoi", carton).unwrap();
-
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
+		let none_texture = memory.texture_pager.load_qoi("data/none.qoi", carton).unwrap();
 		memory.set_none_texture(none_texture);
 
 		Box::new(
@@ -605,7 +604,7 @@ impl Pass for IndirectPass<'_> {
 						vertex_offset: mesh.vertex_offset,
 					}.as_bytes());
 
-					let texture = memory.get_paged_texture(&texture);
+					let texture = memory.texture_pager.get_cell(&texture).unwrap();
 					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
 						model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
 						texture_offset: glam::Vec4::new(

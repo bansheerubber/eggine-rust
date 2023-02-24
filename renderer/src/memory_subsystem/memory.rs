@@ -28,10 +28,8 @@ pub struct Memory<'a> {
 	texture_array_descriptor: wgpu::TextureDescriptor<'a>,
 	/// The texture view for the memory's texture.
 	texture_array_view: wgpu::TextureView,
-	/// The physical locations of the textures on the GPU.
-	texture_tree: Vec<textures::TextureRoot>,
-	/// Lookup table for the textures currently uploaded on the GPU.
-	uploaded_textures: HashMap<String, (usize, usize)>,
+	/// Controls the physical locations of the textures on the GPU.
+	pub texture_pager: textures::Pager,
 }
 
 impl<'a> Memory<'a> {
@@ -69,8 +67,7 @@ impl<'a> Memory<'a> {
 			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
 			texture_array: texture,
 			texture_array_descriptor: texture_descriptor,
-			texture_tree: vec![textures::TextureRoot::new(texture_size as u16); layer_count as usize],
-			uploaded_textures: HashMap::new(),
+			texture_pager: textures::Pager::new(layer_count as usize, texture_size as u16),
 		}
 	}
 
@@ -115,27 +112,12 @@ impl<'a> Memory<'a> {
 	}
 
 	/// Finds a spot for the texture and uploads it to the GPU.
-	pub fn upload_texture(&mut self, texture: Rc<textures::Texture>) {
-		if self.uploaded_textures.contains_key(texture.get_file_name()) { // skip upload if already uploaded
+	pub fn upload_texture(&mut self, texture: &Rc<textures::Texture>) {
+		if self.texture_pager.is_gpu_allocated(texture) { // skip upload if already uploaded
 			return;
 		}
 
-		// figure out where to put the texture
-		let mut cell_index = None;
-		let mut layer = 0;
-		for i in 0..self.texture_tree.len() {
-			cell_index = self.texture_tree[i].allocate_texture(texture.clone());
-			if cell_index.is_some() {
-				layer = i;
-				break;
-			}
-		}
-
-		if let Some(cell_index) = cell_index {
-			self.uploaded_textures.insert(texture.get_file_name().to_string(), (layer, cell_index));
-
-			let position = self.texture_tree[layer].get_cell(cell_index).get_position();
-
+		if let Some(position) = self.texture_pager.allocate_texture(texture) {
 			let data = match self.texture_array_descriptor.format {
 				wgpu::TextureFormat::Astc { block: _, channel: _, } => {
 					if let textures::TextureData::Astc(data, _) = texture.get_data() {
@@ -159,11 +141,7 @@ impl<'a> Memory<'a> {
 				wgpu::ImageCopyTexture {
 					aspect: wgpu::TextureAspect::All,
 					mip_level: 0,
-					origin: wgpu::Origin3d {
-						x: position.x as u32,
-						y: position.y as u32,
-						z: layer as u32,
-					},
+					origin: position,
 					texture: &self.texture_array,
 				},
 				&data,
@@ -179,12 +157,6 @@ impl<'a> Memory<'a> {
 				}
 			)
 		}
-	}
-
-	/// Gets the texture cell of the specified texture.
-	pub fn get_paged_texture(&self, texture: &Rc<textures::Texture>) -> &textures::TextureCell {
-		let (layer, cell_index) = self.uploaded_textures.get(texture.get_file_name()).unwrap();
-		self.texture_tree[*layer].get_cell(*cell_index)
 	}
 
 	/// Sets the none texture.
