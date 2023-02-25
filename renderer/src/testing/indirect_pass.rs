@@ -5,14 +5,14 @@ use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
-use crate::shape::{ BatchParameters, BatchParametersKey, };
 use crate::{ Pass, shape, };
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
+use crate::memory_subsystem::textures::Pager;
 use crate::shaders::Program;
 use crate::state::State;
 
-use super::{GlobalUniform, Batch};
+use super::{ Batch, GlobalUniform, };
 use super::uniforms::ObjectUniform;
 
 /// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
@@ -285,12 +285,12 @@ impl<'a> IndirectPass<'a> {
 			blueprint.get_texture().as_ref().unwrap().clone()
 		};
 
-		let key = BatchParametersKey {
+		let key = shape::BatchParametersKey {
 			texture: texture.clone(),
 		};
 
 		if !self.batching_parameters.contains_key(&key) {
-			let parameters = BatchParameters::new(texture);
+			let parameters = shape::BatchParameters::new(texture);
 			let key = parameters.make_key();
 			self.batching_parameters.insert(key, parameters);
 		}
@@ -308,7 +308,7 @@ impl<'a> IndirectPass<'a> {
 			shape.get_blueprint().get_texture().as_ref().unwrap().clone()
 		};
 
-		let batch = self.batching_parameters.get_mut(&BatchParametersKey {
+		let batch = self.batching_parameters.get_mut(&shape::BatchParametersKey {
 			texture,
 		}).unwrap();
 
@@ -591,27 +591,27 @@ impl Pass for IndirectPass<'_> {
 		let mut memory = self.memory.write().unwrap();
 
 		let mut sorted_parameters = self.batching_parameters.values()
-			.collect::<Vec<&BatchParameters>>();
+			.collect::<Vec<&shape::BatchParameters>>();
 		sorted_parameters.sort();
 
 		let mut current_batch = Batch {
     	batch_parameters: Vec::new(),
-    	texture_tree: textures::Tree::new(memory.get_texture_descriptor().size.width as u16),
+    	texture_pager: textures::VirtualPager::new(20, memory.get_texture_descriptor().size.width as u16),
 		};
 
 		let mut batches = Vec::new();
 		for parameters in sorted_parameters {
-			let allocated_cell = current_batch.texture_tree.allocate_texture(parameters.get_texture());
+			let allocated_cell = current_batch.texture_pager.allocate_texture(parameters.get_texture());
 
 			if allocated_cell.is_none() {
 				batches.push(current_batch);
 
 				current_batch = Batch {
 					batch_parameters: Vec::new(),
-					texture_tree: textures::Tree::new(memory.get_texture_descriptor().size.width as u16),
+					texture_pager: textures::VirtualPager::new(20, memory.get_texture_descriptor().size.width as u16),
 				};
 
-				current_batch.texture_tree.allocate_texture(parameters.get_texture()).unwrap();
+				current_batch.texture_pager.allocate_texture(parameters.get_texture()).unwrap();
 			} else {
 				current_batch.batch_parameters.push(parameters);
 			}
@@ -633,7 +633,7 @@ impl Pass for IndirectPass<'_> {
 				.collect::<Vec<&Rc<textures::Texture>>>();
 
 			// only upload if the textures aren't uploaded yet
-			if !memory.is_same_tree(&batch.texture_tree) {
+			if !memory.is_same_pager(&batch.texture_pager) {
 				memory.reset_pager();
 
 				for texture in textures {

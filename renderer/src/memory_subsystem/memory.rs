@@ -6,6 +6,7 @@ use crate::boss::WGPUContext;
 
 use super::{ Node, Page, textures, };
 use super::page::PageUUID;
+use super::textures::Pager;
 
 /// Keeps track of all allocated `Page`s, also helps `Page`s upload their data to wgpu buffers.
 #[derive(Debug)]
@@ -29,7 +30,7 @@ pub struct Memory<'a> {
 	/// The texture view for the memory's texture.
 	texture_array_view: wgpu::TextureView,
 	/// Controls the physical locations of the textures on the GPU.
-	pub texture_pager: textures::Pager,
+	pub texture_pager: textures::GPUPager,
 }
 
 impl<'a> Memory<'a> {
@@ -67,7 +68,7 @@ impl<'a> Memory<'a> {
 			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
 			texture_array: texture,
 			texture_array_descriptor: texture_descriptor,
-			texture_pager: textures::Pager::new(layer_count as usize, texture_size as u16),
+			texture_pager: textures::GPUPager::new(layer_count as usize, texture_size as u16),
 		}
 	}
 
@@ -113,7 +114,7 @@ impl<'a> Memory<'a> {
 
 	/// Finds a spot for the texture and uploads it to the GPU.
 	pub fn upload_texture(&mut self, texture: &Rc<textures::Texture>) {
-		if self.texture_pager.is_gpu_allocated(texture) { // skip upload if already uploaded
+		if self.texture_pager.is_allocated(texture) { // skip upload if already uploaded
 			return;
 		}
 
@@ -170,14 +171,14 @@ impl<'a> Memory<'a> {
 	}
 
 	/// Checks if the provided texture tree contains the same textures as our tree.
-	pub fn is_same_tree(&self, tree: &textures::Tree) -> bool {
-		self.texture_pager.is_same_tree(tree)
+	pub fn is_same_pager<T: textures::Pager>(&self, pager: &T) -> bool {
+		&self.texture_pager == pager
 	}
 
 	/// Reset the texture pager.
 	pub fn reset_pager(&mut self) {
 		let (layer_count, texture_size) = self.texture_pager.get_parameters();
-		self.texture_pager = textures::Pager::new(layer_count as usize, texture_size as u16);
+		self.texture_pager = textures::GPUPager::new(layer_count as usize, texture_size as u16);
 	}
 
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.
