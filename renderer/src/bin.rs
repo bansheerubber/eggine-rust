@@ -1,12 +1,27 @@
 use carton::Carton;
-use renderer::shape;
+use renderer::{ memory_subsystem, shape, };
 use renderer::testing::IndirectPass;
 use tokio;
+
+use std::time::Instant;
 
 use renderer::Boss;
 
 #[tokio::main]
 async fn main() {
+	// let mut carton = Carton::read("resources.carton").unwrap();
+	// let mut pager = memory_subsystem::textures::Pager::new(20, 2048);
+	// let texture = pager.load_qoi("data/none.qoi", &mut carton).unwrap();
+
+	// let now = Instant::now();
+	// let mut count = 1;
+	// while pager.allocate_texture(&texture).is_some() {
+	// 	count += 1;
+	// }
+
+	// let elapsed = now.elapsed();
+	// println!("{:.2?} to allocate {} textures ({:.2?} per texture)", elapsed, count, elapsed / count);
+
 	let mut carton = Carton::read("resources.carton").unwrap();
 
 	let event_loop = winit::event_loop::EventLoop::new();

@@ -251,6 +251,9 @@ impl<'a> IndirectPass<'a> {
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
 		let none_texture = memory.texture_pager.load_qoi("data/none.qoi", carton).unwrap();
+
+		// upload the none texture
+		memory.upload_texture(&none_texture);
 		memory.set_none_texture(none_texture);
 
 		Box::new(

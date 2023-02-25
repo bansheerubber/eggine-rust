@@ -26,9 +26,9 @@ impl From<usize> for CellChildIndex {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CellKind {
 	/// Reference to the texture being stored in this cell.
-	Allocated(Rc<Texture>),
+	Allocated,
 	/// The four leaves of the cell.
-	Parent([usize; 4]),
+	Parent,
 	Unallocated,
 }
 
@@ -36,7 +36,7 @@ pub enum CellKind {
 pub struct Cell {
 	/// The tagged union containing the data the cell stores.
 	kind: CellKind,
-	/// Where the cell is located physically within the `TextureRoot`. The origin point of a cell is the upper-left corner
+	/// Where the cell is located physically within the `Tree`. The origin point of a cell is the upper-left corner
 	/// of it.
 	position: IVec2,
 	/// Size of the cell.
@@ -55,113 +55,87 @@ impl Cell {
 
 #[derive(Clone, Debug)]
 pub struct Tree {
-	cells: Vec<Cell>,
-	/// The size of the largest `TextureCell`.
+	allocated_cells: Vec<Vec<Cell>>,
+	/// The size of the largest `Cell`.
 	maximum_size: u16,
+	unallocated_cells: Vec<Vec<Cell>>,
 }
 
 impl Tree {
 	pub fn new(maximum_size: u16) -> Self {
+		let mut unallocated_cells = Vec::new();
+		for _ in 0..maximum_size.trailing_zeros() - 1 {
+			unallocated_cells.push(Vec::new());
+		}
+
+		unallocated_cells.push(vec![Cell {
+			kind: CellKind::Unallocated,
+			position: IVec2::new(0, 0),
+			size: maximum_size,
+		}]);
+
+		let mut allocated_cells = Vec::new();
+		for _ in 0..maximum_size.trailing_zeros() {
+			allocated_cells.push(Vec::new());
+		}
+
 		Tree {
-			cells: vec![Cell {
-				kind: CellKind::Unallocated,
-				position: IVec2::new(0, 0),
-				size: maximum_size,
-			}],
+			allocated_cells,
 			maximum_size,
+			unallocated_cells,
 		}
 	}
 
-	/// Searches for an unallocated cell of the specified size.
-	pub fn find_empty_cell(&mut self, size: u16) -> Option<usize> {
+	pub fn allocate_texture(&mut self, texture: Rc<Texture>) -> Option<Cell> {
+		let size = texture.get_size().0;
 		if size > self.maximum_size {
 			return None;
 		}
 
-		let mut split_target = None;
-		let mut smallest_split_size = self.maximum_size;
+		let index = size.trailing_zeros() as usize - 1;
 
-		for i in 0..self.cells.len() {
-			let cell = &self.cells[i];
+		// pick a cell to allocate to
+		if self.unallocated_cells[index].len() > 0 {
+			let mut cell = self.unallocated_cells[index].pop().unwrap();
+			cell.kind = CellKind::Allocated;
+			self.allocated_cells[index].push(cell.clone());
+			return Some(cell);
+		}
 
-			if cell.kind != CellKind::Unallocated {
-				continue;
-			}
-
-			// if the cell is the correct size and also empty, then return it
-			if cell.size == size {
-				return Some(i);
-			}
-
-			// figure out if this cell can be split if we don't find a cell that is the size we want
-			if cell.size >= size * 2 && cell.size <= smallest_split_size {
-				split_target = Some(i);
-				smallest_split_size = cell.size;
+		// find the smallest possible cell we can allocate to
+		let mut split_size: Option<u16> = None;
+		for i in index + 1..self.maximum_size.trailing_zeros() as usize {
+			if self.unallocated_cells[i].len() > 0 {
+				split_size = Some(i as u16);
+				break;
 			}
 		}
 
-		// split a cell if we can
-		if let Some(split_target) = split_target {
-			let split_size = self.cells[split_target].size / 2;
-
-			// allocate children for the cell
-			let mut children = [0; 4];
-			for i in 0..4 {
-				children[i] = self.create_cell(CellChildIndex::from(i), split_target, split_size);
-			}
-
-			// update the cell kind
-			self.cells[split_target].kind = CellKind::Parent(children);
-
-			// if we found the correct size, then return the first new cell
-			if split_size == size {
-				return Some(children[0]);
-			} else {
-				self.find_empty_cell(size)
-			}
-		} else {
-			None
-		}
-	}
-
-	/// Finds an empty cell and allocates the texture to it.
-	pub fn allocate_texture(&mut self, texture: Rc<Texture>) -> Option<usize> {
-		let Some(cell_index) = self.find_empty_cell(texture.get_size().0) else {
+		let Some(split_size) = split_size else {
 			return None;
 		};
 
-		self.cells[cell_index].kind = CellKind::Allocated(texture);
+		// get ownership of the cell
+		let mut allocation_cell = self.unallocated_cells[split_size as usize].pop().unwrap();
 
-		Some(cell_index)
-	}
+		let mut split_size = 2 << (split_size - 1);
 
-	/// Returns the percentage of cells that have a texture allocated to them.
-	pub fn usage(&self) -> f32 {
-		let mut total = 0;
-		let mut allocated_total = 0;
-		for cell in self.cells.iter() {
-			match cell.kind {
-    		CellKind::Allocated(_) => {
-					allocated_total += 1;
-					total += 1;
-				},
-    		CellKind::Parent(_) => {},
-    		CellKind::Unallocated => {
-					total += 1;
-				}
+		loop {
+			allocation_cell = self.split_cell(allocation_cell, split_size);
+			if split_size == size {
+				break;
 			}
+
+			split_size >>= 1;
 		}
 
-		return allocated_total as f32 / total as f32;
+		allocation_cell.kind = CellKind::Allocated;
+		self.allocated_cells[index].push(allocation_cell.clone());
+
+		Some(allocation_cell)
 	}
 
-	pub fn get_cell(&self, index: usize) -> &Cell {
-		&self.cells[index]
-	}
-
-	/// Create a new unallocated cell.
-	fn create_cell(&mut self, corner: CellChildIndex, parent: usize, size: u16) -> usize {
-		let parent = &self.cells[parent];
+	fn create_cell(&mut self, corner: CellChildIndex, parent: &Cell, size: u16) -> Cell {
 		let position = match corner {
 			CellChildIndex::TopLeft => parent.position,
 			CellChildIndex::TopRight => IVec2::new(size as i32, 0) + parent.position,
@@ -169,12 +143,25 @@ impl Tree {
 			CellChildIndex::BottomLeft => IVec2::new(0, size as i32) + parent.position,
 		};
 
-		self.cells.push(Cell {
+		Cell {
 			kind: CellKind::Unallocated,
 			position,
 			size,
-		});
+		}
+	}
 
-		return self.cells.len() - 1;
+	fn split_cell(&mut self, mut cell: Cell, size: u16) -> Cell {
+		let index = size.trailing_zeros() as usize - 1;
+
+		for i in 1..4 {
+			let cell = self.create_cell(CellChildIndex::from(i), &cell, size);
+			self.unallocated_cells[index].push(cell);
+		}
+
+		let new_cell = self.create_cell(CellChildIndex::from(0), &cell, size);
+		cell.kind = CellKind::Parent; // TODO redo how the indices work n stuff
+		self.allocated_cells[cell.size.trailing_zeros() as usize - 1].push(cell);
+
+		return new_cell;
 	}
 }

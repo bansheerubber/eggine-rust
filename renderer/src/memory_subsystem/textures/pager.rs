@@ -9,7 +9,7 @@ use super::{ Error, Texture, Cell, TextureData, Tree, };
 #[derive(Debug)]
 pub struct Pager {
 	/// Textures allocated on the GPU, as well as their `tree` vector index and the index of the cell within the tree.
-	gpu_allocated_textures: HashMap<String, (usize, usize)>,
+	gpu_allocated_textures: HashMap<String, (usize, Cell)>,
 	/// The textures loaded from carton.
 	textures: Vec<Rc<Texture>>,
 	/// The physical locations of the textures on the GPU.
@@ -76,28 +76,29 @@ impl Pager {
 	/// Wrapper for allocating a texture onto the quad tree. Returns the position within
 	pub fn allocate_texture(&mut self, texture: &Rc<Texture>) -> Option<wgpu::Origin3d> {
 		// figure out where to put the texture
-		let mut cell_index = None;
+		let mut cell = None;
 		let mut layer = 0;
 		for i in 0..self.tree.len() {
-			cell_index = self.tree[i].allocate_texture(texture.clone());
-			if cell_index.is_some() {
+			cell = self.tree[i].allocate_texture(texture.clone());
+			if cell.is_some() {
 				layer = i;
 				break;
 			}
 		}
 
-		let Some(cell_index) = cell_index else {
+		let Some(cell) = cell else {
 			return None;
 		};
 
-		self.gpu_allocated_textures.insert(texture.get_file_name().to_string(), (layer, cell_index));
-
-		let position = self.tree[layer].get_cell(cell_index).get_position();
-		Some(wgpu::Origin3d {
-			x: position.x as u32,
-			y: position.y as u32,
+		let position = wgpu::Origin3d {
+			x: cell.get_position().x as u32,
+			y: cell.get_position().y as u32,
 			z: layer as u32,
-		})
+		};
+
+		self.gpu_allocated_textures.insert(texture.get_file_name().to_string(), (layer, cell));
+
+		return Some(position);
 	}
 
 	/// Returns whether or not a texture has been allocated in the GPU.
@@ -111,7 +112,7 @@ impl Pager {
 			return None;
 		}
 
-		let (layer, cell_index) = self.gpu_allocated_textures.get(texture.get_file_name()).unwrap();
-		Some(self.tree[*layer].get_cell(*cell_index))
+		let (_, cell) = self.gpu_allocated_textures.get(texture.get_file_name()).unwrap();
+		return Some(cell);
 	}
 }
