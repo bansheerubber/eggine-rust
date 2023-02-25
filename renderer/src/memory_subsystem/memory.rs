@@ -169,6 +169,17 @@ impl<'a> Memory<'a> {
 		self.none_texture.clone()
 	}
 
+	/// Checks if the provided texture tree contains the same textures as our tree.
+	pub fn is_same_tree(&self, tree: &textures::Tree) -> bool {
+		self.texture_pager.is_same_tree(tree)
+	}
+
+	/// Reset the texture pager.
+	pub fn reset_pager(&mut self) {
+		let (layer_count, texture_size) = self.texture_pager.get_parameters();
+		self.texture_pager = textures::Pager::new(layer_count as usize, texture_size as u16);
+	}
+
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.
 	pub(crate) fn complete_write_buffers(&mut self, encoder: &mut wgpu::CommandEncoder) {
 		// steal the staging belt

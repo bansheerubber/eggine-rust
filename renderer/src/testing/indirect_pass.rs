@@ -8,11 +8,11 @@ use std::sync::{ Arc, RwLock, };
 use crate::shape::{ BatchParameters, BatchParametersKey, };
 use crate::{ Pass, shape, };
 use crate::boss::{ Boss, WGPUContext, };
-use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
 use crate::shaders::Program;
 use crate::state::State;
 
-use super::GlobalUniform;
+use super::{GlobalUniform, Batch};
 use super::uniforms::ObjectUniform;
 
 /// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
@@ -61,7 +61,7 @@ pub struct IndirectPass<'a> {
 	/// The pages and nodes allocated on the GPU.
 	allocated_memory: AllocatedMemory,
 	/// The batches of shapes used during rendering.
-	batches: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
+	batching_parameters: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
 	blueprints: Vec<Rc<shape::Blueprint>>,
 	/// Stores `wgpu` created objects required for basic rendering operations.
@@ -253,13 +253,12 @@ impl<'a> IndirectPass<'a> {
 		let none_texture = memory.texture_pager.load_qoi("data/none.qoi", carton).unwrap();
 
 		// upload the none texture
-		memory.upload_texture(&none_texture);
 		memory.set_none_texture(none_texture);
 
 		Box::new(
 			IndirectPass {
 				allocated_memory,
-				batches: HashMap::new(),
+				batching_parameters: HashMap::new(),
 				blueprints: Vec::new(),
 				context,
 				highest_vertex_offset: 0,
@@ -290,10 +289,10 @@ impl<'a> IndirectPass<'a> {
 			texture: texture.clone(),
 		};
 
-		if !self.batches.contains_key(&key) {
+		if !self.batching_parameters.contains_key(&key) {
 			let parameters = BatchParameters::new(texture);
 			let key = parameters.make_key();
-			self.batches.insert(key, parameters);
+			self.batching_parameters.insert(key, parameters);
 		}
 
 		self.blueprints.push(blueprint);
@@ -309,7 +308,7 @@ impl<'a> IndirectPass<'a> {
 			shape.get_blueprint().get_texture().as_ref().unwrap().clone()
 		};
 
-		let batch = self.batches.get_mut(&BatchParametersKey {
+		let batch = self.batching_parameters.get_mut(&BatchParametersKey {
 			texture,
 		}).unwrap();
 
@@ -588,16 +587,65 @@ impl Pass for IndirectPass<'_> {
 		let mut g_buffer_load_op = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
 		let mut depth_buffer_load_op = wgpu::LoadOp::Clear(1.0);
 
+		// break up batches depending on how much we're able to fill a virtual texture quad
+		let mut memory = self.memory.write().unwrap();
+
+		let mut sorted_parameters = self.batching_parameters.values()
+			.collect::<Vec<&BatchParameters>>();
+		sorted_parameters.sort();
+
+		let mut current_batch = Batch {
+    	batch_parameters: Vec::new(),
+    	texture_tree: textures::Tree::new(memory.get_texture_descriptor().size.width as u16),
+		};
+
+		let mut batches = Vec::new();
+		for parameters in sorted_parameters {
+			let allocated_cell = current_batch.texture_tree.allocate_texture(parameters.get_texture());
+
+			if allocated_cell.is_none() {
+				batches.push(current_batch);
+
+				current_batch = Batch {
+					batch_parameters: Vec::new(),
+					texture_tree: textures::Tree::new(memory.get_texture_descriptor().size.width as u16),
+				};
+
+				current_batch.texture_tree.allocate_texture(parameters.get_texture()).unwrap();
+			} else {
+				current_batch.batch_parameters.push(parameters);
+			}
+		}
+
+		if current_batch.batch_parameters.len() != 0 {
+			batches.push(current_batch);
+		}
+
 		// G-buffer render pass for every single batch
-		for batch in self.batches.values() {
+		for batch in batches.iter() {
 			// fill the command buffer with calls
 			let mut buffer = Vec::new();
 			let mut draw_call_count: u32 = 0;
 
-			let texture = batch.get_texture();
+			// upload textures
+			let textures = batch.batch_parameters.iter()
+				.map(|x| x.get_texture())
+				.collect::<Vec<&Rc<textures::Texture>>>();
 
-			let memory = self.memory.read().unwrap();
-			for shape in batch.get_shapes() {
+			// only upload if the textures aren't uploaded yet
+			if !memory.is_same_tree(&batch.texture_tree) {
+				memory.reset_pager();
+
+				for texture in textures {
+					memory.upload_texture(texture);
+				}
+			}
+
+			let shapes = batch.batch_parameters.iter()
+				.flat_map(|x| x.get_shapes())
+				.collect::<Vec<&Rc<shape::Shape>>>();
+
+			for shape in shapes {
 				for mesh in shape.get_blueprint().get_meshes().iter() {
 					buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
 						base_index: mesh.first_index,
@@ -606,6 +654,12 @@ impl Pass for IndirectPass<'_> {
 						vertex_count: mesh.vertex_count,
 						vertex_offset: mesh.vertex_offset,
 					}.as_bytes());
+
+					let texture = if shape.get_blueprint().get_texture().is_none() {
+						memory.get_none_texture().unwrap()
+					} else {
+						shape.get_blueprint().get_texture().as_ref().unwrap().clone()
+					};
 
 					let texture = memory.texture_pager.get_cell(&texture).unwrap();
 					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {

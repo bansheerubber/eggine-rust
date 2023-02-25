@@ -10,6 +10,10 @@ use super::{ Error, Texture, Cell, TextureData, Tree, };
 pub struct Pager {
 	/// Textures allocated on the GPU, as well as their `tree` vector index and the index of the cell within the tree.
 	gpu_allocated_textures: HashMap<String, (usize, Cell)>,
+	/// The amount of trees in the pager.
+	layer_count: usize,
+	/// The size of the textures.
+	size: u16,
 	/// The textures loaded from carton.
 	textures: Vec<Rc<Texture>>,
 	/// The physical locations of the textures on the GPU.
@@ -21,6 +25,8 @@ impl Pager {
 	pub fn new(layer_count: usize, size: u16) -> Self {
 		Pager {
 			gpu_allocated_textures: HashMap::new(),
+			layer_count,
+			size,
 			textures: Vec::new(),
 			tree: vec![Tree::new(size); layer_count as usize],
 		}
@@ -79,7 +85,7 @@ impl Pager {
 		let mut cell = None;
 		let mut layer = 0;
 		for i in 0..self.tree.len() {
-			cell = self.tree[i].allocate_texture(texture.clone());
+			cell = self.tree[i].allocate_texture(texture);
 			if cell.is_some() {
 				layer = i;
 				break;
@@ -114,5 +120,15 @@ impl Pager {
 
 		let (_, cell) = self.gpu_allocated_textures.get(texture.get_file_name()).unwrap();
 		return Some(cell);
+	}
+
+	/// Checks if the provided texture tree contains the same textures as our tree.
+	pub fn is_same_tree(&self, tree: &Tree) -> bool {
+		&self.tree[0] == tree
+	}
+
+	/// Gets the layer count and the texture size.
+	pub fn get_parameters(&self) -> (usize, u16) {
+		(self.layer_count, self.size)
 	}
 }

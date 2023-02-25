@@ -90,7 +90,7 @@ impl Tree {
 		}
 	}
 
-	pub fn allocate_texture(&mut self, texture: Rc<Texture>) -> Option<Cell> {
+	pub fn allocate_texture(&mut self, texture: &Rc<Texture>) -> Option<Cell> {
 		let size = texture.get_size().0;
 		if size > self.maximum_size {
 			return None;

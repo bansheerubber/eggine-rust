@@ -27,6 +27,12 @@ impl PartialEq for BatchParameters {
 	}
 }
 
+impl Ord for BatchParameters {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.texture.get_size().cmp(&other.texture.get_size())
+	}
+}
+
 impl PartialOrd for BatchParameters {
 	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
 		self.texture.get_size().partial_cmp(&other.texture.get_size())
@@ -49,8 +55,8 @@ impl BatchParameters {
 		self.shapes.iter()
 	}
 
-	pub fn get_texture(&self) -> Rc<textures::Texture> {
-		self.texture.clone()
+	pub fn get_texture(&self) -> &Rc<textures::Texture> {
+		&self.texture
 	}
 
 	pub fn make_key(&self) -> BatchParametersKey {
