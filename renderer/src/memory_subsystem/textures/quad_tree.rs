@@ -1,4 +1,6 @@
 use glam::IVec2;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{ Hash, Hasher, };
 use std::rc::Rc;
 
 use super::Texture;
@@ -56,6 +58,7 @@ impl Cell {
 #[derive(Clone, Debug)]
 pub struct Tree {
 	allocated_cells: Vec<Vec<Cell>>,
+	hash: DefaultHasher,
 	/// The size of the largest `Cell`.
 	maximum_size: u16,
 	unallocated_cells: Vec<Vec<Cell>>,
@@ -81,6 +84,7 @@ impl Tree {
 
 		Tree {
 			allocated_cells,
+			hash: DefaultHasher::new(),
 			maximum_size,
 			unallocated_cells,
 		}
@@ -99,6 +103,7 @@ impl Tree {
 			let mut cell = self.unallocated_cells[index].pop().unwrap();
 			cell.kind = CellKind::Allocated;
 			self.allocated_cells[index].push(cell.clone());
+			texture.get_id().hash(&mut self.hash);
 			return Some(cell);
 		}
 
@@ -132,6 +137,8 @@ impl Tree {
 		allocation_cell.kind = CellKind::Allocated;
 		self.allocated_cells[index].push(allocation_cell.clone());
 
+		texture.get_id().hash(&mut self.hash);
+
 		Some(allocation_cell)
 	}
 
@@ -163,5 +170,13 @@ impl Tree {
 		self.allocated_cells[cell.size.trailing_zeros() as usize - 1].push(cell);
 
 		return new_cell;
+	}
+}
+
+impl Eq for Tree {}
+
+impl PartialEq for Tree {
+	fn eq(&self, other: &Self) -> bool {
+		self.hash.finish() == other.hash.finish()
 	}
 }

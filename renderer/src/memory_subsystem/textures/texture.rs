@@ -1,4 +1,10 @@
+use lazy_static::lazy_static;
 use std::hash::Hash;
+use std::sync::Mutex;
+
+lazy_static! {
+	static ref NEXT_TEXTURE_GUID: Mutex<u64> = Mutex::new(0);
+}
 
 /// Describes the byte format of a texture.
 #[derive(Debug)]
@@ -17,28 +23,35 @@ pub enum TextureData {
 pub struct Texture {
 	data: TextureData,
 	file_name: String,
+	id: u64,
 	height: u16,
 	width: u16,
 }
 
 impl Hash for Texture {
 	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-		self.file_name.hash(state);
+		self.id.hash(state);
 	}
 }
 
 impl PartialEq for Texture {
 	fn eq(&self, other: &Self) -> bool {
-		self.file_name == other.file_name
+		self.id == other.id
 	}
 }
 
 impl Texture {
 	/// Create a new texture.
 	pub fn new(file_name: &str, data: TextureData, size: (u16, u16)) -> Self {
+		let mut next_texture_id = NEXT_TEXTURE_GUID.lock().unwrap();
+
+		let id = *next_texture_id;
+		*next_texture_id += 1;
+
 		Texture {
 			data,
 			file_name: file_name.to_string(),
+			id,
 			height: size.1,
 			width: size.0,
 		}
@@ -57,5 +70,10 @@ impl Texture {
 	/// Gets the pixel data loaded from the carton.
 	pub fn get_data(&self) -> &TextureData {
 		&self.data
+	}
+
+	/// Gets the unique texture ID.
+	pub fn get_id(&self) -> u64 {
+		self.id
 	}
 }
