@@ -13,6 +13,7 @@ lazy_static = "1.4.0"
 qoi = "0.4.1"
 rand = "0.8.5"
 streams = { path = "../streams" }
+texpresso = "2.0.1"
 tokio = { features = ["full"], version = "1.22.0" }
 wgpu = { features = ["spirv"], path = "../../wgpu/wgpu" }
 winit = "0.28.1"

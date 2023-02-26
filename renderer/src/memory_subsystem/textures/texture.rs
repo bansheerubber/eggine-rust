@@ -10,6 +10,7 @@ lazy_static! {
 #[derive(Debug)]
 pub enum TextureData {
 	Astc(Vec<u8>, wgpu::AstcBlock),
+	Bc3(Vec<u8>),
 	Raw(Vec<u8>),
 }
 

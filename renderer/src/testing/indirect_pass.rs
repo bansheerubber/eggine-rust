@@ -252,7 +252,8 @@ impl<'a> IndirectPass<'a> {
 		// allocate none texture
 		let memory = boss.get_memory();
 		let mut memory = memory.write().unwrap();
-		let none_texture = memory.texture_pager.load_qoi("data/none.qoi", carton).unwrap();
+		let format = memory.get_texture_descriptor().format;
+		let none_texture = memory.texture_pager.load_qoi("data/none.qoi", format, carton,).unwrap();
 
 		// upload the none texture
 		memory.set_none_texture(none_texture);

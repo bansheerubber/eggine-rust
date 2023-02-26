@@ -27,7 +27,7 @@ pub struct GPUPager {
 
 impl GPUPager {
 	/// Load a QOI file from a carton.
-	pub fn load_qoi(&mut self, file_name: &str, carton: &mut Carton) -> Result<Rc<Texture>, Error> {
+	pub fn load_qoi(&mut self, file_name: &str, format: wgpu::TextureFormat, carton: &mut Carton) -> Result<Rc<Texture>, Error> {
 		// load the FBX up from the carton
 		let qoi_stream = match carton.get_file_data(file_name) {
 			Err(error) => return Err(Error::CartonError(error)),
@@ -66,8 +66,35 @@ impl GPUPager {
 			}
 		}
 
+		let data = match format {
+			wgpu::TextureFormat::Bc3RgbaUnorm => {
+				let size = texpresso::Format::compressed_size(texpresso::Format::Bc3, header.width as usize, header.height as usize);
+				let mut compressed = Vec::new();
+				compressed.resize(size, 0);
+
+				texpresso::Format::compress(
+					texpresso::Format::Bc3,
+					&data,
+					header.width as usize,
+					header.height as usize,
+					texpresso::Params {
+						algorithm: texpresso::Algorithm::IterativeClusterFit,
+						weights: [0.0, 1.0, 0.5],
+						weigh_colour_by_alpha: false,
+					},
+					&mut compressed
+				);
+
+				TextureData::Bc3(compressed)
+			},
+			wgpu::TextureFormat::Rgba8Unorm => {
+				TextureData::Raw(data)
+			},
+			_ => todo!(),
+		};
+
 		self.textures.push(Rc::new(
-			Texture::new(file_name, TextureData::Raw(data), (header.width as u16, header.height as u16))
+			Texture::new(file_name, data, (header.width as u16, header.height as u16))
 		));
 
 		Ok(self.textures[self.textures.len() - 1].clone())

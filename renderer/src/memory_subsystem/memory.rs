@@ -42,7 +42,7 @@ impl<'a> Memory<'a> {
 
 		let texture_descriptor = wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
-			format: wgpu::TextureFormat::Rgba8Unorm,
+			format: wgpu::TextureFormat::Bc3RgbaUnorm,
 			label: None,
 			mip_level_count: 1,
 			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
@@ -125,6 +125,13 @@ impl<'a> Memory<'a> {
 						data
 					} else {
 						panic!("Expected Astc texture format for {}", texture.get_file_name())
+					}
+				},
+				wgpu::TextureFormat::Bc3RgbaUnorm => {
+					if let textures::TextureData::Bc3(data) = texture.get_data() {
+						data
+					} else {
+						panic!("Expected Bc3 texture format for {}", texture.get_file_name())
 					}
 				},
 				wgpu::TextureFormat::Rgba8Unorm => {

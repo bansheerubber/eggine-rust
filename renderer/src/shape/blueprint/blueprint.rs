@@ -319,7 +319,8 @@ impl Blueprint {
 				let texture_file_name = texture_file_name.replace(".png", ".qoi");
 
 				let mut memory = memory.write().unwrap();
-				Some(memory.get_pager_mut().load_qoi(&format!("{}/{}", directory, texture_file_name), carton).unwrap())
+				let format = memory.get_texture_descriptor().format;
+				Some(memory.get_pager_mut().load_qoi(&format!("{}/{}", directory, texture_file_name), format, carton).unwrap())
 			} else {
 				None
 			};
