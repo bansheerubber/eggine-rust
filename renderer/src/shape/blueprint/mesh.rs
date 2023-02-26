@@ -1,4 +1,6 @@
-use crate::memory_subsystem::Node;
+use std::rc::Rc;
+
+use crate::memory_subsystem::{ Node, textures, };
 
 /// Represents buffer data associated with a particular mesh.
 #[derive(Debug)]
@@ -9,6 +11,8 @@ pub struct Mesh {
 	pub indices: Option<Node>,
 	/// Points to the mesh's normal vec3 data. Normals are f32s.
 	pub normals: Option<Node>,
+	/// The texture of the mesh.
+	pub texture: Option<Rc<textures::Texture>>,
 	/// Points to the mesh's uv vec2 data. UVs are f32s.
 	pub uvs: Option<Node>,
 	/// Points to the mesh's vertex vec3 data. Vertices are f32s.

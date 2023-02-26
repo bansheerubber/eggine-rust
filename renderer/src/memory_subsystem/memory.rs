@@ -181,6 +181,10 @@ impl<'a> Memory<'a> {
 		self.texture_pager = textures::GPUPager::new(layer_count as usize, texture_size as u16);
 	}
 
+	pub fn get_pager_mut(&mut self) -> &mut textures::GPUPager {
+		&mut self.texture_pager
+	}
+
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.
 	pub(crate) fn complete_write_buffers(&mut self, encoder: &mut wgpu::CommandEncoder) {
 		// steal the staging belt

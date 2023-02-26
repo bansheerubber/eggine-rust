@@ -31,14 +31,14 @@ async fn main() {
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
 	// load the first test shape
-	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass).unwrap();
+	let blueprint = shape::Blueprint::load("data/test.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	let shape = shape::Shape::new(blueprint.clone());
 	test_pass.add_shape(shape);
 
 	// load the second test shape
-	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass).unwrap();
+	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	for _ in 0..10 {

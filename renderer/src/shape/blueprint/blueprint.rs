@@ -8,8 +8,9 @@ use fbxcel_dom::v7400::object::model::TypedModelHandle;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
+use std::sync::{ Arc, RwLock, };
 
-use crate::memory_subsystem::{ Node, NodeKind, textures, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, textures, };
 use crate::shape;
 
 use super::{ BlueprintState, Mesh, };
@@ -85,7 +86,7 @@ impl Hash for Vertex {
 impl Blueprint {
 	/// Load a FBX file from a carton.
 	pub fn load<T: BlueprintState>(
-		file_name: &str, carton: &mut Carton, state: &mut Box<T>
+		file_name: &str, carton: &mut Carton, state: &mut Box<T>, memory: Arc<RwLock<Memory>>
 	) -> Result<Rc<Blueprint>, BlueprintError> {
 		// load the FBX up from the carton
 		let fbx_stream = match carton.get_file_data(file_name) {
@@ -112,6 +113,24 @@ impl Blueprint {
 		for object in fbx_dom.objects() {
 			if let TypedObjectHandle::Model(TypedModelHandle::Mesh(mesh)) = object.get_typed() {
 				let geometry = mesh.geometry().unwrap();
+
+				// TODO support multiple materials per mesh
+				let mut texture_file_name = None;
+				for material in mesh.materials() {
+					let Some(diffuse_texture) = material.diffuse_texture() else {
+						continue;
+					};
+
+					let Some(video_clip) = diffuse_texture.video_clip() else {
+						continue;
+					};
+
+					let Ok(file_name) = video_clip.relative_filename() else {
+						continue;
+					};
+
+					texture_file_name = Some(file_name.to_string());
+				}
 
 				let layer = geometry.layers().next().unwrap();
 
@@ -220,13 +239,13 @@ impl Blueprint {
 					}
 				}
 
-				meshes.push((deduplicated_vertices, deduplicated_normals, deduplicated_uvs, indices));
+				meshes.push((deduplicated_vertices, deduplicated_normals, deduplicated_uvs, indices, texture_file_name));
 			}
 		}
 
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
-		for (vertices, normals, uvs, indices) in meshes.iter() {
+		for (vertices, normals, uvs, indices, texture_file_name) in meshes.iter() {
 			state.prepare_mesh_pages();
 
 			let vertex_count = indices.len() as u32; // amount of vertices to render
@@ -291,11 +310,23 @@ impl Blueprint {
 				)
 				.unwrap();
 
+			// load the texture, if any
+			let texture = if let Some(texture_file_name) = texture_file_name {
+				let directory = std::path::Path::new(file_name).parent().unwrap().to_str().unwrap();
+				let texture_file_name = texture_file_name.replace(".png", ".qoi");
+
+				let mut memory = memory.write().unwrap();
+				Some(memory.get_pager_mut().load_qoi(&format!("{}/{}", directory, texture_file_name), carton).unwrap())
+			} else {
+				None
+			};
+
 			// push the mesh representation
 			mesh_representations.push(Mesh {
 				first_index: 0,
 				indices,
 				normals,
+				texture,
 				uvs,
 				vertices,
 				vertex_count,
@@ -306,7 +337,7 @@ impl Blueprint {
 		// schedule buffer writes
 		let mut num_indices = 0;
 		let mut highest_index = 0;
-		for ((vertices, normals, uvs, indices), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
+		for ((vertices, normals, uvs, indices, _), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
 			// serialize vertices & write to buffer
 			if let Some(vertices_node) = &mesh.vertices {
 				let mut u8_vertices: Vec<u8> = Vec::new();
