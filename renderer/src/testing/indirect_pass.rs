@@ -611,6 +611,8 @@ impl Pass for IndirectPass<'_> {
     	texture_pager: textures::VirtualPager::new(20, memory.get_texture_descriptor().size.width as u16),
 		};
 
+		let texture_size = memory.get_texture_descriptor().size.width;
+
 		let mut batches = Vec::new();
 		for parameters in sorted_parameters {
 			let allocated_cell = current_batch.texture_pager.allocate_texture(parameters.get_texture());
@@ -620,7 +622,7 @@ impl Pass for IndirectPass<'_> {
 
 				current_batch = Batch {
 					batch_parameters: Vec::new(),
-					texture_pager: textures::VirtualPager::new(20, memory.get_texture_descriptor().size.width as u16),
+					texture_pager: textures::VirtualPager::new(20, texture_size as u16),
 				};
 
 				current_batch.texture_pager.allocate_texture(parameters.get_texture()).unwrap();
@@ -681,10 +683,10 @@ impl Pass for IndirectPass<'_> {
 					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
 						model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
 						texture_offset: glam::Vec4::new(
-							texture.get_position().x as f32 / 2048.0,
-							texture.get_position().y as f32 / 2048.0,
-							texture.get_size() as f32 / 2048.0,
-							texture.get_size() as f32 / 2048.0
+							texture.get_position().x as f32 / texture_size as f32,
+							texture.get_position().y as f32 / texture_size as f32,
+							texture.get_size() as f32 / texture_size as f32,
+							texture.get_size() as f32 / texture_size as f32
 						).to_array(),
 					};
 

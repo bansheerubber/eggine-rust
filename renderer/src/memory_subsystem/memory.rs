@@ -38,7 +38,7 @@ impl<'a> Memory<'a> {
 	pub fn new(context: Rc<WGPUContext>) -> Self {
 		// TODO dynamically figure this out from GPU configuration
 		let layer_count = 20;
-		let texture_size = 2048;
+		let texture_size = 4096;
 
 		let texture_descriptor = wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
