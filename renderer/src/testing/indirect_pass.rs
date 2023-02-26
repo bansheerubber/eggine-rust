@@ -79,6 +79,8 @@ pub struct IndirectPass<'a> {
 	programs: Programs,
 	/// The render textures used in the initial passes in the deferred shading pipeline.
 	render_textures: RenderTextures,
+	/// The shapes that this pass renders.
+	shapes: Vec<Rc<shape::Shape>>,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
 
@@ -267,6 +269,7 @@ impl<'a> IndirectPass<'a> {
 				memory: boss.get_memory().clone(),
 				programs,
 				render_textures,
+				shapes: Vec::new(),
 				vertices_page_written: 0,
 
 				x_angle: 0.0,
@@ -277,22 +280,24 @@ impl<'a> IndirectPass<'a> {
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
 	pub fn add_blueprint(&mut self, blueprint: Rc<shape::Blueprint>) -> Rc<shape::Blueprint> {
-		// create new batches
-		let texture = if blueprint.get_texture().is_none() {
-			let memory = self.memory.read().unwrap();
-			memory.get_none_texture().unwrap()
-		} else {
-			blueprint.get_texture().as_ref().unwrap().clone()
-		};
+		// collect together the textures for the meshes in the blueprint
+		for texture in blueprint.get_textures().iter() {
+			let texture = if texture.is_none() {
+				let memory = self.memory.read().unwrap();
+				memory.get_none_texture().unwrap()
+			} else {
+				texture.as_ref().unwrap().clone()
+			};
 
-		let key = shape::BatchParametersKey {
-			texture: texture.clone(),
-		};
+			let key = shape::BatchParametersKey {
+				texture: texture.clone(),
+			};
 
-		if !self.batching_parameters.contains_key(&key) {
-			let parameters = shape::BatchParameters::new(texture);
-			let key = parameters.make_key();
-			self.batching_parameters.insert(key, parameters);
+			if !self.batching_parameters.contains_key(&key) {
+				let parameters = shape::BatchParameters::new(texture);
+				let key = parameters.make_key();
+				self.batching_parameters.insert(key, parameters);
+			}
 		}
 
 		self.blueprints.push(blueprint);
@@ -301,18 +306,24 @@ impl<'a> IndirectPass<'a> {
 
 	/// Gives `Shape` ownership over to this `Pass` object.
 	pub fn add_shape(&mut self, shape: shape::Shape) {
-		let texture = if shape.get_blueprint().get_texture().is_none() {
-			let memory = self.memory.read().unwrap();
-			memory.get_none_texture().unwrap()
-		} else {
-			shape.get_blueprint().get_texture().as_ref().unwrap().clone()
-		};
+		let shape = Rc::new(shape);
 
-		let batch = self.batching_parameters.get_mut(&shape::BatchParametersKey {
-			texture,
-		}).unwrap();
+		for texture in shape.get_blueprint().get_textures().iter() {
+			let texture = if texture.is_none() {
+				let memory = self.memory.read().unwrap();
+				memory.get_none_texture().unwrap()
+			} else {
+				texture.as_ref().unwrap().clone()
+			};
 
-		batch.add_shape(Rc::new(shape));
+			let batch = self.batching_parameters.get_mut(&shape::BatchParametersKey {
+				texture,
+			}).unwrap();
+
+			batch.add_shape(shape.clone());
+		}
+
+		self.shapes.push(shape);
 	}
 
 	/// Prepares the uniforms for the current tick.
@@ -636,7 +647,7 @@ impl Pass for IndirectPass<'_> {
 			if !memory.is_same_pager(&batch.texture_pager) {
 				memory.reset_pager();
 
-				for texture in textures {
+				for texture in textures.iter() {
 					memory.upload_texture(texture);
 				}
 			}
@@ -647,6 +658,16 @@ impl Pass for IndirectPass<'_> {
 
 			for shape in shapes {
 				for mesh in shape.get_blueprint().get_meshes().iter() {
+					let texture = if mesh.texture.is_none() {
+						memory.get_none_texture().unwrap()
+					} else {
+						mesh.texture.as_ref().unwrap().clone()
+					};
+
+					if !textures.contains(&&texture) { // TODO optimize this whole damn texture thing
+						continue;
+					}
+
 					buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
 						base_index: mesh.first_index,
 						base_instance: 0,
@@ -654,12 +675,6 @@ impl Pass for IndirectPass<'_> {
 						vertex_count: mesh.vertex_count,
 						vertex_offset: mesh.vertex_offset,
 					}.as_bytes());
-
-					let texture = if shape.get_blueprint().get_texture().is_none() {
-						memory.get_none_texture().unwrap()
-					} else {
-						shape.get_blueprint().get_texture().as_ref().unwrap().clone()
-					};
 
 					let texture = memory.texture_pager.get_cell(&texture).unwrap();
 					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {

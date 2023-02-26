@@ -5,7 +5,7 @@ use fbxcel_dom::any::AnyDocument;
 use fbxcel_dom::v7400::data::mesh::layer::TypedLayerElementHandle;
 use fbxcel_dom::v7400::object::TypedObjectHandle;
 use fbxcel_dom::v7400::object::model::TypedModelHandle;
-use std::collections::HashMap;
+use std::collections::{ HashMap, HashSet, };
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
@@ -43,7 +43,8 @@ pub struct Blueprint {
 	file_name: String,
 	/// The meshes decoded from the FBX.
 	meshes: Vec<Mesh>,
-	texture: Option<Rc<textures::Texture>>,
+	/// The textures that the meshes in this blueprint use.
+	textures: HashSet<Option<Rc<textures::Texture>>>,
 }
 
 impl Hash for Blueprint {
@@ -243,6 +244,8 @@ impl Blueprint {
 			}
 		}
 
+		let mut textures = HashSet::new();
+
 		// go through the mesh data and create nodes for it
 		let mut mesh_representations = Vec::new();
 		for (vertices, normals, uvs, indices, texture_file_name) in meshes.iter() {
@@ -321,6 +324,8 @@ impl Blueprint {
 				None
 			};
 
+			textures.insert(texture.clone());
+
 			// push the mesh representation
 			mesh_representations.push(Mesh {
 				first_index: 0,
@@ -388,7 +393,7 @@ impl Blueprint {
 		Ok(Rc::new(Blueprint {
 			file_name: file_name.to_string(),
 			meshes: mesh_representations,
-			texture: None,
+			textures,
 		}))
 	}
 
@@ -396,7 +401,7 @@ impl Blueprint {
 		&self.meshes
 	}
 
-	pub fn get_texture(&self) -> &Option<Rc<textures::Texture>> {
-		&self.texture
+	pub fn get_textures(&self) -> &HashSet<Option<Rc<textures::Texture>>> {
+		&self.textures
 	}
 }

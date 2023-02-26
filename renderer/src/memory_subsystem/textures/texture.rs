@@ -34,6 +34,8 @@ impl Hash for Texture {
 	}
 }
 
+impl Eq for Texture {}
+
 impl PartialEq for Texture {
 	fn eq(&self, other: &Self) -> bool {
 		self.id == other.id
