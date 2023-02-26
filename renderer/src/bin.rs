@@ -1,4 +1,5 @@
 use carton::Carton;
+use rand::Rng;
 use renderer::{ memory_subsystem, shape, };
 use renderer::testing::IndirectPass;
 use tokio;
@@ -41,8 +42,12 @@ async fn main() {
 	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
-	for _ in 0..10 {
-		let shape = shape::Shape::new(blueprint.clone());
+	let mut rng = rand::thread_rng();
+
+	for _ in 0..1000 {
+		let mut shape = shape::Shape::new(blueprint.clone());
+		shape.position = glam::Vec3::new(rng.gen::<f32>() * 150.0, rng.gen::<f32>() * 150.0, 0.0);
+
 		test_pass.add_shape(shape);
 	}
 
