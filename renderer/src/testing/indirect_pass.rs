@@ -332,9 +332,9 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			75.0 * self.x_angle.cos() * self.y_angle.sin(),
-			75.0 * self.x_angle.sin() * self.y_angle.sin(),
-			75.0 * self.y_angle.cos(),
+			15.0 * self.x_angle.cos() * self.y_angle.sin(),
+			15.0 * self.x_angle.sin() * self.y_angle.sin(),
+			15.0 * self.y_angle.cos(),
 			0.0,
 		);
 
@@ -344,7 +344,7 @@ impl<'a> IndirectPass<'a> {
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 400.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
-			glam::Vec3::new(75.0, 75.0, 0.0),
+			glam::Vec3::new(0.0, 0.0, 0.0),
 			glam::Vec3::Z, // z is up
 		);
 

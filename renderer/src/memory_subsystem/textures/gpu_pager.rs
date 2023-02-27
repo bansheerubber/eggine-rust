@@ -78,8 +78,8 @@ impl GPUPager {
 					header.width as usize,
 					header.height as usize,
 					texpresso::Params {
-						algorithm: texpresso::Algorithm::IterativeClusterFit,
-						weights: [0.0, 1.0, 0.5],
+						algorithm: texpresso::Algorithm::ClusterFit,
+						weights: [1.0, 0.5, 0.0],
 						weigh_colour_by_alpha: false,
 					},
 					&mut compressed

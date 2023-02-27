@@ -188,6 +188,7 @@ impl<'a> Memory<'a> {
 		self.texture_pager = textures::GPUPager::new(layer_count as usize, texture_size as u16);
 	}
 
+	/// Get a mutable reference to the texture pager. TODO probably shouldn't expose this
 	pub fn get_pager_mut(&mut self) -> &mut textures::GPUPager {
 		&mut self.texture_pager
 	}
