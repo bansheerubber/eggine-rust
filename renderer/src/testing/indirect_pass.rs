@@ -64,6 +64,9 @@ pub struct IndirectPass<'a> {
 	batching_parameters: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
 	blueprints: Vec<Rc<shape::Blueprint>>,
+	/// Since the compositor step's render operations do not change frame-to-frame, pre-record the operations to a render
+	/// bundle for improved performance.
+	compositor_render_bundle: Option<wgpu::RenderBundle>,
 	/// Stores `wgpu` created objects required for basic rendering operations.
 	context: Rc<WGPUContext>,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
@@ -263,6 +266,7 @@ impl<'a> IndirectPass<'a> {
 				allocated_memory,
 				batching_parameters: HashMap::new(),
 				blueprints: Vec::new(),
+				compositor_render_bundle: None,
 				context,
 				highest_vertex_offset: 0,
 				indices_page_written: 0,
@@ -526,6 +530,30 @@ impl<'a> IndirectPass<'a> {
 			window_width: config.width,
 		}
 	}
+
+	/// Creates a render bundle with commands that are shared between multiple render passes.
+	fn create_compositor_bundle(&mut self, pipeline: &wgpu::RenderPipeline) {
+		let mut encoder = self.context.device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
+			color_formats: &[
+				Some(wgpu::TextureFormat::Bgra8UnormSrgb)
+			],
+			depth_stencil: None,
+			label: None,
+			multiview: None,
+			sample_count: 1,
+		});
+
+		encoder.set_pipeline(pipeline);
+
+		// bind uniforms
+		encoder.set_bind_group(0, &self.render_textures.composite_bind_group, &[]);
+
+		encoder.draw(0..3, 0..1);
+
+		self.compositor_render_bundle = Some(encoder.finish(&wgpu::RenderBundleDescriptor {
+			label: None,
+		}));
+	}
 }
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
@@ -613,6 +641,7 @@ impl Pass for IndirectPass<'_> {
 
 		let texture_size = memory.get_texture_descriptor().size.width;
 
+		// go through the batch parameters and compute the individual batches we need to draw
 		let mut batches = Vec::new();
 		for parameters in sorted_parameters {
 			let allocated_cell = current_batch.texture_pager.allocate_texture(parameters.get_texture());
@@ -659,6 +688,7 @@ impl Pass for IndirectPass<'_> {
 				.flat_map(|x| x.get_shapes())
 				.collect::<Vec<&Rc<shape::Shape>>>();
 
+			// iterate through the shapes in the batch and draw them
 			for shape in shapes {
 				for mesh in shape.get_blueprint().get_meshes().iter() {
 					let texture = if mesh.texture.is_none() {
@@ -782,6 +812,8 @@ impl Pass for IndirectPass<'_> {
 			}
 		}
 
+		drop(memory);
+
 		// combine the textures in the G-buffer
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -799,17 +831,19 @@ impl Pass for IndirectPass<'_> {
 				label: None,
 			});
 
-			render_pass.set_pipeline(pipelines[1]);
+			// create the render bundle if necessary
+			if self.compositor_render_bundle.is_none() {
+				self.create_compositor_bundle(pipelines[1]);
+			}
 
-			// bind uniforms
-			render_pass.set_bind_group(0, &self.render_textures.composite_bind_group, &[]);
-
-			render_pass.draw(0..3, 0..1);
+			render_pass.execute_bundles([self.compositor_render_bundle.as_ref().unwrap()]);
 		}
 	}
 
 	/// Handle a window resize.
 	fn resize(&mut self, config: &wgpu::SurfaceConfiguration) {
+		self.compositor_render_bundle = None; // invalidate the render bundle
+
 		self.render_textures = IndirectPass::create_render_textures(
 			&self.context, config, self.programs.composite_program.clone()
 		);
