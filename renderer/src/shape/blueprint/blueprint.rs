@@ -32,8 +32,8 @@ pub enum BlueprintDataKind {
 	Esoteric(String),
 	Index,
 	Normal,
+	Position,
 	UV,
-	Vertex,
 }
 
 /// A collection of meshes loaded from a single FBX file.
@@ -109,209 +109,31 @@ impl Blueprint {
 			_ => panic!("Unsupported FBX version"),
 		};
 
-		// look for mesh data and construct data vectors we can then put into wgpu buffers
 		let mut meshes = Vec::new();
-		for object in fbx_dom.objects() {
-			if let TypedObjectHandle::Model(TypedModelHandle::Mesh(mesh)) = object.get_typed() {
-				let geometry = mesh.geometry().unwrap();
-
-				// TODO support multiple materials per mesh
-				let mut texture_file_name = None;
-				for material in mesh.materials() {
-					let Some(diffuse_texture) = material.diffuse_texture() else {
-						continue;
-					};
-
-					let Some(video_clip) = diffuse_texture.video_clip() else {
-						continue;
-					};
-
-					let Ok(file_name) = video_clip.relative_filename() else {
-						continue;
-					};
-
-					texture_file_name = Some(file_name.to_string());
-				}
-
-				let layer = geometry.layers().next().unwrap();
-
-				// get the vertices from the mesh and triangulate them
-				let triangulated_vertices = geometry
-					.polygon_vertices()
-					.context(format!("Could not get polygon vertices for mesh {:?}", mesh.name()))
-					.unwrap()
-					.triangulate_each(shape::triangulator)
-					.context(format!("Could not triangulate vertices for mesh {:?}", mesh.name()))
-					.unwrap();
-
-				// get the raw vertex data
-				let mut vertices: Vec<Vec3> = Vec::new();
-				for vertex in triangulated_vertices.triangle_vertex_indices() {
-					let vertex = triangulated_vertices.control_point(vertex).unwrap();
-					vertices.push(Vec3 {
-							x: vertex.x as f32,
-					 		y: vertex.y as f32,
-						 	z: vertex.z as f32,
-					});
-				}
-
-				// get the normals vector
-				let mut normals = Vec::new();
-				let raw_normals = layer
-					.layer_element_entries()
-					.find_map(|entry| match entry.typed_layer_element() {
-							Ok(TypedLayerElementHandle::Normal(handle)) => Some(handle),
-							_ => None,
-					})
-					.unwrap()
-					.normals()
-					.context(format!("Could not get normals for mesh {:?}", mesh.name()))
-					.unwrap();
-
-				for index in triangulated_vertices.triangle_vertex_indices() {
-					let normal = raw_normals.normal(&triangulated_vertices, index).unwrap();
-					normals.push(
-						Vec3 {
-							x: normal.x as f32,
-							y: normal.y as f32,
-							z: normal.z as f32,
-						}
-					);
-				}
-
-				// get the UVs vector
-				let mut uvs = Vec::new();
-				let raw_uvs = layer
-					.layer_element_entries()
-					.find_map(|entry| match entry.typed_layer_element() {
-							Ok(TypedLayerElementHandle::Uv(handle)) => Some(handle),
-							_ => None,
-					})
-					.unwrap()
-					.uv()
-					.context(format!("Could not get normals for mesh {:?}", mesh.name()))
-					.unwrap();
-
-				for index in triangulated_vertices.triangle_vertex_indices() {
-					let uv = raw_uvs.uv(&triangulated_vertices, index).unwrap();
-					uvs.push(
-						Vec2 {
-							x: uv.x as f32,
-							y: uv.y as f32,
-						}
-					);
-				}
-
-				// build the indexed buffers for positions + normals, indexed buffers are deduplicated on position/normal pairs.
-				// we need to deduplicate vertex position + normals so we can abuse the memory savings we get from using indexed
-				// draw calls. without deduplication, indexed draw calls make no sense
-				let mut lookup: HashMap<Vertex, u32> = HashMap::new();
-				let mut deduplicated_vertices: Vec<Vec3> = Vec::new();
-				let mut deduplicated_normals: Vec<Vec3> = Vec::new();
-				let mut deduplicated_uvs: Vec<Vec2> = Vec::new();
-				let mut indices: Vec<u32> = Vec::new();
-				let mut next_index = 0;
-
-				// go through vertices/normals, build a hash map that is used for deduplication
-				for i in 0..vertices.len(){
-					let position = vertices[i];
-					let normal = normals[i];
-					let uv = uvs[i];
-
-					let vertex = Vertex {
-						normal: normal.clone(),
-						position: position.clone(),
-						uv: uv.clone(),
-					};
-
-					if lookup.contains_key(&vertex) {
-						let index = lookup.get(&vertex).unwrap();
-						indices.push(*index);
-					} else { // if we have a unique vertex, then add its position/normal to the deduplicated output
-						deduplicated_vertices.push(position.clone());
-						deduplicated_normals.push(normal.clone());
-						deduplicated_uvs.push(uv.clone());
-
-						indices.push(next_index);
-
-						lookup.insert(vertex, next_index);
-
-						next_index += 1
-					}
-				}
-
-				meshes.push((deduplicated_vertices, deduplicated_normals, deduplicated_uvs, indices, texture_file_name));
-			}
-		}
-
 		let mut textures = HashSet::new();
+		let mut num_indices = 0;
+		let mut highest_index = 0;
 
-		// go through the mesh data and create nodes for it
-		let mut mesh_representations = Vec::new();
-		for (vertices, normals, uvs, indices, texture_file_name) in meshes.iter() {
+		// look for mesh data and construct data vectors we can then put into wgpu buffers
+		for object in fbx_dom.objects() {
+			let TypedObjectHandle::Model(TypedModelHandle::Mesh(mesh)) = object.get_typed() else {
+				continue;
+			};
+
+			let geometry = mesh.geometry().unwrap();
+			let layer = geometry.layers().next().unwrap();
+
+			let texture_file_name = Blueprint::load_texture_file_name(&mesh);
+			let (positions, normals, uvs) = Blueprint::load_vertex_data(&mesh, &geometry, &layer);
+			let (indices, positions, normals, uvs) = Blueprint::create_indexable_vertices(positions, normals, uvs);
+
+			// begin preparing the memory subsystem for mesh data upload
 			state.prepare_mesh_pages();
 
-			let vertex_count = indices.len() as u32; // amount of vertices to render
-
-			// allocate node for `Vec3` vertices
-			let vertices = state.get_named_node(
-				BlueprintDataKind::Vertex,
-				(vertices.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				std::mem::size_of::<f32>() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Vertex);
-						Ok(None)
-					}
-				)
-				.unwrap();
-
-			// allocate node for `Vec3` normals
-			let normals = state.get_named_node(
-				BlueprintDataKind::Normal,
-				(normals.len() * 3 * std::mem::size_of::<f32>()) as u64,
-				std::mem::size_of::<f32>() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Normal);
-						Ok(None)
-					}
-				)
-				.unwrap();
-
-			// allocate node for `Vec2` uvs
-			let uvs = state.get_named_node(
-				BlueprintDataKind::UV,
-				(uvs.len() * 2 * std::mem::size_of::<f32>()) as u64,
-				std::mem::size_of::<f32>() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::UV);
-						Ok(None)
-					}
-				)
-				.unwrap();
-
-			// allocate node for `u32` Indices
-			let indices = state.get_named_node(
-				BlueprintDataKind::Index,
-				(indices.len() * std::mem::size_of::<shape::IndexType>()) as u64,
-				std::mem::size_of::<shape::IndexType>() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<Node>, ()> {
-						eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Index);
-						Ok(None)
-					}
-				)
-				.unwrap();
+			// allocate nodes
+			let (indices_node, positions_node, normals_node, uvs_node) = Blueprint::allocate_nodes(
+				&indices, &positions, &normals, &uvs, state
+			);
 
 			// load the texture, if any
 			let texture = if let Some(texture_file_name) = texture_file_name {
@@ -325,75 +147,38 @@ impl Blueprint {
 				None
 			};
 
-			textures.insert(texture.clone());
+			textures.insert(texture.clone()); // put texture into textures set
 
-			// push the mesh representation
-			mesh_representations.push(Mesh {
+			// create the mesh representation
+			let mut mesh = Mesh {
 				first_index: 0,
-				indices,
-				normals,
+				indices: indices_node,
+				normals: normals_node,
+				positions: positions_node,
+				roughness: 0.5,
 				texture,
-				uvs,
-				vertices,
-				vertex_count,
+				uvs: uvs_node,
+				vertex_count: indices.len() as u32,
 				vertex_offset: 0,
-			});
-		}
+			};
 
-		// schedule buffer writes
-		let mut num_indices = 0;
-		let mut highest_index = 0;
-		for ((vertices, normals, uvs, indices, _), mesh) in meshes.iter().zip(mesh_representations.iter_mut()) {
-			// serialize vertices & write to buffer
-			if let Some(vertices_node) = &mesh.vertices {
-				let mut u8_vertices: Vec<u8> = Vec::new();
-				for point in vertices {
-					u8_vertices.extend_from_slice(bytemuck::bytes_of(point));
-				}
+			// write vertex information to memory
+			(num_indices, highest_index) = Blueprint::write_nodes(
+				&indices, &positions, &normals, &uvs, state, &mesh, num_indices, highest_index
+			);
 
-				state.write_node(BlueprintDataKind::Vertex, &vertices_node, u8_vertices);
-			}
-
-			// serialize normals & write to buffer
-			if let Some(normals_node) = &mesh.normals {
-				let mut u8_normals: Vec<u8> = Vec::new();
-				for normal in normals {
-					u8_normals.extend_from_slice(bytemuck::bytes_of(normal));
-				}
-
-				state.write_node(BlueprintDataKind::Normal, &normals_node, u8_normals);
-			}
-
-			// serialize uvs & write to buffer
-			if let Some(uvs_node) = &mesh.uvs {
-				let mut u8_uvs: Vec<u8> = Vec::new();
-				for uv in uvs {
-					u8_uvs.extend_from_slice(bytemuck::bytes_of(uv));
-				}
-
-				state.write_node(BlueprintDataKind::UV, &uvs_node, u8_uvs);
-			}
-
-			// serialize indices & write to buffer
-			if let Some(indices_node) = &mesh.indices {
-				let mut u8_indices: Vec<u8> = Vec::new();
-				for index in indices {
-					highest_index = std::cmp::max(highest_index, *index);
-					u8_indices.extend_from_slice(bytemuck::bytes_of(index));
-				}
-
-				state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
-			}
-
-			num_indices += indices.len();
-
+			// update indices/offsets for mesh
 			mesh.first_index = state.calc_first_index(num_indices as u32);
 			mesh.vertex_offset = state.calc_vertex_offset(highest_index as i32);
+
+			println!("{} {} {} {}", mesh.first_index, mesh.vertex_offset, indices.len(), positions.len());
+
+			meshes.push(mesh); // push to final output
 		}
 
 		Ok(Rc::new(Blueprint {
 			file_name: file_name.to_string(),
-			meshes: mesh_representations,
+			meshes,
 			textures,
 		}))
 	}
@@ -404,5 +189,278 @@ impl Blueprint {
 
 	pub fn get_textures(&self) -> &HashSet<Option<Rc<textures::Texture>>> {
 		&self.textures
+	}
+
+	/// Helper function that extracts the texture from FBX data.
+	fn load_texture_file_name(mesh: &fbxcel_dom::v7400::object::model::MeshHandle) -> Option<String> {
+		// TODO support multiple materials per mesh
+		let mut texture_file_name = None;
+		for material in mesh.materials() {
+			let Some(diffuse_texture) = material.diffuse_texture() else {
+				continue;
+			};
+
+			let Some(video_clip) = diffuse_texture.video_clip() else {
+				continue;
+			};
+
+			let Ok(file_name) = video_clip.relative_filename() else {
+				continue;
+			};
+
+			texture_file_name = Some(file_name.to_string());
+		}
+
+		return texture_file_name;
+	}
+
+	/// Helper function that extracts vertex positions, normals, and UVs.
+	fn load_vertex_data(
+		mesh: &fbxcel_dom::v7400::object::model::MeshHandle,
+		geometry: &fbxcel_dom::v7400::object::geometry::MeshHandle,
+		layer: &fbxcel_dom::v7400::data::mesh::layer::LayerHandle
+	) -> (Vec<Vec3>, Vec<Vec3>, Vec<Vec2>) {
+		// get the vertices from the mesh and triangulate them
+		let triangulated_vertices = geometry
+			.polygon_vertices()
+			.context(format!("Could not get polygon vertices for mesh {:?}", mesh.name()))
+			.unwrap()
+			.triangulate_each(shape::triangulator)
+			.context(format!("Could not triangulate vertices for mesh {:?}", mesh.name()))
+			.unwrap();
+
+		// get the raw vertex data
+		let mut positions: Vec<Vec3> = Vec::new();
+		for index in triangulated_vertices.triangle_vertex_indices() {
+			let position = triangulated_vertices.control_point(index).unwrap();
+			positions.push(Vec3 {
+					x: position.x as f32,
+					y: position.y as f32,
+					z: position.z as f32,
+			});
+		}
+
+		// get the normals vector
+		let mut normals = Vec::new();
+		let raw_normals = layer
+			.layer_element_entries()
+			.find_map(|entry| match entry.typed_layer_element() {
+					Ok(TypedLayerElementHandle::Normal(handle)) => Some(handle),
+					_ => None,
+			})
+			.unwrap()
+			.normals()
+			.context(format!("Could not get normals for mesh {:?}", mesh.name()))
+			.unwrap();
+
+		for index in triangulated_vertices.triangle_vertex_indices() {
+			let normal = raw_normals.normal(&triangulated_vertices, index).unwrap();
+			normals.push(
+				Vec3 {
+					x: normal.x as f32,
+					y: normal.y as f32,
+					z: normal.z as f32,
+				}
+			);
+		}
+
+		// get the UVs vector
+		let mut uvs = Vec::new();
+		let raw_uvs = layer
+			.layer_element_entries()
+			.find_map(|entry| match entry.typed_layer_element() {
+					Ok(TypedLayerElementHandle::Uv(handle)) => Some(handle),
+					_ => None,
+			})
+			.unwrap()
+			.uv()
+			.context(format!("Could not get normals for mesh {:?}", mesh.name()))
+			.unwrap();
+
+		for index in triangulated_vertices.triangle_vertex_indices() {
+			let uv = raw_uvs.uv(&triangulated_vertices, index).unwrap();
+			uvs.push(
+				Vec2 {
+					x: uv.x as f32,
+					y: uv.y as f32,
+				}
+			);
+		}
+
+		(positions, normals, uvs)
+	}
+
+	/// Helper function that iterates through the supplied vertex data and creates an index buffer for Vulkan rendering.
+	/// The vertex data is deduplicated.
+	fn create_indexable_vertices(
+		positions: Vec<Vec3>, normals: Vec<Vec3>, uvs: Vec<Vec2>,
+	) -> (Vec<shape::IndexType>, Vec<Vec3>, Vec<Vec3>, Vec<Vec2>) {
+		// build the indexed buffers for positions + normals, indexed buffers are deduplicated on position/normal pairs.
+		// we need to deduplicate vertex position + normals so we can abuse the memory savings we get from using indexed
+		// draw calls. without deduplication, indexed draw calls make no sense
+		let mut lookup: HashMap<Vertex, shape::IndexType> = HashMap::new();
+		let mut deduplicated_positions: Vec<Vec3> = Vec::new();
+		let mut deduplicated_normals: Vec<Vec3> = Vec::new();
+		let mut deduplicated_uvs: Vec<Vec2> = Vec::new();
+		let mut indices: Vec<shape::IndexType> = Vec::new();
+		let mut next_index = 0;
+
+		// go through positions/normals, build a hash map that is used for deduplication
+		for i in 0..positions.len(){
+			let position = positions[i];
+			let normal = normals[i];
+			let uv = uvs[i];
+
+			let vertex = Vertex {
+				normal: normal.clone(),
+				position: position.clone(),
+				uv: uv.clone(),
+			};
+
+			if lookup.contains_key(&vertex) {
+				let index = lookup.get(&vertex).unwrap();
+				indices.push(*index);
+			} else { // if we have a unique vertex, then add its position/normal to the deduplicated output
+				deduplicated_positions.push(position.clone());
+				deduplicated_normals.push(normal.clone());
+				deduplicated_uvs.push(uv.clone());
+
+				indices.push(next_index);
+
+				lookup.insert(vertex, next_index);
+
+				next_index += 1
+			}
+		}
+
+		(indices, deduplicated_positions, deduplicated_normals, deduplicated_uvs)
+	}
+
+	/// Helper function that allocates memory nodes for vertex data.
+	fn allocate_nodes<T: BlueprintState>(
+		indices: &Vec<shape::IndexType>,
+		positions: &Vec<Vec3>,
+		normals: &Vec<Vec3>,
+		uvs: &Vec<Vec2>,
+		state: &mut Box<T>
+	) -> (Option<Node>, Option<Node>, Option<Node>, Option<Node>) {
+		// allocate node for `u32` Indices
+		let indices = state.get_named_node(
+			BlueprintDataKind::Index,
+			(indices.len() * std::mem::size_of::<shape::IndexType>()) as u64,
+			std::mem::size_of::<shape::IndexType>() as u64,
+			NodeKind::Buffer
+		)
+			.or_else(
+				|_| -> Result<Option<Node>, ()> {
+					eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Index);
+					Ok(None)
+				}
+			)
+			.unwrap();
+
+		// allocate node for `Vec3` positions
+		let positions = state.get_named_node(
+			BlueprintDataKind::Position,
+			(positions.len() * 3 * std::mem::size_of::<f32>()) as u64,
+			std::mem::size_of::<f32>() as u64,
+			NodeKind::Buffer
+		)
+			.or_else(
+				|_| -> Result<Option<Node>, ()> {
+					eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Position);
+					Ok(None)
+				}
+			)
+			.unwrap();
+
+		// allocate node for `Vec3` normals
+		let normals = state.get_named_node(
+			BlueprintDataKind::Normal,
+			(normals.len() * 3 * std::mem::size_of::<f32>()) as u64,
+			std::mem::size_of::<f32>() as u64,
+			NodeKind::Buffer
+		)
+			.or_else(
+				|_| -> Result<Option<Node>, ()> {
+					eprintln!("Could not allocate node for {:?}", BlueprintDataKind::Normal);
+					Ok(None)
+				}
+			)
+			.unwrap();
+
+		// allocate node for `Vec2` uvs
+		let uvs = state.get_named_node(
+			BlueprintDataKind::UV,
+			(uvs.len() * 2 * std::mem::size_of::<f32>()) as u64,
+			std::mem::size_of::<f32>() as u64,
+			NodeKind::Buffer
+		)
+			.or_else(
+				|_| -> Result<Option<Node>, ()> {
+					eprintln!("Could not allocate node for {:?}", BlueprintDataKind::UV);
+					Ok(None)
+				}
+			)
+			.unwrap();
+
+		(indices, positions, normals, uvs)
+	}
+
+	/// Helper function that writes vertex information to memory.
+	fn write_nodes<T: BlueprintState>(
+		indices: &Vec<shape::IndexType>,
+		positions: &Vec<Vec3>,
+		normals: &Vec<Vec3>,
+		uvs: &Vec<Vec2>,
+		state: &mut Box<T>,
+		mesh: &Mesh,
+		mut num_indices: usize,
+		mut highest_index: usize,
+	) -> (usize, usize) {
+		// serialize indices & write to buffer
+		if let Some(indices_node) = &mesh.indices {
+			let mut u8_indices: Vec<u8> = Vec::new();
+			for index in indices {
+				highest_index = std::cmp::max(highest_index, *index as usize);
+				u8_indices.extend_from_slice(bytemuck::bytes_of(index));
+			}
+
+			state.write_node(BlueprintDataKind::Index, &indices_node, u8_indices);
+		}
+
+		// serialize positions & write to buffer
+		if let Some(positions_node) = &mesh.positions {
+			let mut u8_positions: Vec<u8> = Vec::new();
+			for point in positions {
+				u8_positions.extend_from_slice(bytemuck::bytes_of(point));
+			}
+
+			state.write_node(BlueprintDataKind::Position, &positions_node, u8_positions);
+		}
+
+		// serialize normals & write to buffer
+		if let Some(normals_node) = &mesh.normals {
+			let mut u8_normals: Vec<u8> = Vec::new();
+			for normal in normals {
+				u8_normals.extend_from_slice(bytemuck::bytes_of(normal));
+			}
+
+			state.write_node(BlueprintDataKind::Normal, &normals_node, u8_normals);
+		}
+
+		// serialize uvs & write to buffer
+		if let Some(uvs_node) = &mesh.uvs {
+			let mut u8_uvs: Vec<u8> = Vec::new();
+			for uv in uvs {
+				u8_uvs.extend_from_slice(bytemuck::bytes_of(uv));
+			}
+
+			state.write_node(BlueprintDataKind::UV, &uvs_node, u8_uvs);
+		}
+
+		num_indices += indices.len();
+
+		(num_indices, highest_index)
 	}
 }
