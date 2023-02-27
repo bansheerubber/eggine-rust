@@ -67,7 +67,7 @@ impl GPUPager {
 		}
 
 		let data = match format {
-			wgpu::TextureFormat::Bc3RgbaUnorm => {
+			wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => {
 				let size = texpresso::Format::compressed_size(texpresso::Format::Bc3, header.width as usize, header.height as usize);
 				let mut compressed = Vec::new();
 				compressed.resize(size, 0);
@@ -87,7 +87,7 @@ impl GPUPager {
 
 				TextureData::Bc3(compressed)
 			},
-			wgpu::TextureFormat::Rgba8Unorm => {
+			wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {
 				TextureData::Raw(data)
 			},
 			_ => todo!(),
