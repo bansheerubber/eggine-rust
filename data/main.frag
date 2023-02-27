@@ -4,6 +4,7 @@ layout(location = 0) in vec3 vPosition;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec2 vUV;
 layout(location = 3) in vec3 vCamera;
+layout(location = 4) in float roughness;
 
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 normal;
@@ -25,8 +26,6 @@ void main() {
 	// calculate brdf
 	float brdf = 0.0;
 	{
-		float roughness = 0.4;
-
 		float alpha = pow(roughness, 2.0);
 		float d = pow(alpha, 2.0) / (3.14 * pow((pow(dot(n, h), 2.0) * (pow(alpha, 2.0) - 1.0) + 1.0), 2.0));
 

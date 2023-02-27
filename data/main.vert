@@ -8,6 +8,7 @@ layout(location = 0) out vec3 position;
 layout(location = 1) out vec3 normal;
 layout(location = 2) out vec2 uv;
 layout(location = 3) out vec3 camera;
+layout(location = 4) out float roughness;
 
 layout(std140, set = 0, binding = 0) uniform vertexBlock
 {
@@ -19,6 +20,7 @@ layout(std140, set = 0, binding = 0) uniform vertexBlock
 struct ObjectData {
 	mat4 model;
 	vec4 textureOffset;
+	float roughness;
 };
 
 layout(std140, set = 0, binding = 1) readonly buffer objectBlock
@@ -34,4 +36,7 @@ void main() {
 	normal = vNormal;
 	uv = vUV * ob.objects[gl_DrawID].textureOffset.z + ob.objects[gl_DrawID].textureOffset.xy;
 	camera = vb.cameraPosition;
+
+	// material properties
+	roughness = ob.objects[gl_DrawID].roughness;
 }

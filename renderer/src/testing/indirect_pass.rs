@@ -193,10 +193,10 @@ impl<'a> IndirectPass<'a> {
 			});
 
 			let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-				label: None,
 				address_mode_u: wgpu::AddressMode::ClampToEdge,
 				address_mode_v: wgpu::AddressMode::ClampToEdge,
 				address_mode_w: wgpu::AddressMode::ClampToEdge,
+				label: None,
 				mag_filter: wgpu::FilterMode::Linear,
 				min_filter: wgpu::FilterMode::Nearest,
 				mipmap_filter: wgpu::FilterMode::Nearest,
@@ -336,16 +336,16 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			5.0 * self.x_angle.cos() * self.y_angle.sin(),
-			5.0 * self.x_angle.sin() * self.y_angle.sin(),
-			5.0 * self.y_angle.cos(),
+			8.0 * self.x_angle.cos() * self.y_angle.sin(),
+			8.0 * self.x_angle.sin() * self.y_angle.sin(),
+			8.0 * self.y_angle.cos(),
 			0.0,
 		);
 
 		self.x_angle += 0.01;
 		self.y_angle = 1.0;
 
-		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 400.0);
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 10000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
 			glam::Vec3::new(0.0, 0.0, 0.0),
@@ -718,6 +718,12 @@ impl Pass for IndirectPass<'_> {
 							texture.get_size() as f32 / texture_size as f32,
 							texture.get_size() as f32 / texture_size as f32
 						).to_array(),
+						roughness: glam::Vec4::new(
+							mesh.roughness,
+							0.0,
+							0.0,
+							0.0
+						).to_array(),
 					};
 
 					draw_call_count += 1;
@@ -879,7 +885,7 @@ impl shape::BlueprintState for IndirectPass<'_> {
 			shape::BlueprintDataKind::Index => self.allocated_memory.indices_page,
 			shape::BlueprintDataKind::Normal => self.allocated_memory.normals_page,
 			shape::BlueprintDataKind::UV => self.allocated_memory.uvs_page,
-			shape::BlueprintDataKind::Vertex => self.allocated_memory.vertices_page,
+			shape::BlueprintDataKind::Position => self.allocated_memory.vertices_page,
 			_ => return Ok(None),
 		};
 
@@ -898,7 +904,7 @@ impl shape::BlueprintState for IndirectPass<'_> {
 			},
 			shape::BlueprintDataKind::Normal => self.allocated_memory.normals_page,
 			shape::BlueprintDataKind::UV => self.allocated_memory.uvs_page,
-			shape::BlueprintDataKind::Vertex => {
+			shape::BlueprintDataKind::Position => {
 				self.vertices_page_written += buffer.len() as u64;
 				self.allocated_memory.vertices_page
 			},
