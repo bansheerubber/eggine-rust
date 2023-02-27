@@ -332,9 +332,9 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			15.0 * self.x_angle.cos() * self.y_angle.sin(),
-			15.0 * self.x_angle.sin() * self.y_angle.sin(),
-			15.0 * self.y_angle.cos(),
+			5.0 * self.x_angle.cos() * self.y_angle.sin(),
+			5.0 * self.x_angle.sin() * self.y_angle.sin(),
+			5.0 * self.y_angle.cos(),
 			0.0,
 		);
 

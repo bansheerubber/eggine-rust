@@ -39,11 +39,11 @@ async fn main() {
 	test_pass.add_shape(shape);
 
 	// load the second test shape
-	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
-	let blueprint = test_pass.add_blueprint(blueprint);
+	// let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	// let blueprint = test_pass.add_blueprint(blueprint);
 
-	let shape = shape::Shape::new(blueprint.clone());
-	test_pass.add_shape(shape);
+	// let shape = shape::Shape::new(blueprint.clone());
+	// test_pass.add_shape(shape);
 
 	// let mut rng = rand::thread_rng();
 
