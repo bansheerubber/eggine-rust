@@ -123,7 +123,7 @@ impl Blueprint {
 			let geometry = mesh.geometry().unwrap();
 			let layer = geometry.layers().next().unwrap();
 
-			let texture_file_name = Blueprint::load_texture_file_name(&mesh);
+			let (texture_file_name, roughness) = Blueprint::load_material(&mesh);
 			let (positions, normals, uvs) = Blueprint::load_vertex_data(&mesh, &geometry, &layer);
 			let (indices, positions, normals, uvs) = Blueprint::create_indexable_vertices(positions, normals, uvs);
 
@@ -155,7 +155,7 @@ impl Blueprint {
 				indices: indices_node,
 				normals: normals_node,
 				positions: positions_node,
-				roughness: 0.5,
+				roughness,
 				texture,
 				uvs: uvs_node,
 				vertex_count: indices.len() as u32,
@@ -170,8 +170,6 @@ impl Blueprint {
 			// update indices/offsets for mesh
 			mesh.first_index = state.calc_first_index(num_indices as u32);
 			mesh.vertex_offset = state.calc_vertex_offset(highest_index as i32);
-
-			println!("{} {} {} {}", mesh.first_index, mesh.vertex_offset, indices.len(), positions.len());
 
 			meshes.push(mesh); // push to final output
 		}
@@ -192,9 +190,10 @@ impl Blueprint {
 	}
 
 	/// Helper function that extracts the texture from FBX data.
-	fn load_texture_file_name(mesh: &fbxcel_dom::v7400::object::model::MeshHandle) -> Option<String> {
+	fn load_material(mesh: &fbxcel_dom::v7400::object::model::MeshHandle) -> (Option<String>, f32) {
 		// TODO support multiple materials per mesh
 		let mut texture_file_name = None;
+		let mut roughness = 0.5;
 		for material in mesh.materials() {
 			let Some(diffuse_texture) = material.diffuse_texture() else {
 				continue;
@@ -209,9 +208,16 @@ impl Blueprint {
 			};
 
 			texture_file_name = Some(file_name.to_string());
+
+			let shininess = material.properties().shininess().unwrap().unwrap() as f32;
+			if shininess >= 81.0 - f32::EPSILON { // cap this at 0.1 roughness
+				roughness = 0.1;
+			} else {
+				roughness = (10.0 - shininess.sqrt() as f32) / 10.0;
+			}
 		}
 
-		return texture_file_name;
+		(texture_file_name, roughness)
 	}
 
 	/// Helper function that extracts vertex positions, normals, and UVs.
