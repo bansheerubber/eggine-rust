@@ -35,7 +35,7 @@ struct RenderTextures {
 struct Programs {
 	composite_program: Rc<Program>,
 	g_buffer_program: Rc<Program>,
-	object_uniforms: [ObjectUniform; 5_000],
+	object_uniforms: Vec<ObjectUniform>,
 	texture_bind_group: wgpu::BindGroup,
 	uniform_bind_group: wgpu::BindGroup,
 }
@@ -47,6 +47,7 @@ struct AllocatedMemory {
 	indices_page: PageUUID,
 	indirect_command_buffer: PageUUID,
 	indirect_command_buffer_node: Node,
+	max_objects_per_batch: u64,
 	normals_page: PageUUID,
 	object_storage_page: PageUUID,
 	object_storage_node: Node,
@@ -119,14 +120,17 @@ impl<'a> IndirectPass<'a> {
 			).unwrap();
 
 			// create the storage buffer for object uniforms
+			let object_storage_size = 5_000_000;
 			let object_storage_page_uuid = memory.new_page(
-				5_000_000,
-				wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+				object_storage_size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
 			);
+
 			let object_page = memory.get_page_mut(object_storage_page_uuid).unwrap();
 			let object_storage_node = object_page.allocate_node(
-				std::mem::size_of::<ObjectUniform>() as u64 * 5_000, 4, NodeKind::Buffer
+				object_storage_size, 4, NodeKind::Buffer
 			).unwrap();
+
+			let max_objects_per_batch = object_storage_size / std::mem::size_of::<ObjectUniform>() as u64;
 
 			// create vertex attribute pages
 			let vertices_page = memory.new_page(32_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
@@ -139,6 +143,7 @@ impl<'a> IndirectPass<'a> {
 				indices_page,
 				indirect_command_buffer,
 				indirect_command_buffer_node,
+				max_objects_per_batch,
 				normals_page,
 				object_storage_page: object_storage_page_uuid,
 				object_storage_node,
@@ -239,7 +244,7 @@ impl<'a> IndirectPass<'a> {
 			Programs {
 				composite_program,
 				g_buffer_program,
-    		object_uniforms: [ObjectUniform::default(); 5_000],
+    		object_uniforms: Vec::new(),
 				texture_bind_group,
 				uniform_bind_group,
 			}
@@ -336,9 +341,9 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			8.0 * self.x_angle.cos() * self.y_angle.sin(),
-			8.0 * self.x_angle.sin() * self.y_angle.sin(),
-			8.0 * self.y_angle.cos(),
+			15.0 * self.x_angle.cos() * self.y_angle.sin(),
+			15.0 * self.x_angle.sin() * self.y_angle.sin(),
+			15.0 * self.y_angle.cos(),
 			0.0,
 		);
 
@@ -348,7 +353,7 @@ impl<'a> IndirectPass<'a> {
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 10000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
-			glam::Vec3::new(0.0, 0.0, 0.0),
+			glam::Vec3::new(15.0, 15.0, 0.0),
 			glam::Vec3::Z, // z is up
 		);
 
@@ -701,6 +706,10 @@ impl Pass for IndirectPass<'_> {
 						continue;
 					}
 
+					if draw_call_count as u64 >= self.allocated_memory.max_objects_per_batch {
+						panic!("Exceeded maximum amount of objects per batch")
+					}
+
 					buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
 						base_index: mesh.first_index,
 						base_instance: 0,
@@ -708,6 +717,11 @@ impl Pass for IndirectPass<'_> {
 						vertex_count: mesh.vertex_count,
 						vertex_offset: mesh.vertex_offset,
 					}.as_bytes());
+
+					// allocate `object_uniforms`
+					if draw_call_count >= self.programs.object_uniforms.len() as u32 {
+						self.programs.object_uniforms.push(ObjectUniform::default());
+					}
 
 					let texture = memory.texture_pager.get_cell(&texture).unwrap();
 					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
