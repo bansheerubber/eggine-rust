@@ -216,11 +216,6 @@ impl Blueprint {
 				continue;
 			}
 
-			// the reader is used to read indices and that is it. i want to have granular control over the stuff that i'm
-			// reading for memory system reasons, so we do the rest of the data fetching using accessors
-			// TODO the reader only supports embedded binary data right now, maybe support URIs?
-			let reader = primitive.reader(|_| { Some(&gltf.blob.as_ref().unwrap()) });
-
 			let Some(indices) = primitive.indices() else {
 				return Err(Error::NoIndices);
 			};
@@ -315,7 +310,6 @@ impl Blueprint {
 			// construct indexed eggine buffers. `temp` fills up with a certain amount of data and flushed to GPU VRAM
 			let blob = gltf.blob.as_ref().unwrap();
 			let mut temp = Vec::new();
-			let mut highest_index = 0;
 			for (kind, accessor) in kind_to_accessor.iter() {
 				if accessor.normalized() { // TODO support integer normalization?
 					panic!("Accessor normalization not supported");
@@ -330,16 +324,11 @@ impl Blueprint {
 					accessor.size()
 				};
 
-				for index in reader.read_indices().unwrap().into_u32() {
-					highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
+				let start_index = view.offset() + accessor.offset();
 
-					let start_buffer_index = index as usize * stride + view.offset() + accessor.offset();
-
-					// bounds check
-					assert!(start_buffer_index < view.offset() + accessor.offset() + view.length());
-
+				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
 					// copy binary data straight into the buffer (TODO support type conversion?)
-					temp.extend_from_slice(&blob[start_buffer_index..start_buffer_index + accessor.size()]);
+					temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
 				}
 
 				state.write_node(*kind, &kind_to_node[kind], temp);
@@ -347,6 +336,7 @@ impl Blueprint {
 			}
 
 			// load the indices into VRAM
+			let mut highest_index = 0;
 			{
 				// statically evaluate this to hopefully influence some compiler optimization magic in the below for loops
 				static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
@@ -361,23 +351,37 @@ impl Blueprint {
 
 				let start_index = view.offset() + indices.offset();
 
-				if indices.size() != INDEX_SIZE { // we're dealing with u16 data
+				if indices.size() != INDEX_SIZE {
+					eprintln!("GLTF index size do not match eggine index size, doing type conversion...");
+				}
+
+				if indices.size() == 2 { // we're dealing with u16 data
 					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+						let buffer = &blob[buffer_index..buffer_index + indices.size()];
+
+						let index = (buffer[1] as u32) << 8 | buffer[0] as u32;
+						highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
+
 						if INDEX_SIZE == 4 { // pad u16 data to get us to a u32 size
-							temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+							temp.extend_from_slice(buffer);
 							temp.push(0);
 							temp.push(0);
 						} else { // no conversion needed
-							temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+							temp.extend_from_slice(buffer);
 						}
 					}
 				} else { // we're dealing with u32 data
 					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-						if INDEX_SIZE == 4 { // no conversion needed
-							temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+						let buffer = &blob[buffer_index..buffer_index + INDEX_SIZE];
+
+						let index = if INDEX_SIZE == 4 { // no conversion needed
+							(buffer[3] as u32) << 24 | (buffer[2] as u32) << 16 | (buffer[1] as u32) << 8 | buffer[0] as u32
 						} else { // truncate upper half of u32 data
-							temp.extend_from_slice(&blob[buffer_index..buffer_index + 2]);
-						}
+							(buffer[1] as u32) << 8 | buffer[0] as u32
+						};
+
+						highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
+						temp.extend_from_slice(buffer);
 					}
 				}
 

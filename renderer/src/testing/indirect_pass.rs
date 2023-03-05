@@ -684,7 +684,6 @@ impl Pass for IndirectPass<'_> {
 				for mesh in shape.get_blueprint().get_meshes().iter() { // TODO lets maybe not do a three level nested for loop
 					for primitive in mesh.primitives.iter() {
 						let texture = memory.get_none_texture().unwrap(); // TODO primitive material texture
-
 						if !textures.contains(&&texture) { // TODO optimize this whole damn texture thing
 							continue;
 						}

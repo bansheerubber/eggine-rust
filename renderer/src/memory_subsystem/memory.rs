@@ -94,6 +94,7 @@ impl<'a> Memory<'a> {
 
 	/// Schedules a buffer write for the next frame.
 	pub fn write_buffer(&mut self, page: PageUUID, node: &Node, data: Vec<u8>) {
+		assert!(data.len() <= node.size as usize);
 		self.queued_writes.push((data, page, node.clone()));
 	}
 
