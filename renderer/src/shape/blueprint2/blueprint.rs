@@ -160,11 +160,11 @@ impl Hash for Vertex {
 }
 
 impl Blueprint {
-	/// Load a FBX file from a carton.
+	/// Load a GLTF file from a carton.
 	pub fn load<T: State>(
 		file_name: &str, carton: &mut Carton, state: &mut Box<T>, memory: Arc<RwLock<Memory>>
 	) -> Result<Rc<Blueprint>, Error> {
-		// load the FBX up from the carton
+		// load the GLTF up from the carton
 		let gltf_stream = match carton.get_file_data(file_name) {
 			Err(error) => return Err(Error::CartonError(error)),
 			Ok(gltf_stream) => gltf_stream,
@@ -172,21 +172,24 @@ impl Blueprint {
 
 		let gltf = gltf::Gltf::from_reader(gltf_stream).unwrap();
 
+		let mut blueprint = Blueprint {
+			file_name: file_name.to_string(),
+			meshes: Vec::new(),
+		};
+
 		for scene in gltf.scenes() {
 			for node in scene.nodes() {
-				Self::parse_tree(&gltf, &node, state, memory.clone()).unwrap();
+				Self::parse_tree(&mut blueprint, &gltf, &node, state, memory.clone()).unwrap();
 			}
 		}
 
-		Ok(Rc::new(Blueprint {
-			file_name: file_name.to_string(),
-			meshes: Vec::new(),
-		}))
+		Ok(Rc::new(blueprint))
 	}
 
+	/// Parses the GLTF tree and adds loaded structures into the `Blueprint`.
 	fn parse_tree<T: State>(
-		gltf: &gltf::Gltf, node: &gltf::Node, state: &mut Box<T>, memory: Arc<RwLock<Memory>>
-	) -> Result<Option<()>, Error> {
+		blueprint: &mut Blueprint, gltf: &gltf::Gltf, node: &gltf::Node, state: &mut Box<T>, memory: Arc<RwLock<Memory>>
+	) -> Result<Option<Rc<Mesh>>, Error> {
 		let Some(mesh) = node.mesh() else {
 			return Ok(None);
 		};
@@ -380,15 +383,29 @@ impl Blueprint {
 			});
 		}
 
-		println!("{:?}", primitives);
+		let mut mesh = Mesh {
+			children: Vec::new(),
+			primitives,
+			transform: glam::Mat4::IDENTITY,
+		};
 
 		// parse the rest of the children
 		for child in node.children() {
-			if let Err(error) = Self::parse_tree(gltf, &child, state, memory.clone()) {
-				return Err(error);
+			match Self::parse_tree(blueprint, gltf, &child, state, memory.clone()) {
+				Ok(child) => { // add children meshes
+					if let Some(child) = child {
+						mesh.children.push(child);
+					}
+				},
+				Err(error) => return Err(error),
 			}
 		}
 
-		Ok(None)
+		// make blueprint own mesh and return a copy of the mesh (so other meshes can add the mesh as a child)
+		let mesh = Rc::new(mesh);
+		let output = mesh.clone();
+		blueprint.meshes.push(mesh);
+
+		Ok(Some(output))
 	}
 }
