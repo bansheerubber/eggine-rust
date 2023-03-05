@@ -64,7 +64,7 @@ pub struct IndirectPass<'a> {
 	/// The batches of shapes used during rendering.
 	batching_parameters: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
-	blueprints: Vec<Rc<shape::Blueprint>>,
+	blueprints: Vec<Rc<shape::blueprint2::Blueprint>>,
 	/// Since the compositor step's render operations do not change frame-to-frame, pre-record the operations to a render
 	/// bundle for improved performance.
 	compositor_render_bundle: Option<wgpu::RenderBundle>,
@@ -289,22 +289,15 @@ impl<'a> IndirectPass<'a> {
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
-	pub fn add_blueprint(&mut self, blueprint: Rc<shape::Blueprint>) -> Rc<shape::Blueprint> {
+	pub fn add_blueprint(&mut self, blueprint: Rc<shape::blueprint2::Blueprint>) -> Rc<shape::blueprint2::Blueprint> {
 		// collect together the textures for the meshes in the blueprint
 		for texture in blueprint.get_textures().iter() {
-			let texture = if texture.is_none() {
-				let memory = self.memory.read().unwrap();
-				memory.get_none_texture().unwrap()
-			} else {
-				texture.as_ref().unwrap().clone()
-			};
-
 			let key = shape::BatchParametersKey {
 				texture: texture.clone(),
 			};
 
 			if !self.batching_parameters.contains_key(&key) {
-				let parameters = shape::BatchParameters::new(texture);
+				let parameters = shape::BatchParameters::new(texture.clone());
 				let key = parameters.make_key();
 				self.batching_parameters.insert(key, parameters);
 			}
@@ -319,15 +312,8 @@ impl<'a> IndirectPass<'a> {
 		let shape = Rc::new(shape);
 
 		for texture in shape.get_blueprint().get_textures().iter() {
-			let texture = if texture.is_none() {
-				let memory = self.memory.read().unwrap();
-				memory.get_none_texture().unwrap()
-			} else {
-				texture.as_ref().unwrap().clone()
-			};
-
 			let batch = self.batching_parameters.get_mut(&shape::BatchParametersKey {
-				texture,
+				texture: texture.clone(),
 			}).unwrap();
 
 			batch.add_shape(shape.clone());
@@ -341,9 +327,9 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			15.0 * self.x_angle.cos() * self.y_angle.sin(),
-			15.0 * self.x_angle.sin() * self.y_angle.sin(),
-			15.0 * self.y_angle.cos(),
+			7.0 * self.x_angle.cos() * self.y_angle.sin(),
+			7.0 * self.x_angle.sin() * self.y_angle.sin(),
+			7.0 * self.y_angle.cos(),
 			0.0,
 		);
 
@@ -353,7 +339,7 @@ impl<'a> IndirectPass<'a> {
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 10000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
-			glam::Vec3::new(15.0, 15.0, 0.0),
+			glam::Vec3::new(0.0, 0.0, 0.0),
 			glam::Vec3::Z, // z is up
 		);
 
@@ -695,52 +681,50 @@ impl Pass for IndirectPass<'_> {
 
 			// iterate through the shapes in the batch and draw them
 			for shape in shapes {
-				for mesh in shape.get_blueprint().get_meshes().iter() {
-					let texture = if mesh.texture.is_none() {
-						memory.get_none_texture().unwrap()
-					} else {
-						mesh.texture.as_ref().unwrap().clone()
-					};
+				for mesh in shape.get_blueprint().get_meshes().iter() { // TODO lets maybe not do a three level nested for loop
+					for primitive in mesh.primitives.iter() {
+						let texture = memory.get_none_texture().unwrap(); // TODO primitive material texture
 
-					if !textures.contains(&&texture) { // TODO optimize this whole damn texture thing
-						continue;
+						if !textures.contains(&&texture) { // TODO optimize this whole damn texture thing
+							continue;
+						}
+
+						if draw_call_count as u64 >= self.allocated_memory.max_objects_per_batch {
+							panic!("Exceeded maximum amount of objects per batch")
+						}
+
+						buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
+							base_index: primitive.first_index,
+							base_instance: 0,
+							instance_count: 1,
+							vertex_count: primitive.vertex_count,
+							vertex_offset: primitive.vertex_offset,
+						}.as_bytes());
+
+						// allocate `object_uniforms`
+						if draw_call_count >= self.programs.object_uniforms.len() as u32 {
+							self.programs.object_uniforms.push(ObjectUniform::default());
+						}
+
+						let texture = memory.texture_pager.get_cell(&texture).unwrap();
+						self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
+							model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
+							texture_offset: glam::Vec4::new(
+								texture.get_position().x as f32 / texture_size as f32,
+								texture.get_position().y as f32 / texture_size as f32,
+								texture.get_size() as f32 / texture_size as f32,
+								texture.get_size() as f32 / texture_size as f32
+							).to_array(),
+							roughness: glam::Vec4::new(
+								0.5, // TODO primitive material roughness
+								0.0,
+								0.0,
+								0.0
+							).to_array(),
+						};
+
+						draw_call_count += 1;
 					}
-
-					if draw_call_count as u64 >= self.allocated_memory.max_objects_per_batch {
-						panic!("Exceeded maximum amount of objects per batch")
-					}
-
-					buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
-						base_index: mesh.first_index,
-						base_instance: 0,
-						instance_count: 1,
-						vertex_count: mesh.vertex_count,
-						vertex_offset: mesh.vertex_offset,
-					}.as_bytes());
-
-					// allocate `object_uniforms`
-					if draw_call_count >= self.programs.object_uniforms.len() as u32 {
-						self.programs.object_uniforms.push(ObjectUniform::default());
-					}
-
-					let texture = memory.texture_pager.get_cell(&texture).unwrap();
-					self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
-						model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
-						texture_offset: glam::Vec4::new(
-							texture.get_position().x as f32 / texture_size as f32,
-							texture.get_position().y as f32 / texture_size as f32,
-							texture.get_size() as f32 / texture_size as f32,
-							texture.get_size() as f32 / texture_size as f32
-						).to_array(),
-						roughness: glam::Vec4::new(
-							mesh.roughness,
-							0.0,
-							0.0,
-							0.0
-						).to_array(),
-					};
-
-					draw_call_count += 1;
 				}
 			}
 
@@ -987,5 +971,10 @@ impl shape::blueprint2::State for IndirectPass<'_> {
 
 		let mut memory = self.memory.write().unwrap();
 		memory.write_buffer(page, node, buffer);
+	}
+
+	fn get_none_texture(&mut self) -> Rc<textures::Texture> {
+		let memory = self.memory.read().unwrap();
+		memory.get_none_texture().unwrap().clone()
 	}
 }

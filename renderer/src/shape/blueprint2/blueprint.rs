@@ -120,6 +120,8 @@ pub struct Blueprint {
 	file_name: String,
 	/// The meshes decoded from the GLTF.
 	meshes: Vec<Rc<Mesh>>,
+	/// The textures `Mesh`s are dependent on.
+	textures: Vec<Rc<textures::Texture>>,
 }
 
 impl Hash for Blueprint {
@@ -175,8 +177,10 @@ impl Blueprint {
 		let mut blueprint = Blueprint {
 			file_name: file_name.to_string(),
 			meshes: Vec::new(),
+			textures: vec![state.get_none_texture()], // TODO do not always reference the none texture
 		};
 
+		// build the `Blueprint` tree
 		for scene in gltf.scenes() {
 			for node in scene.nodes() {
 				Self::parse_tree(&mut blueprint, &gltf, &node, state, memory.clone()).unwrap();
@@ -184,6 +188,16 @@ impl Blueprint {
 		}
 
 		Ok(Rc::new(blueprint))
+	}
+
+	/// Gets the textures the `Mesh`s are dependent on.
+	pub fn get_textures(&self) -> &Vec<Rc<textures::Texture>> {
+		&self.textures
+	}
+
+	/// Get the meshes owned by the `Blueprint`.
+	pub fn get_meshes(&self) -> &Vec<Rc<Mesh>> {
+		&self.meshes
 	}
 
 	/// Parses the GLTF tree and adds loaded structures into the `Blueprint`.

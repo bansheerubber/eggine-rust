@@ -1,4 +1,6 @@
-use crate::memory_subsystem::{ Node, NodeKind, PageError, };
+use std::rc::Rc;
+
+use crate::memory_subsystem::{ Node, NodeKind, PageError, textures, };
 
 use super::DataKind;
 
@@ -47,4 +49,7 @@ pub trait State {
 
 	/// Wrapper function for writing data into the specified node.
 	fn write_node(&mut self, name: DataKind, node: &Node, buffer: Vec<u8>);
+
+	/// Gets the none texture.
+	fn get_none_texture(&mut self) -> Rc<textures::Texture>;
 }
