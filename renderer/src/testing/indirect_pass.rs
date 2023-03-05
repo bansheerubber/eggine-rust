@@ -929,3 +929,63 @@ impl shape::BlueprintState for IndirectPass<'_> {
 		memory.write_buffer(page, node, buffer);
 	}
 }
+
+/// The way I implement indirect rendering requires seperate pages for each vertex attribute.
+impl shape::blueprint2::State for IndirectPass<'_> {
+	fn calc_first_index(&mut self, num_indices: u32) -> u32 {
+		let first_index = self.indices_written;
+		self.indices_written += num_indices as u32;
+		return first_index;
+	}
+
+	fn calc_vertex_offset(&mut self, highest_index: i32) -> i32 {
+		let vertex_offset = self.highest_vertex_offset;
+		self.highest_vertex_offset += highest_index + 1;
+		return vertex_offset;
+	}
+
+	fn prepare_mesh_pages(&mut self) {
+		// doesn't need to do anything
+	}
+
+	fn get_named_node(
+		&self,
+		name: shape::blueprint2::DataKind,
+		size: u64,
+		align: u64,
+		node_kind: NodeKind,
+	) -> Result<Option<Node>, PageError> {
+		let page = match name {
+			shape::blueprint2::DataKind::Index => self.allocated_memory.indices_page,
+			shape::blueprint2::DataKind::Normal => self.allocated_memory.normals_page,
+			shape::blueprint2::DataKind::UV => self.allocated_memory.uvs_page,
+			shape::blueprint2::DataKind::Position => self.allocated_memory.vertices_page,
+			_ => return Ok(None),
+		};
+
+		let mut memory = self.memory.write().unwrap();
+		memory.get_page_mut(page).unwrap().allocate_node(size, align, node_kind)
+			.and_then(|node| {
+				Ok(Some(node))
+			})
+	}
+
+	fn write_node(&mut self, name: shape::blueprint2::DataKind, node: &Node, buffer: Vec<u8>) {
+		let page = match name {
+			shape::blueprint2::DataKind::Index => {
+				self.indices_page_written += buffer.len() as u64;
+				self.allocated_memory.indices_page
+			},
+			shape::blueprint2::DataKind::Normal => self.allocated_memory.normals_page,
+			shape::blueprint2::DataKind::UV => self.allocated_memory.uvs_page,
+			shape::blueprint2::DataKind::Position => {
+				self.vertices_page_written += buffer.len() as u64;
+				self.allocated_memory.vertices_page
+			},
+			_ => return,
+		};
+
+		let mut memory = self.memory.write().unwrap();
+		memory.write_buffer(page, node, buffer);
+	}
+}

@@ -1,8 +1,10 @@
 mod batch_parameters;
 mod blueprint;
+pub mod blueprint2;
 mod shape;
 mod triangulator;
 
+pub type FloatType = f32;
 pub type IndexType = u32;
 
 pub(crate) use batch_parameters::BatchParameters;

@@ -10,6 +10,15 @@ use renderer::Boss;
 
 #[tokio::main]
 async fn main() {
+	let mut carton = Carton::read("resources.carton").unwrap();
+
+	let event_loop = winit::event_loop::EventLoop::new();
+	let mut boss = Boss::new(&event_loop).await;
+
+	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
+
+	shape::blueprint2::Blueprint::load("data/test.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+
 	// let mut carton = Carton::read("resources.carton").unwrap();
 	// let mut pager = memory_subsystem::textures::Pager::new(20, 2048);
 	// let texture = pager.load_qoi("data/none.qoi", &mut carton).unwrap();
@@ -23,6 +32,7 @@ async fn main() {
 	// let elapsed = now.elapsed();
 	// println!("{:.2?} to allocate {} textures ({:.2?} per texture)", elapsed, count, elapsed / count);
 
+	/*
 	let mut carton = Carton::read("resources.carton").unwrap();
 
 	let event_loop = winit::event_loop::EventLoop::new();
@@ -32,27 +42,24 @@ async fn main() {
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
 	// load the first test shape
-	let blueprint = shape::Blueprint::load("data/purple sphere.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
-	let blueprint = test_pass.add_blueprint(blueprint);
-
-	let shape = shape::Shape::new(blueprint.clone());
-	test_pass.add_shape(shape);
-
-	// load the second test shape
-	// let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	// let blueprint = shape::Blueprint::load("data/purple sphere.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	// let blueprint = test_pass.add_blueprint(blueprint);
 
 	// let shape = shape::Shape::new(blueprint.clone());
 	// test_pass.add_shape(shape);
 
-	// let mut rng = rand::thread_rng();
+	// load the second test shape
+	let blueprint = shape::Blueprint::load("data/lizard.fbx", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	let blueprint = test_pass.add_blueprint(blueprint);
 
-	// for _ in 0..1000 {
-	// 	let mut shape = shape::Shape::new(blueprint.clone());
-	// 	shape.position = glam::Vec3::new(rng.gen::<f32>() * 150.0, rng.gen::<f32>() * 150.0, 0.0);
+	let mut rng = rand::thread_rng();
 
-	// 	test_pass.add_shape(shape);
-	// }
+	for _ in 0..10000 {
+		let mut shape = shape::Shape::new(blueprint.clone());
+		shape.position = glam::Vec3::new(rng.gen::<f32>() * 30.0, rng.gen::<f32>() * 30.0, 0.0);
+
+		test_pass.add_shape(shape);
+	}
 
 	// set the boss's passes
 	boss.set_passes(vec![test_pass]);
@@ -85,5 +92,5 @@ async fn main() {
 			},
 			_ => {},
 		}
-	})
+	})*/
 }
