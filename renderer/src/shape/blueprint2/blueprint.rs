@@ -12,7 +12,7 @@ use super::{ Error, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
 
 /// Specifies the kind of data that was loaded from a shape file. Used to communicate what data `Blueprint` wants
 /// to store using the `BlueprintState` trait.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq,)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DataKind {
 	Color,
 	Index,
@@ -23,12 +23,15 @@ pub enum DataKind {
 
 impl DataKind {
 	pub fn element_size(&self) -> usize {
+		static FLOAT_SIZE: usize = std::mem::size_of::<shape::FloatType>();
+		static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
+
 		match *self {
-			DataKind::Color => std::mem::size_of::<shape::FloatType>(),
-			DataKind::Index => std::mem::size_of::<shape::IndexType>(),
-			DataKind::Normal => std::mem::size_of::<shape::FloatType>(),
-			DataKind::Position => std::mem::size_of::<shape::FloatType>(),
-			DataKind::UV => std::mem::size_of::<shape::FloatType>(),
+			DataKind::Color => FLOAT_SIZE,
+			DataKind::Index => INDEX_SIZE,
+			DataKind::Normal => FLOAT_SIZE,
+			DataKind::Position => FLOAT_SIZE,
+			DataKind::UV => FLOAT_SIZE,
 		}
 	}
 
@@ -43,7 +46,9 @@ impl DataKind {
 	}
 
 	pub fn is_compatible(&self, accessor: &gltf::Accessor) -> bool {
-		if accessor.data_type().size() != self.element_size() {
+		// unsigned integer type conversion for indices is supported, so do not return false if the integer width doesn't
+		// match when we're checking index compatibility
+		if accessor.data_type().size() != self.element_size() && self != &DataKind::Index {
 			return false;
 		}
 
@@ -206,7 +211,7 @@ impl Blueprint {
 			// make sure indices are compatible
 			if !DataKind::Index.is_compatible(&indices) {
 				eprintln!(
-					"Accessor with parameters '{:?}<{:?}>' are not compatible with 'DataKind::{:?}'",
+					"Index accessor with parameters '{:?}<{:?}>' are not compatible with 'DataKind::{:?}'",
 					indices.dimensions(),
 					indices.data_type(),
 					DataKind::Index
@@ -326,6 +331,9 @@ impl Blueprint {
 
 			// load the indices into VRAM
 			{
+				// statically evaluate this to hopefully influence some compiler optimization magic in the below for loops
+				static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
+
 				let view = indices.view().unwrap();
 
 				let stride = if let Some(stride) = view.stride() {
@@ -335,8 +343,25 @@ impl Blueprint {
 				};
 
 				let start_index = view.offset() + indices.offset();
-				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-					temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+
+				if indices.size() != INDEX_SIZE { // we're dealing with u16 data
+					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+						if INDEX_SIZE == 4 { // pad u16 data to get us to a u32 size
+							temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+							temp.push(0);
+							temp.push(0);
+						} else { // no conversion needed
+							temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+						}
+					}
+				} else { // we're dealing with u32 data
+					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+						if INDEX_SIZE == 4 { // no conversion needed
+							temp.extend_from_slice(&blob[buffer_index..buffer_index + indices.size()]);
+						} else { // truncate upper half of u32 data
+							temp.extend_from_slice(&blob[buffer_index..buffer_index + 2]);
+						}
+					}
 				}
 
 				state.write_node(DataKind::Index, &index_node, temp);

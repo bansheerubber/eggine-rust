@@ -17,7 +17,7 @@ async fn main() {
 
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
-	shape::blueprint2::Blueprint::load("data/test.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	shape::blueprint2::Blueprint::load("data/cube.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 
 	// let mut carton = Carton::read("resources.carton").unwrap();
 	// let mut pager = memory_subsystem::textures::Pager::new(20, 2048);
