@@ -1,7 +1,5 @@
 use crate::memory_subsystem::Node;
 
-use super::Material;
-
 #[derive(Debug)]
 pub enum MeshPrimitiveKind {
 	Invalid,

@@ -1,4 +1,5 @@
 mod blueprint;
+mod data_kind;
 mod error;
 mod material;
 mod mesh;
@@ -6,7 +7,7 @@ mod mesh_primitive;
 mod state;
 
 pub use blueprint::Blueprint;
-pub use blueprint::DataKind;
+pub use data_kind::DataKind;
 pub use error::Error;
 pub use material::Material;
 pub use mesh::Mesh;

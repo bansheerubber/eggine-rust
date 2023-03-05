@@ -1,4 +1,4 @@
-use std::collections::{ HashMap, HashSet, };
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
@@ -8,112 +8,9 @@ use carton::Carton;
 use crate::memory_subsystem::{ Memory, Node, NodeKind, textures, };
 use crate::shape;
 
-use super::{ Error, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
+use super::{ DataKind, Error, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
 
-/// Specifies the kind of data that was loaded from a shape file. Used to communicate what data `Blueprint` wants
-/// to store using the `BlueprintState` trait.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum DataKind {
-	Color,
-	Index,
-	Normal,
-	Position,
-	UV,
-}
-
-impl DataKind {
-	pub fn element_size(&self) -> usize {
-		static FLOAT_SIZE: usize = std::mem::size_of::<shape::FloatType>();
-		static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
-
-		match *self {
-			DataKind::Color => FLOAT_SIZE,
-			DataKind::Index => INDEX_SIZE,
-			DataKind::Normal => FLOAT_SIZE,
-			DataKind::Position => FLOAT_SIZE,
-			DataKind::UV => FLOAT_SIZE,
-		}
-	}
-
-	pub fn element_count(&self) -> usize {
-		match *self {
-			DataKind::Color => 4,
-			DataKind::Index => 1,
-			DataKind::Normal => 3,
-			DataKind::Position => 3,
-			DataKind::UV => 2,
-		}
-	}
-
-	pub fn is_compatible(&self, accessor: &gltf::Accessor) -> bool {
-		// unsigned integer type conversion for indices is supported, so do not return false if the integer width doesn't
-		// match when we're checking index compatibility
-		if accessor.data_type().size() != self.element_size() && self != &DataKind::Index {
-			return false;
-		}
-
-		// check floatness/integerness/signedness of `gltf::accessor::DataType`
-		match *self {
-			DataKind::Color => { // do not allow integers
-				if accessor.data_type() != gltf::accessor::DataType::F32 {
-					return false;
-				}
-			},
-			DataKind::Index => { // do not allow signed integers
-				if accessor.data_type() == gltf::accessor::DataType::I8
-					|| accessor.data_type() == gltf::accessor::DataType::I16
-				{
-					return false;
-				}
-			},
-			DataKind::Normal => { // do not allow integers
-				if accessor.data_type() != gltf::accessor::DataType::F32 {
-					return false;
-				}
-			},
-			DataKind::Position => { // do not allow integers
-				if accessor.data_type() != gltf::accessor::DataType::F32 {
-					return false;
-				}
-			},
-			DataKind::UV => { // do not allow integers
-				if accessor.data_type() != gltf::accessor::DataType::F32 {
-					return false;
-				}
-			},
-		}
-
-		match accessor.dimensions() {
-			gltf::accessor::Dimensions::Scalar => {
-				if self.element_count() != 1 {
-					return false;
-				}
-			},
-			gltf::accessor::Dimensions::Vec2 => {
-				if self.element_count() != 2 {
-					return false;
-				}
-			},
-			gltf::accessor::Dimensions::Vec3 => {
-				if self.element_count() != 3 {
-					return false;
-				}
-			},
-			gltf::accessor::Dimensions::Vec4 => {
-				if self.element_count() != 4 {
-					return false;
-				}
-			},
-			gltf::accessor::Dimensions::Mat2 | gltf::accessor::Dimensions::Mat3 | gltf::accessor::Dimensions::Mat4 => {
-				return false
-			},
-		}
-
-		return true;
-	}
-}
-
-/// A collection of meshes loaded from a single FBX file.
+/// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
 pub struct Blueprint {
 	/// The GLTF file we loaded the blueprint from.
@@ -127,37 +24,6 @@ pub struct Blueprint {
 impl Hash for Blueprint {
 	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
 		self.file_name.hash(state);
-	}
-}
-
-/// Used for constructing the indexed vertex buffers.
-#[derive(Clone, Debug)]
-struct Vertex {
-	normal: glam::Vec3,
-	position: glam::Vec3,
-	uv: glam::Vec2,
-}
-
-impl Eq for Vertex {}
-
-impl PartialEq for Vertex {
-	fn eq(&self, other: &Self) -> bool {
-		self.normal == other.normal && self.position == other.position && self.uv == other.uv
-	}
-}
-
-impl Hash for Vertex {
-	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-		self.normal.x.to_bits().hash(state);
-		self.normal.y.to_bits().hash(state);
-		self.normal.z.to_bits().hash(state);
-
-		self.position.x.to_bits().hash(state);
-		self.position.y.to_bits().hash(state);
-		self.position.z.to_bits().hash(state);
-
-		self.uv.x.to_bits().hash(state);
-		self.uv.y.to_bits().hash(state);
 	}
 }
 
