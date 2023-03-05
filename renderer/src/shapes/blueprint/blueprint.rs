@@ -6,7 +6,7 @@ use std::sync::{ Arc, RwLock, };
 use carton::Carton;
 
 use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
-use crate::shape;
+use crate::shapes;
 
 use super::{ DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, };
 
@@ -254,7 +254,7 @@ impl Blueprint {
 			let mut highest_index = 0;
 			{
 				// statically evaluate this to hopefully influence some compiler optimization magic in the below for loops
-				static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
+				static INDEX_SIZE: usize = std::mem::size_of::<shapes::IndexType>();
 
 				let mut temp = Vec::new();
 				let view = indices.view().unwrap();

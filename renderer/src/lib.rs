@@ -2,7 +2,7 @@ pub mod boss;
 pub mod pass;
 pub mod memory_subsystem;
 pub mod shaders;
-pub mod shape;
+pub mod shapes;
 pub mod state;
 pub mod testing;
 

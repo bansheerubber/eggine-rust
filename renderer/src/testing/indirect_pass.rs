@@ -5,7 +5,7 @@ use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
-use crate::{ Pass, shape, };
+use crate::{ Pass, shapes, };
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
 use crate::memory_subsystem::textures::Pager;
@@ -62,9 +62,9 @@ pub struct IndirectPass<'a> {
 	/// The pages and nodes allocated on the GPU.
 	allocated_memory: AllocatedMemory,
 	/// The batches of shapes used during rendering.
-	batching_parameters: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
+	batching_parameters: HashMap<shapes::BatchParametersKey, shapes::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
-	blueprints: Vec<Rc<shape::blueprint::Blueprint>>,
+	blueprints: Vec<Rc<shapes::blueprint::Blueprint>>,
 	/// Since the compositor step's render operations do not change frame-to-frame, pre-record the operations to a render
 	/// bundle for improved performance.
 	compositor_render_bundle: Option<wgpu::RenderBundle>,
@@ -84,7 +84,7 @@ pub struct IndirectPass<'a> {
 	/// The render textures used in the initial passes in the deferred shading pipeline.
 	render_textures: RenderTextures,
 	/// The shapes that this pass renders.
-	shapes: Vec<Rc<shape::Shape>>,
+	shapes: Vec<Rc<shapes::Shape>>,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
 
@@ -289,15 +289,15 @@ impl<'a> IndirectPass<'a> {
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
-	pub fn add_blueprint(&mut self, blueprint: Rc<shape::blueprint::Blueprint>) -> Rc<shape::blueprint::Blueprint> {
+	pub fn add_blueprint(&mut self, blueprint: Rc<shapes::blueprint::Blueprint>) -> Rc<shapes::blueprint::Blueprint> {
 		// collect together the textures for the meshes in the blueprint
 		for texture in blueprint.get_textures().iter() {
-			let key = shape::BatchParametersKey {
+			let key = shapes::BatchParametersKey {
 				texture: texture.clone(),
 			};
 
 			if !self.batching_parameters.contains_key(&key) {
-				let parameters = shape::BatchParameters::new(texture.clone());
+				let parameters = shapes::BatchParameters::new(texture.clone());
 				let key = parameters.make_key();
 				self.batching_parameters.insert(key, parameters);
 			}
@@ -308,11 +308,11 @@ impl<'a> IndirectPass<'a> {
 	}
 
 	/// Gives `Shape` ownership over to this `Pass` object.
-	pub fn add_shape(&mut self, shape: shape::Shape) {
+	pub fn add_shape(&mut self, shape: shapes::Shape) {
 		let shape = Rc::new(shape);
 
 		for texture in shape.get_blueprint().get_textures().iter() {
-			let batch = self.batching_parameters.get_mut(&shape::BatchParametersKey {
+			let batch = self.batching_parameters.get_mut(&shapes::BatchParametersKey {
 				texture: texture.clone(),
 			}).unwrap();
 
@@ -622,7 +622,7 @@ impl Pass for IndirectPass<'_> {
 		let mut memory = self.memory.write().unwrap();
 
 		let mut sorted_parameters = self.batching_parameters.values()
-			.collect::<Vec<&shape::BatchParameters>>();
+			.collect::<Vec<&shapes::BatchParameters>>();
 		sorted_parameters.sort();
 
 		let mut current_batch = Batch {
@@ -677,7 +677,7 @@ impl Pass for IndirectPass<'_> {
 
 			let shapes = batch.batch_parameters.iter()
 				.flat_map(|x| x.get_shapes())
-				.collect::<Vec<&Rc<shape::Shape>>>();
+				.collect::<Vec<&Rc<shapes::Shape>>>();
 
 			// iterate through the shapes in the batch and draw them
 			for shape in shapes {
@@ -854,7 +854,7 @@ impl Pass for IndirectPass<'_> {
 }
 
 /// The way I implement indirect rendering requires seperate pages for each vertex attribute.
-impl shape::blueprint::State for IndirectPass<'_> {
+impl shapes::blueprint::State for IndirectPass<'_> {
 	fn calc_first_index(&mut self, num_indices: u32) -> u32 {
 		let first_index = self.indices_written;
 		self.indices_written += num_indices as u32;
@@ -873,16 +873,16 @@ impl shape::blueprint::State for IndirectPass<'_> {
 
 	fn get_named_node(
 		&self,
-		name: shape::blueprint::DataKind,
+		name: shapes::blueprint::DataKind,
 		size: u64,
 		align: u64,
 		node_kind: NodeKind,
 	) -> Result<Option<Node>, PageError> {
 		let page = match name {
-			shape::blueprint::DataKind::Index => self.allocated_memory.indices_page,
-			shape::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
-			shape::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
-			shape::blueprint::DataKind::Position => self.allocated_memory.vertices_page,
+			shapes::blueprint::DataKind::Index => self.allocated_memory.indices_page,
+			shapes::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
+			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
+			shapes::blueprint::DataKind::Position => self.allocated_memory.vertices_page,
 			_ => return Ok(None),
 		};
 
@@ -893,15 +893,15 @@ impl shape::blueprint::State for IndirectPass<'_> {
 			})
 	}
 
-	fn write_node(&mut self, name: shape::blueprint::DataKind, node: &Node, buffer: Vec<u8>) {
+	fn write_node(&mut self, name: shapes::blueprint::DataKind, node: &Node, buffer: Vec<u8>) {
 		let page = match name {
-			shape::blueprint::DataKind::Index => {
+			shapes::blueprint::DataKind::Index => {
 				self.indices_page_written += buffer.len() as u64;
 				self.allocated_memory.indices_page
 			},
-			shape::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
-			shape::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
-			shape::blueprint::DataKind::Position => {
+			shapes::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
+			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
+			shapes::blueprint::DataKind::Position => {
 				self.vertices_page_written += buffer.len() as u64;
 				self.allocated_memory.vertices_page
 			},

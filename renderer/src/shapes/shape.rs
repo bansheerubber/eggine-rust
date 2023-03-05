@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use crate::shape;
+use crate::shapes;
 
 lazy_static! {
 	static ref NEXT_SHAPE_GUID: Mutex<u64> = Mutex::new(0);
@@ -12,7 +12,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Shape {
-	blueprint: Rc<shape::blueprint::Blueprint>,
+	blueprint: Rc<shapes::blueprint::Blueprint>,
 	id: u64,
 	pub position: Vec3,
 }
@@ -32,7 +32,7 @@ impl PartialEq for Shape {
 }
 
 impl Shape {
-	pub fn new(blueprint: Rc<shape::blueprint::Blueprint>) -> Self {
+	pub fn new(blueprint: Rc<shapes::blueprint::Blueprint>) -> Self {
 		let mut next_shape_id = NEXT_SHAPE_GUID.lock().unwrap();
 
 		let id = *next_shape_id;
@@ -45,7 +45,7 @@ impl Shape {
 		}
 	}
 
-	pub fn get_blueprint(&self) -> Rc<shape::blueprint::Blueprint> {
+	pub fn get_blueprint(&self) -> Rc<shapes::blueprint::Blueprint> {
 		self.blueprint.clone()
 	}
 }

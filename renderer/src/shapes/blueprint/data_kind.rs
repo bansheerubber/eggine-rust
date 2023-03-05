@@ -1,4 +1,4 @@
-use crate::shape;
+use crate::shapes;
 
 /// Specifies the kind of data that was loaded from a shape file. Used to communicate what data `Blueprint` wants
 /// to store using the `BlueprintState` trait.
@@ -13,8 +13,8 @@ pub enum DataKind {
 
 impl DataKind {
 	pub fn element_size(&self) -> usize {
-		static FLOAT_SIZE: usize = std::mem::size_of::<shape::FloatType>();
-		static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
+		static FLOAT_SIZE: usize = std::mem::size_of::<shapes::FloatType>();
+		static INDEX_SIZE: usize = std::mem::size_of::<shapes::IndexType>();
 
 		match *self {
 			DataKind::Color => FLOAT_SIZE,

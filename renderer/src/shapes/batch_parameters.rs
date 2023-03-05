@@ -4,12 +4,12 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 use crate::memory_subsystem::textures;
-use crate::shape;
+use crate::shapes;
 
 /// The parameters that are used in the batching algorithm to generate the smallest number of shape batches.
 #[derive(Debug)]
 pub(crate) struct BatchParameters {
-	shapes: HashSet<Rc<shape::Shape>>,
+	shapes: HashSet<Rc<shapes::Shape>>,
 	texture: Rc<textures::Texture>,
 }
 
@@ -47,11 +47,11 @@ impl BatchParameters {
 		}
 	}
 
-	pub fn add_shape(&mut self, shape: Rc<shape::Shape>) {
+	pub fn add_shape(&mut self, shape: Rc<shapes::Shape>) {
 		self.shapes.insert(shape);
 	}
 
-	pub fn get_shapes(&self) -> Iter<'_, Rc<shape::Shape>> {
+	pub fn get_shapes(&self) -> Iter<'_, Rc<shapes::Shape>> {
 		self.shapes.iter()
 	}
 
