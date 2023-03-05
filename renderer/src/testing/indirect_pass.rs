@@ -64,7 +64,7 @@ pub struct IndirectPass<'a> {
 	/// The batches of shapes used during rendering.
 	batching_parameters: HashMap<shape::BatchParametersKey, shape::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
-	blueprints: Vec<Rc<shape::blueprint2::Blueprint>>,
+	blueprints: Vec<Rc<shape::blueprint::Blueprint>>,
 	/// Since the compositor step's render operations do not change frame-to-frame, pre-record the operations to a render
 	/// bundle for improved performance.
 	compositor_render_bundle: Option<wgpu::RenderBundle>,
@@ -289,7 +289,7 @@ impl<'a> IndirectPass<'a> {
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
-	pub fn add_blueprint(&mut self, blueprint: Rc<shape::blueprint2::Blueprint>) -> Rc<shape::blueprint2::Blueprint> {
+	pub fn add_blueprint(&mut self, blueprint: Rc<shape::blueprint::Blueprint>) -> Rc<shape::blueprint::Blueprint> {
 		// collect together the textures for the meshes in the blueprint
 		for texture in blueprint.get_textures().iter() {
 			let key = shape::BatchParametersKey {
@@ -854,7 +854,7 @@ impl Pass for IndirectPass<'_> {
 }
 
 /// The way I implement indirect rendering requires seperate pages for each vertex attribute.
-impl shape::blueprint2::State for IndirectPass<'_> {
+impl shape::blueprint::State for IndirectPass<'_> {
 	fn calc_first_index(&mut self, num_indices: u32) -> u32 {
 		let first_index = self.indices_written;
 		self.indices_written += num_indices as u32;
@@ -873,16 +873,16 @@ impl shape::blueprint2::State for IndirectPass<'_> {
 
 	fn get_named_node(
 		&self,
-		name: shape::blueprint2::DataKind,
+		name: shape::blueprint::DataKind,
 		size: u64,
 		align: u64,
 		node_kind: NodeKind,
 	) -> Result<Option<Node>, PageError> {
 		let page = match name {
-			shape::blueprint2::DataKind::Index => self.allocated_memory.indices_page,
-			shape::blueprint2::DataKind::Normal => self.allocated_memory.normals_page,
-			shape::blueprint2::DataKind::UV => self.allocated_memory.uvs_page,
-			shape::blueprint2::DataKind::Position => self.allocated_memory.vertices_page,
+			shape::blueprint::DataKind::Index => self.allocated_memory.indices_page,
+			shape::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
+			shape::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
+			shape::blueprint::DataKind::Position => self.allocated_memory.vertices_page,
 			_ => return Ok(None),
 		};
 
@@ -893,15 +893,15 @@ impl shape::blueprint2::State for IndirectPass<'_> {
 			})
 	}
 
-	fn write_node(&mut self, name: shape::blueprint2::DataKind, node: &Node, buffer: Vec<u8>) {
+	fn write_node(&mut self, name: shape::blueprint::DataKind, node: &Node, buffer: Vec<u8>) {
 		let page = match name {
-			shape::blueprint2::DataKind::Index => {
+			shape::blueprint::DataKind::Index => {
 				self.indices_page_written += buffer.len() as u64;
 				self.allocated_memory.indices_page
 			},
-			shape::blueprint2::DataKind::Normal => self.allocated_memory.normals_page,
-			shape::blueprint2::DataKind::UV => self.allocated_memory.uvs_page,
-			shape::blueprint2::DataKind::Position => {
+			shape::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
+			shape::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
+			shape::blueprint::DataKind::Position => {
 				self.vertices_page_written += buffer.len() as u64;
 				self.allocated_memory.vertices_page
 			},

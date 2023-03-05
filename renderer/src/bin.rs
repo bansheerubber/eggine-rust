@@ -34,7 +34,7 @@ async fn main() {
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
 	// load the first test shape
-	let blueprint = shape::blueprint2::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	let blueprint = shape::blueprint::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	let shape = shape::Shape::new(blueprint.clone());

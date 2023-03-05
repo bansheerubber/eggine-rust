@@ -1,5 +1,5 @@
 mod batch_parameters;
-pub mod blueprint2;
+pub mod blueprint;
 mod shape;
 mod triangulator;
 

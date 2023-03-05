@@ -12,7 +12,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Shape {
-	blueprint: Rc<shape::blueprint2::Blueprint>,
+	blueprint: Rc<shape::blueprint::Blueprint>,
 	id: u64,
 	pub position: Vec3,
 }
@@ -32,7 +32,7 @@ impl PartialEq for Shape {
 }
 
 impl Shape {
-	pub fn new(blueprint: Rc<shape::blueprint2::Blueprint>) -> Self {
+	pub fn new(blueprint: Rc<shape::blueprint::Blueprint>) -> Self {
 		let mut next_shape_id = NEXT_SHAPE_GUID.lock().unwrap();
 
 		let id = *next_shape_id;
@@ -45,7 +45,7 @@ impl Shape {
 		}
 	}
 
-	pub fn get_blueprint(&self) -> Rc<shape::blueprint2::Blueprint> {
+	pub fn get_blueprint(&self) -> Rc<shape::blueprint::Blueprint> {
 		self.blueprint.clone()
 	}
 }
