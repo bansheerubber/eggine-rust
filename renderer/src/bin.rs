@@ -34,8 +34,18 @@ async fn main() {
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
 	// load the first test shape
-	let blueprint = shapes::blueprint::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
-	let blueprint = test_pass.add_blueprint(blueprint);
+
+	let now = Instant::now();
+
+	let blueprint = {
+		let blueprint = shapes::blueprint::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+		let blueprint = test_pass.add_blueprint(blueprint);
+
+		blueprint
+	};
+
+	let elapsed = now.elapsed();
+	println!("{:.2?} to load the pig", elapsed);
 
 	let shape = shapes::Shape::new(blueprint.clone());
 	test_pass.add_shape(shape);
