@@ -8,21 +8,7 @@ use carton::Carton;
 use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
 use crate::shape;
 
-use super::{ DataKind, Error, Material, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
-
-#[derive(Debug)]
-struct Node {
-	children: Vec<Rc<Node>>,
-	data: NodeData,
-	parent: Option<Rc<Node>>,
-	transform: glam::Mat4,
-}
-
-#[derive(Debug)]
-enum NodeData {
-	Empty,
-	Mesh(Rc<Mesh>),
-}
+use super::{ DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, };
 
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]

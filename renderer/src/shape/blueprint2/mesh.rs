@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use super::MeshPrimitive;
 
 /// Represents a .gltf mesh object. `Mesh`es store their own transforms since the concept of a gltf node will not have a

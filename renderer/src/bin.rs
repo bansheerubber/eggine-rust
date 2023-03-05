@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)]
+
 use carton::Carton;
 use rand::Rng;
 use renderer::{ memory_subsystem, shape, };
@@ -32,11 +34,11 @@ async fn main() {
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
 
 	// load the first test shape
-	// let blueprint = shape::blueprint2::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
-	// let blueprint = test_pass.add_blueprint(blueprint);
+	let blueprint = shape::blueprint2::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	let blueprint = test_pass.add_blueprint(blueprint);
 
-	// let shape = shape::Shape::new(blueprint.clone());
-	// test_pass.add_shape(shape);
+	let shape = shape::Shape::new(blueprint.clone());
+	test_pass.add_shape(shape);
 
 	// let blueprint = shape::blueprint2::Blueprint::load("data/cube.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	// let blueprint = test_pass.add_blueprint(blueprint);
@@ -45,11 +47,11 @@ async fn main() {
 	// test_pass.add_shape(shape);
 
 	// load the second test shape
-	let blueprint = shape::blueprint2::Blueprint::load("data/lizard.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
-	let blueprint = test_pass.add_blueprint(blueprint);
+	// let blueprint = shape::blueprint2::Blueprint::load("data/lizard.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	// let blueprint = test_pass.add_blueprint(blueprint);
 
-	let shape = shape::Shape::new(blueprint.clone());
-	test_pass.add_shape(shape);
+	// let shape = shape::Shape::new(blueprint.clone());
+	// test_pass.add_shape(shape);
 
 	// let mut rng = rand::thread_rng();
 
