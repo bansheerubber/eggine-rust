@@ -232,9 +232,12 @@ impl Blueprint {
 				return Err(Error::NoIndices);
 			}
 
+			let blob = gltf.blob.as_ref().unwrap(); // get reference to binary data
+
 			// associate `DataKind`s to different parts of GLTF and eggine state
-			let mut kind_to_accessor = HashMap::new();
 			let mut kind_to_node = HashMap::new();
+
+			state.prepare_mesh_pages();
 
 			// populate `kind_to_accessor` for future data fetching
 			for (semantic, accessor) in primitive.attributes() {
@@ -252,6 +255,11 @@ impl Blueprint {
 					}
     		};
 
+				if accessor.normalized() { // TODO support integer normalization?
+					eprintln!("Accessor normalization not supported");
+					continue;
+				}
+
 				// check if the `accessor::DataType` and `DataKind` are compatible
 				if !kind.is_compatible(&accessor) {
 					eprintln!(
@@ -260,17 +268,12 @@ impl Blueprint {
 						accessor.data_type(),
 						kind
 					);
-				} else {
-					kind_to_accessor.insert(kind, accessor);
+					continue;
 				}
-			}
 
-			state.prepare_mesh_pages();
-
-			// allocate nodes for the `MeshPrimitive`
-			for (kind, accessor) in kind_to_accessor.iter() {
+				// allocate the node using state
 				let node = state.get_named_node(
-					*kind,
+					kind,
 					(accessor.count() * kind.element_size() * kind.element_count()) as u64,
 					kind.element_size() as u64,
 					NodeKind::Buffer
@@ -284,11 +287,33 @@ impl Blueprint {
 					.unwrap();
 
 				// if the `DataKind` is not supported by the state, then print an error
-				if node.is_none() {
+				let Some(node) = node else {
 					eprintln!("Node kind {:?} not supported by blueprint state", kind);
+					continue;
+				};
+
+				// construct indexed eggine buffers. `temp` fills up with a certain amount of data and flushed to GPU VRAM
+				let mut temp = Vec::new();
+				let view = accessor.view().unwrap();
+
+				// stride defaults to the size of elements in the accessor
+				let stride = if let Some(stride) = view.stride() {
+					stride
 				} else {
-					kind_to_node.insert(kind, node.unwrap());
+					accessor.size()
+				};
+
+				let start_index = view.offset() + accessor.offset();
+
+				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+					// copy binary data straight into the buffer (TODO support type conversion?)
+					temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
 				}
+
+				state.write_node(kind, &node, temp);
+
+				// store in `kind_to_node` so the `MeshPrimitive` can extract the data
+				kind_to_node.insert(kind, node);
 			}
 
 			// allocate index node separately
@@ -307,40 +332,13 @@ impl Blueprint {
 				.unwrap()
 				.unwrap();
 
-			// construct indexed eggine buffers. `temp` fills up with a certain amount of data and flushed to GPU VRAM
-			let blob = gltf.blob.as_ref().unwrap();
-			let mut temp = Vec::new();
-			for (kind, accessor) in kind_to_accessor.iter() {
-				if accessor.normalized() { // TODO support integer normalization?
-					panic!("Accessor normalization not supported");
-				}
-
-				let view = accessor.view().unwrap();
-
-				// stride defaults to the size of elements in the accessor
-				let stride = if let Some(stride) = view.stride() {
-					stride
-				} else {
-					accessor.size()
-				};
-
-				let start_index = view.offset() + accessor.offset();
-
-				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-					// copy binary data straight into the buffer (TODO support type conversion?)
-					temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
-				}
-
-				state.write_node(*kind, &kind_to_node[kind], temp);
-				temp = Vec::new(); // reallocate temp
-			}
-
 			// load the indices into VRAM
 			let mut highest_index = 0;
 			{
 				// statically evaluate this to hopefully influence some compiler optimization magic in the below for loops
 				static INDEX_SIZE: usize = std::mem::size_of::<shape::IndexType>();
 
+				let mut temp = Vec::new();
 				let view = indices.view().unwrap();
 
 				let stride = if let Some(stride) = view.stride() {
@@ -352,9 +350,11 @@ impl Blueprint {
 				let start_index = view.offset() + indices.offset();
 
 				if indices.size() != INDEX_SIZE {
+					// emit a warning b/c idk if the type conversion works 100% yet
 					eprintln!("GLTF index size do not match eggine index size, doing type conversion...");
 				}
 
+				// load the data w/ type conversion
 				if indices.size() == 2 { // we're dealing with u16 data
 					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
 						let buffer = &blob[buffer_index..buffer_index + indices.size()];
