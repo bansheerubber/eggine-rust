@@ -46,7 +46,7 @@ impl GPUPager {
 		};
 
 		let mut data = Vec::new();
-		for y in (0..header.height).rev() { // reverse the image on the y-axis
+		for y in 0..header.height {
 			for x in 0..header.width {
 				let index = (header.height * y + x) as usize;
 

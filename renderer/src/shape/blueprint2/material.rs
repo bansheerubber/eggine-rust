@@ -8,5 +8,5 @@ pub struct Material {
 	/// Material roughness.
 	pub roughness: f32,
 	/// The texture used for the material. Textures can be re-used across materials.
-	pub texture: Option<Rc<textures::Texture>>,
+	pub texture: Rc<textures::Texture>,
 }

@@ -1,5 +1,7 @@
 use crate::memory_subsystem::Node;
 
+use super::Material;
+
 #[derive(Debug)]
 pub enum MeshPrimitiveKind {
 	Invalid,
@@ -16,7 +18,7 @@ pub struct MeshPrimitive {
 	/// The kind of data the primitive represents.
 	pub kind: MeshPrimitiveKind,
 	/// The material used to render the primitve.
-	// pub material: Material,
+	pub material: Material,
 	/// Points to the primitives's normal vec3 data. Normals are f32s.
 	pub normals: Option<Node>,
 	/// Points to the primitives's vertex vec3 data. Vertices are f32s.

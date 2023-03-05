@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{ HashMap, HashSet, };
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
@@ -8,7 +8,7 @@ use carton::Carton;
 use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
 use crate::shape;
 
-use super::{ DataKind, Error, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
+use super::{ DataKind, Error, Material, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
 
 #[derive(Debug)]
 struct Node {
@@ -34,7 +34,7 @@ pub struct Blueprint {
 	/// All nodes decoded from the GLTF.
 	nodes: Vec<Rc<Node>>,
 	/// The textures `Mesh`s are dependent on.
-	textures: Vec<Rc<textures::Texture>>,
+	textures: HashSet<Rc<textures::Texture>>,
 }
 
 impl Hash for Blueprint {
@@ -60,13 +60,13 @@ impl Blueprint {
 			file_name: file_name.to_string(),
 			meshes: Vec::new(),
 			nodes: Vec::new(),
-			textures: vec![state.get_none_texture()], // TODO do not always reference the none texture
+			textures: HashSet::new(),
 		};
 
 		// build the `Blueprint` tree
 		for scene in gltf.scenes() {
 			for node in scene.nodes() {
-				Self::parse_tree(&mut blueprint, &gltf, &node, state, memory.clone()).unwrap();
+				Self::parse_tree(&mut blueprint, &gltf, &node, state, memory.clone(), carton).unwrap();
 			}
 		}
 
@@ -74,7 +74,7 @@ impl Blueprint {
 	}
 
 	/// Gets the textures the `Mesh`s are dependent on.
-	pub fn get_textures(&self) -> &Vec<Rc<textures::Texture>> {
+	pub fn get_textures(&self) -> &HashSet<Rc<textures::Texture>> {
 		&self.textures
 	}
 
@@ -89,10 +89,11 @@ impl Blueprint {
 		gltf: &gltf::Gltf,
 		node: &gltf::Node,
 		state: &mut Box<T>,
-		memory: Arc<RwLock<Memory>>
+		memory: Arc<RwLock<Memory>>,
+		carton: &mut Carton
 	) -> Result<Option<Rc<Node>>, Error> {
 		let data = if node.mesh().is_some() {
-			let mesh = Self::parse_mesh(gltf, node, state)?.unwrap();
+			let mesh = Self::parse_mesh(blueprint, gltf, node, state, memory.clone(), carton)?.unwrap();
 			blueprint.meshes.push(mesh.clone());
 			NodeData::Mesh(mesh)
 		} else {
@@ -103,7 +104,7 @@ impl Blueprint {
 
 		// parse the rest of the children
 		for child in node.children() {
-			match Self::parse_tree(blueprint, gltf, &child, state, memory.clone()) {
+			match Self::parse_tree(blueprint, gltf, &child, state, memory.clone(), carton) {
 				Ok(child) => { // add children meshes
 					if let Some(child) = child {
 						children.push(child);
@@ -128,9 +129,12 @@ impl Blueprint {
 
 	/// Parses a mesh object and loads all vertex data into memory.
 	fn parse_mesh<T: State>(
+		blueprint: &mut Blueprint,
 		gltf: &gltf::Gltf,
 		node: &gltf::Node,
-		state: &mut Box<T>
+		state: &mut Box<T>,
+		memory: Arc<RwLock<Memory>>,
+		carton: &mut Carton
 	) -> Result<Option<Rc<Mesh>>, Error> {
 		let Some(mesh) = node.mesh() else {
 			return Ok(None);
@@ -316,11 +320,55 @@ impl Blueprint {
 				state.write_node(DataKind::Index, &index_node, temp);
 			}
 
+			// load the material
+			let material = primitive.material();
+
+			// TODO blender exports a .glb that is all screwed up because it tries to mess with image embedding
+			let texture = if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+				let source = texture.texture().source().source();
+				match source {
+					gltf::image::Source::Uri {
+						mime_type: _,
+						uri: _,
+					} => todo!("Blender doesn't export URIs so idk how this got here"),
+					gltf::image::Source::View {
+						mime_type: _,
+						view: _,
+					} => todo!("GLTF embedded textures not supported"),
+    		}
+			} else { // load texture based on material name
+				if let Some(name) = material.name() {
+					let mut memory = memory.write().unwrap();
+
+					let texture_file_name = name.to_string() + ".qoi";
+					let directory = std::path::Path::new(&blueprint.file_name).parent().unwrap().to_str().unwrap();
+					let format = memory.get_texture_descriptor().format;
+
+					Some(
+						memory.get_pager_mut().load_qoi(&format!("{}/{}", directory, texture_file_name), format, carton).unwrap()
+					)
+				} else {
+					None
+				}
+			};
+
+			let texture = if let Some(texture) = texture {
+				texture
+			} else {
+				state.get_none_texture()
+			};
+
+			blueprint.textures.insert(texture.clone());
+
 			// construct the mesh primitive
 			primitives.push(MeshPrimitive {
 				first_index: state.calc_first_index(indices.count() as u32),
 				indices: Some(index_node),
 				kind: MeshPrimitiveKind::Triangle,
+				material: Material {
+					roughness: material.pbr_metallic_roughness().roughness_factor(),
+					texture,
+    		},
 				normals: kind_to_node.remove(&DataKind::Normal),
 				positions: kind_to_node.remove(&DataKind::Position),
 				uvs: kind_to_node.remove(&DataKind::UV),

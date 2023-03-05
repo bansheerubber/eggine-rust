@@ -327,9 +327,9 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			7.0 * self.x_angle.cos() * self.y_angle.sin(),
-			7.0 * self.x_angle.sin() * self.y_angle.sin(),
-			7.0 * self.y_angle.cos(),
+			15.0 * self.x_angle.cos() * self.y_angle.sin(),
+			15.0 * self.x_angle.sin() * self.y_angle.sin(),
+			15.0 * self.y_angle.cos(),
 			0.0,
 		);
 
@@ -683,8 +683,8 @@ impl Pass for IndirectPass<'_> {
 			for shape in shapes {
 				for mesh in shape.get_blueprint().get_meshes().iter() { // TODO lets maybe not do a three level nested for loop
 					for primitive in mesh.primitives.iter() {
-						let texture = memory.get_none_texture().unwrap(); // TODO primitive material texture
-						if !textures.contains(&&texture) { // TODO optimize this whole damn texture thing
+						let texture = &primitive.material.texture;
+						if !textures.contains(&texture) { // TODO optimize this whole damn texture thing
 							continue;
 						}
 
@@ -715,7 +715,7 @@ impl Pass for IndirectPass<'_> {
 								texture.get_size() as f32 / texture_size as f32
 							).to_array(),
 							roughness: glam::Vec4::new(
-								0.5, // TODO primitive material roughness
+								primitive.material.roughness,
 								0.0,
 								0.0,
 								0.0
