@@ -5,10 +5,24 @@ use std::sync::{ Arc, RwLock, };
 
 use carton::Carton;
 
-use crate::memory_subsystem::{ Memory, Node, NodeKind, textures, };
+use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
 use crate::shape;
 
 use super::{ DataKind, Error, Mesh, MeshPrimitive, MeshPrimitiveKind, State, };
+
+#[derive(Debug)]
+struct Node {
+	children: Vec<Rc<Node>>,
+	data: NodeData,
+	parent: Option<Rc<Node>>,
+	transform: glam::Mat4,
+}
+
+#[derive(Debug)]
+enum NodeData {
+	Empty,
+	Mesh(Rc<Mesh>),
+}
 
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
@@ -17,6 +31,8 @@ pub struct Blueprint {
 	file_name: String,
 	/// The meshes decoded from the GLTF.
 	meshes: Vec<Rc<Mesh>>,
+	/// All nodes decoded from the GLTF.
+	nodes: Vec<Rc<Node>>,
 	/// The textures `Mesh`s are dependent on.
 	textures: Vec<Rc<textures::Texture>>,
 }
@@ -43,6 +59,7 @@ impl Blueprint {
 		let mut blueprint = Blueprint {
 			file_name: file_name.to_string(),
 			meshes: Vec::new(),
+			nodes: Vec::new(),
 			textures: vec![state.get_none_texture()], // TODO do not always reference the none texture
 		};
 
@@ -66,9 +83,54 @@ impl Blueprint {
 		&self.meshes
 	}
 
-	/// Parses the GLTF tree and adds loaded structures into the `Blueprint`.
+	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
 	fn parse_tree<T: State>(
-		blueprint: &mut Blueprint, gltf: &gltf::Gltf, node: &gltf::Node, state: &mut Box<T>, memory: Arc<RwLock<Memory>>
+		blueprint: &mut Blueprint,
+		gltf: &gltf::Gltf,
+		node: &gltf::Node,
+		state: &mut Box<T>,
+		memory: Arc<RwLock<Memory>>
+	) -> Result<Option<Rc<Node>>, Error> {
+		let data = if node.mesh().is_some() {
+			let mesh = Self::parse_mesh(gltf, node, state)?.unwrap();
+			blueprint.meshes.push(mesh.clone());
+			NodeData::Mesh(mesh)
+		} else {
+			NodeData::Empty
+		};
+
+		let mut children = Vec::new();
+
+		// parse the rest of the children
+		for child in node.children() {
+			match Self::parse_tree(blueprint, gltf, &child, state, memory.clone()) {
+				Ok(child) => { // add children meshes
+					if let Some(child) = child {
+						children.push(child);
+					}
+				},
+				Err(error) => return Err(error),
+			}
+		}
+
+		// create the node
+		let node = Rc::new(Node {
+			children,
+			data,
+			transform: glam::Mat4::IDENTITY, // TODO load transform
+			parent: None, // TODO get parent stuff working
+		});
+
+		blueprint.nodes.push(node.clone());
+
+		Ok(Some(node))
+	}
+
+	/// Parses a mesh object and loads all vertex data into memory.
+	fn parse_mesh<T: State>(
+		gltf: &gltf::Gltf,
+		node: &gltf::Node,
+		state: &mut Box<T>
 	) -> Result<Option<Rc<Mesh>>, Error> {
 		let Some(mesh) = node.mesh() else {
 			return Ok(None);
@@ -145,7 +207,7 @@ impl Blueprint {
 					NodeKind::Buffer
 				)
 					.or_else(
-						|_| -> Result<Option<Node>, ()> {
+						|_| -> Result<Option<MemoryNode>, ()> {
 							eprintln!("Could not allocate node for {:?}", kind);
 							Ok(None)
 						}
@@ -190,7 +252,7 @@ impl Blueprint {
 				NodeKind::Buffer
 			)
 				.or_else(
-					|_| -> Result<Option<Node>, ()> {
+					|_| -> Result<Option<MemoryNode>, ()> {
 						eprintln!("Could not allocate node for {:?}", DataKind::Index);
 						Ok(None)
 					}
@@ -267,29 +329,8 @@ impl Blueprint {
 			});
 		}
 
-		let mut mesh = Mesh {
-			children: Vec::new(),
+		Ok(Some(Rc::new(Mesh {
 			primitives,
-			transform: glam::Mat4::IDENTITY,
-		};
-
-		// parse the rest of the children
-		for child in node.children() {
-			match Self::parse_tree(blueprint, gltf, &child, state, memory.clone()) {
-				Ok(child) => { // add children meshes
-					if let Some(child) = child {
-						mesh.children.push(child);
-					}
-				},
-				Err(error) => return Err(error),
-			}
-		}
-
-		// make blueprint own mesh and return a copy of the mesh (so other meshes can add the mesh as a child)
-		let mesh = Rc::new(mesh);
-		let output = mesh.clone();
-		blueprint.meshes.push(mesh);
-
-		Ok(Some(output))
+		})))
 	}
 }
