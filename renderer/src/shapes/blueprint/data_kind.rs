@@ -4,6 +4,7 @@ use crate::shapes;
 /// to store using the `BlueprintState` trait.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DataKind {
+	BoneWeights,
 	Color,
 	Index,
 	Normal,
@@ -17,6 +18,7 @@ impl DataKind {
 		static INDEX_SIZE: usize = std::mem::size_of::<shapes::IndexType>();
 
 		match *self {
+			DataKind::BoneWeights => FLOAT_SIZE,
 			DataKind::Color => FLOAT_SIZE,
 			DataKind::Index => INDEX_SIZE,
 			DataKind::Normal => FLOAT_SIZE,
@@ -27,6 +29,7 @@ impl DataKind {
 
 	pub fn element_count(&self) -> usize {
 		match *self {
+			DataKind::BoneWeights => 4,
 			DataKind::Color => 4,
 			DataKind::Index => 1,
 			DataKind::Normal => 3,
@@ -44,6 +47,11 @@ impl DataKind {
 
 		// check floatness/integerness/signedness of `gltf::accessor::DataType`
 		match *self {
+			DataKind::BoneWeights => { // do not allow integers
+				if accessor.data_type() != gltf::accessor::DataType::F32 {
+					return false;
+				}
+			},
 			DataKind::Color => { // do not allow integers
 				if accessor.data_type() != gltf::accessor::DataType::F32 {
 					return false;

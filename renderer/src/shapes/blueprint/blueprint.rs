@@ -197,12 +197,11 @@ impl Blueprint {
 			for (semantic, accessor) in primitive.attributes() {
 				// translate GLTF data type into memory system data type
 				let kind = match semantic {
-					gltf::Semantic::Colors(0) => { // TODO support other color indices? what do they even mean?
-						DataKind::Color
-					},
+					gltf::Semantic::Colors(0) => DataKind::Color, // TODO support other color indices? what do they even mean?
 					gltf::Semantic::Normals => DataKind::Normal,
 					gltf::Semantic::Positions => DataKind::Position,
 					gltf::Semantic::TexCoords(0) => DataKind::UV, // TODO support other texture coordinates
+					gltf::Semantic::Weights(0) => DataKind::BoneWeights, // TODO support different skin indices
 					kind => {
 						eprintln!("GLTF semantic {:?} not yet supported", kind);
 						continue;
