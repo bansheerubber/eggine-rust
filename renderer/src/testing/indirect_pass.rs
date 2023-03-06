@@ -43,6 +43,7 @@ struct Programs {
 /// Stores references to the pages allocated by the pass object.
 #[derive(Debug)]
 struct AllocatedMemory {
+	bone_indices: PageUUID,
 	bone_weights: PageUUID,
 	global_uniform_node: Node,
 	indices_page: PageUUID,
@@ -139,9 +140,11 @@ impl<'a> IndirectPass<'a> {
 			let uvs_page = memory.new_page(24_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 			let indices_page = memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
 
+			let bone_indices = memory.new_page(48_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 			let bone_weights = memory.new_page(48_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 
 			AllocatedMemory {
+				bone_indices,
 				bone_weights,
 				global_uniform_node,
 				indices_page,
@@ -885,11 +888,12 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 		node_kind: NodeKind,
 	) -> Result<Option<Node>, PageError> {
 		let page = match name {
-			shapes::blueprint::DataKind::BoneWeights => self.allocated_memory.bone_weights,
+			shapes::blueprint::DataKind::BoneIndex => self.allocated_memory.bone_indices,
+			shapes::blueprint::DataKind::BoneWeight => self.allocated_memory.bone_weights,
 			shapes::blueprint::DataKind::Index => self.allocated_memory.indices_page,
 			shapes::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
-			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
 			shapes::blueprint::DataKind::Position => self.allocated_memory.vertices_page,
+			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
 			_ => return Ok(None),
 		};
 
@@ -902,17 +906,18 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 
 	fn write_node(&mut self, name: shapes::blueprint::DataKind, node: &Node, buffer: Vec<u8>) {
 		let page = match name {
-			shapes::blueprint::DataKind::BoneWeights => self.allocated_memory.bone_weights,
+			shapes::blueprint::DataKind::BoneIndex => self.allocated_memory.bone_indices,
+			shapes::blueprint::DataKind::BoneWeight => self.allocated_memory.bone_weights,
 			shapes::blueprint::DataKind::Index => {
 				self.indices_page_written += buffer.len() as u64;
 				self.allocated_memory.indices_page
 			},
 			shapes::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
-			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
 			shapes::blueprint::DataKind::Position => {
 				self.vertices_page_written += buffer.len() as u64;
 				self.allocated_memory.vertices_page
 			},
+			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
 			_ => return,
 		};
 

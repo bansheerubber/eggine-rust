@@ -198,10 +198,11 @@ impl Blueprint {
 				// translate GLTF data type into memory system data type
 				let kind = match semantic {
 					gltf::Semantic::Colors(0) => DataKind::Color, // TODO support other color indices? what do they even mean?
+					gltf::Semantic::Joints(0) => DataKind::BoneIndex, // TODO support different skin indices
 					gltf::Semantic::Normals => DataKind::Normal,
 					gltf::Semantic::Positions => DataKind::Position,
 					gltf::Semantic::TexCoords(0) => DataKind::UV, // TODO support other texture coordinates
-					gltf::Semantic::Weights(0) => DataKind::BoneWeights, // TODO support different skin indices
+					gltf::Semantic::Weights(0) => DataKind::BoneWeight, // TODO support different skin indices
 					kind => {
 						eprintln!("GLTF semantic {:?} not yet supported", kind);
 						continue;
@@ -256,11 +257,26 @@ impl Blueprint {
 					accessor.size()
 				};
 
+				// emit a warning b/c idk if the type conversion works 100% yet
+				if accessor.data_type().size() != kind.element_size() {
+					eprintln!("GLTF {:?} size does not match eggine {:?} size, doing type conversion...", semantic, kind);
+				}
+
 				let start_index = view.offset() + accessor.offset();
 
-				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-					// copy binary data straight into the buffer (TODO support type conversion?)
-					temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
+				if kind.is_float() { // copy entire vector at once
+					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+						// copy binary data straight into the buffer (TODO support type conversion?)
+						temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
+					}
+				} else { // step through each element of the vector for type conversion
+					let element_size = accessor.data_type().size();
+					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+						for i in 0..accessor.dimensions().multiplicity() {
+							let buffer = &blob[buffer_index + i * element_size..buffer_index + (i + 1) * element_size];
+							Self::convert_integer(buffer, &mut temp, element_size, kind.element_size());
+						}
+					}
 				}
 
 				state.write_node(kind, &node, temp);
@@ -302,9 +318,9 @@ impl Blueprint {
 
 				let start_index = view.offset() + indices.offset();
 
+				// emit a warning b/c idk if the type conversion works 100% yet
 				if indices.size() != INDEX_SIZE {
-					// emit a warning b/c idk if the type conversion works 100% yet
-					eprintln!("GLTF index size do not match eggine index size, doing type conversion...");
+					eprintln!("GLTF index size does not match eggine index size, doing type conversion...");
 				}
 
 				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {

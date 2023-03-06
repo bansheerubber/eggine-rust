@@ -3,6 +3,7 @@ pub mod blueprint;
 mod shape;
 mod triangulator;
 
+pub type BoneIndexType = u16;
 pub type FloatType = f32;
 pub type IndexType = u32;
 
