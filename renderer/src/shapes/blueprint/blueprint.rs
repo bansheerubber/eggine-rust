@@ -307,35 +307,10 @@ impl Blueprint {
 					eprintln!("GLTF index size do not match eggine index size, doing type conversion...");
 				}
 
-				// load the data w/ type conversion
-				if indices.size() == 2 { // we're dealing with u16 data
-					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-						let buffer = &blob[buffer_index..buffer_index + indices.size()];
-
-						let index = (buffer[1] as u32) << 8 | buffer[0] as u32;
-						highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
-
-						if INDEX_SIZE == 4 { // pad u16 data to get us to a u32 size
-							temp.extend_from_slice(buffer);
-							temp.push(0);
-							temp.push(0);
-						} else { // no conversion needed
-							temp.extend_from_slice(buffer);
-						}
-					}
-				} else { // we're dealing with u32 data
-					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-						let buffer = &blob[buffer_index..buffer_index + INDEX_SIZE];
-
-						let index = if INDEX_SIZE == 4 { // no conversion needed
-							(buffer[3] as u32) << 24 | (buffer[2] as u32) << 16 | (buffer[1] as u32) << 8 | buffer[0] as u32
-						} else { // truncate upper half of u32 data
-							(buffer[1] as u32) << 8 | buffer[0] as u32
-						};
-
-						highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
-						temp.extend_from_slice(buffer);
-					}
+				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+					let buffer = &blob[buffer_index..buffer_index + indices.size()];
+					let index = Self::convert_integer(buffer, &mut temp, indices.size(), INDEX_SIZE);
+					highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
 				}
 
 				state.write_node(DataKind::Index, &index_node, temp);
@@ -401,5 +376,28 @@ impl Blueprint {
 		Ok(Some(Rc::new(Mesh {
 			primitives,
 		})))
+	}
+
+	/// Converts between two sizes of little-endian serialized integer. Zero-extends if the destination size is larger,
+	/// truncates if the destination size is smaller.
+	pub fn convert_integer(buffer: &[u8], out: &mut Vec<u8>, source_size: usize, destination_size: usize) -> u64 {
+		out.extend_from_slice(&buffer[0..std::cmp::min(source_size, destination_size)]); // copy to output
+
+		if destination_size > source_size { // zero-extend
+			for _ in 0..destination_size - source_size {
+				out.push(0);
+			}
+		}
+
+		// return what we just put in the array
+		let number = match source_size {
+			1 => buffer[0] as u64,
+			2 => (buffer[1] as u64) << 8 | buffer[0] as u64,
+			3 => (buffer[2] as u64) << 16 | (buffer[1] as u64) << 8 | buffer[0] as u64,
+			4 => (buffer[3] as u64) << 24 | (buffer[2] as u64) << 16 | (buffer[1] as u64) << 8 | buffer[0] as u64,
+			_ => panic!("size not supported"),
+		};
+
+		return number & (0xFF_FF_FF_FF >> ((4 - destination_size) * 8));
 	}
 }
