@@ -18,6 +18,8 @@ pub struct Blueprint {
 	file_name: String,
 	/// The meshes decoded from the GLTF.
 	meshes: Vec<Rc<Mesh>>,
+	/// The nodes that contain mesh data.
+	mesh_nodes: Vec<(Rc<RefCell<Node>>, Rc<Mesh>)>,
 	/// All nodes decoded from the GLTF.
 	nodes: Vec<Rc<RefCell<Node>>>,
 	/// The textures `Mesh`s are dependent on.
@@ -46,6 +48,7 @@ impl Blueprint {
 		let mut blueprint = Blueprint {
 			file_name: file_name.to_string(),
 			meshes: Vec::new(),
+			mesh_nodes: Vec::new(),
 			nodes: Vec::new(),
 			textures: HashSet::new(),
 		};
@@ -70,6 +73,11 @@ impl Blueprint {
 		&self.meshes
 	}
 
+	/// Get the nodes with mesh data in `Blueprint`
+	pub fn get_mesh_nodes(&self) -> &Vec<(Rc<RefCell<Node>>, Rc<Mesh>)> {
+		&self.mesh_nodes
+	}
+
 	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
 	fn parse_tree<T: State>(
 		blueprint: &mut Blueprint,
@@ -80,14 +88,6 @@ impl Blueprint {
 		memory: Arc<RwLock<Memory>>,
 		carton: &mut Carton
 	) -> Result<Option<Rc<RefCell<Node>>>, Error> {
-		let data = if node.mesh().is_some() {
-			let mesh = Self::parse_mesh(blueprint, gltf, node, state, memory.clone(), carton)?.unwrap();
-			blueprint.meshes.push(mesh.clone());
-			NodeData::Mesh(mesh)
-		} else {
-			NodeData::Empty
-		};
-
 		// load node transform
 		let transform = match node.transform() {
 			gltf::scene::Transform::Decomposed {
@@ -112,11 +112,22 @@ impl Blueprint {
 		let new_node = Rc::new(RefCell::new(
 			Node {
 				children: Vec::new(),
-				data,
-				transform,
+				data: NodeData::Empty,
+				local_transform: transform,
+				transform: Node::accumulate_transform(parent.clone(), transform),
 				parent,
 			}
 		));
+
+		if node.mesh().is_some() {
+			let mesh = Self::parse_mesh(blueprint, gltf, node, state, memory.clone(), carton)?.unwrap();
+			blueprint.meshes.push(mesh.clone());
+			new_node.borrow_mut().data = NodeData::Mesh(mesh.clone());
+
+			blueprint.mesh_nodes.push((new_node.clone(), mesh));
+		} else {
+			new_node.borrow_mut().data = NodeData::Empty;
+		};
 
 		// parse the rest of the children
 		let mut children = Vec::new();

@@ -681,7 +681,7 @@ impl Pass for IndirectPass<'_> {
 
 			// iterate through the shapes in the batch and draw them
 			for shape in shapes {
-				for mesh in shape.get_blueprint().get_meshes().iter() { // TODO lets maybe not do a three level nested for loop
+				for (node, mesh) in shape.get_blueprint().get_mesh_nodes().iter() { // TODO lets maybe not do a three level nested for loop
 					for primitive in mesh.primitives.iter() {
 						let texture = &primitive.material.texture;
 						if !textures.contains(&texture) { // TODO optimize this whole damn texture thing
@@ -705,9 +705,11 @@ impl Pass for IndirectPass<'_> {
 							self.programs.object_uniforms.push(ObjectUniform::default());
 						}
 
+						let model_matrix = node.borrow().transform.mul_mat4(&glam::Mat4::from_translation(shape.position));
+
 						let texture = memory.texture_pager.get_cell(&texture).unwrap();
 						self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
-							model_matrix: glam::Mat4::from_translation(shape.position).to_cols_array(),
+							model_matrix: model_matrix.to_cols_array(),
 							texture_offset: glam::Vec4::new(
 								texture.get_position().x as f32 / texture_size as f32,
 								texture.get_position().y as f32 / texture_size as f32,
