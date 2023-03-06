@@ -3,6 +3,8 @@
 layout(location = 0) in vec3 vVertex;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec2 vUV;
+layout(location = 3) in vec4 vBoneWeights;
+layout(location = 4) in uvec4 vBoneIndices;
 
 layout(location = 0) out vec3 position;
 layout(location = 1) out vec3 normal;

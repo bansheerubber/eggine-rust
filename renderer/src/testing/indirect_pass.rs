@@ -53,9 +53,9 @@ struct AllocatedMemory {
 	normals_page: PageUUID,
 	object_storage_page: PageUUID,
 	object_storage_node: Node,
+	positions_page: PageUUID,
 	uniforms_page: PageUUID,
 	uvs_page: PageUUID,
-	vertices_page: PageUUID,
 }
 
 /// Renders `Shape`s using deferred shading w/ indirect draw calls.
@@ -135,7 +135,7 @@ impl<'a> IndirectPass<'a> {
 			let max_objects_per_batch = object_storage_size / std::mem::size_of::<ObjectUniform>() as u64;
 
 			// create vertex attribute pages
-			let vertices_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+			let positions_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 			let normals_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 			let uvs_page = memory.new_page(24_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 			let indices_page = memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
@@ -154,9 +154,9 @@ impl<'a> IndirectPass<'a> {
 				normals_page,
 				object_storage_page: object_storage_page_uuid,
 				object_storage_node,
+				positions_page,
 				uniforms_page: uniforms_page_uuid,
 				uvs_page,
-				vertices_page,
 			}
 		};
 
@@ -600,6 +600,24 @@ impl Pass for IndirectPass<'_> {
 						}],
 						step_mode: wgpu::VertexStepMode::Vertex,
 					},
+					wgpu::VertexBufferLayout { // bone weights
+						array_stride: 4 * 4,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x4,
+							offset: 0,
+							shader_location: 3,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
+					wgpu::VertexBufferLayout { // bone indices
+						array_stride: 4 * 2,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Uint16x4,
+							offset: 0,
+							shader_location: 4,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
 				],
 			},
 			State { // state for the composite stage
@@ -798,7 +816,7 @@ impl Pass for IndirectPass<'_> {
 				);
 
 				render_pass.set_vertex_buffer(
-					0, memory.get_page(self.allocated_memory.vertices_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+					0, memory.get_page(self.allocated_memory.positions_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
 				);
 
 				render_pass.set_vertex_buffer(
@@ -807,6 +825,14 @@ impl Pass for IndirectPass<'_> {
 
 				render_pass.set_vertex_buffer(
 					2, memory.get_page(self.allocated_memory.uvs_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
+
+				render_pass.set_vertex_buffer(
+					3, memory.get_page(self.allocated_memory.bone_weights).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
+
+				render_pass.set_vertex_buffer(
+					4, memory.get_page(self.allocated_memory.bone_indices).unwrap().get_buffer().slice(0..self.vertices_page_written)
 				);
 
 				// bind uniforms
@@ -892,7 +918,7 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 			shapes::blueprint::DataKind::BoneWeight => self.allocated_memory.bone_weights,
 			shapes::blueprint::DataKind::Index => self.allocated_memory.indices_page,
 			shapes::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
-			shapes::blueprint::DataKind::Position => self.allocated_memory.vertices_page,
+			shapes::blueprint::DataKind::Position => self.allocated_memory.positions_page,
 			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
 			_ => return Ok(None),
 		};
@@ -915,7 +941,7 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 			shapes::blueprint::DataKind::Normal => self.allocated_memory.normals_page,
 			shapes::blueprint::DataKind::Position => {
 				self.vertices_page_written += buffer.len() as u64;
-				self.allocated_memory.vertices_page
+				self.allocated_memory.positions_page
 			},
 			shapes::blueprint::DataKind::UV => self.allocated_memory.uvs_page,
 			_ => return,
