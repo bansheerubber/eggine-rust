@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::Mesh;
@@ -6,9 +7,9 @@ use super::Mesh;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Node {
-	pub children: Vec<Rc<Node>>,
+	pub children: Vec<Rc<RefCell<Node>>>,
 	pub data: NodeData,
-	pub parent: Option<Rc<Node>>,
+	pub parent: Option<Rc<RefCell<Node>>>,
 	pub transform: glam::Mat4,
 }
 

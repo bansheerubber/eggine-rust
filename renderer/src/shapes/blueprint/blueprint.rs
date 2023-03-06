@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet, };
 use std::hash::Hash;
 use std::rc::Rc;
@@ -18,7 +19,7 @@ pub struct Blueprint {
 	/// The meshes decoded from the GLTF.
 	meshes: Vec<Rc<Mesh>>,
 	/// All nodes decoded from the GLTF.
-	nodes: Vec<Rc<Node>>,
+	nodes: Vec<Rc<RefCell<Node>>>,
 	/// The textures `Mesh`s are dependent on.
 	textures: HashSet<Rc<textures::Texture>>,
 }
@@ -52,7 +53,7 @@ impl Blueprint {
 		// build the `Blueprint` tree
 		for scene in gltf.scenes() {
 			for node in scene.nodes() {
-				Self::parse_tree(&mut blueprint, &gltf, &node, state, memory.clone(), carton).unwrap();
+				Self::parse_tree(&mut blueprint, &gltf, &node, None, state, memory.clone(), carton).unwrap();
 			}
 		}
 
@@ -74,10 +75,11 @@ impl Blueprint {
 		blueprint: &mut Blueprint,
 		gltf: &gltf::Gltf,
 		node: &gltf::Node,
+		parent: Option<Rc<RefCell<Node>>>,
 		state: &mut Box<T>,
 		memory: Arc<RwLock<Memory>>,
 		carton: &mut Carton
-	) -> Result<Option<Rc<Node>>, Error> {
+	) -> Result<Option<Rc<RefCell<Node>>>, Error> {
 		let data = if node.mesh().is_some() {
 			let mesh = Self::parse_mesh(blueprint, gltf, node, state, memory.clone(), carton)?.unwrap();
 			blueprint.meshes.push(mesh.clone());
@@ -86,19 +88,7 @@ impl Blueprint {
 			NodeData::Empty
 		};
 
-		// parse the rest of the children
-		let mut children = Vec::new();
-		for child in node.children() {
-			match Self::parse_tree(blueprint, gltf, &child, state, memory.clone(), carton) {
-				Ok(child) => { // add children meshes
-					if let Some(child) = child {
-						children.push(child);
-					}
-				},
-				Err(error) => return Err(error),
-			}
-		}
-
+		// load node transform
 		let transform = match node.transform() {
 			gltf::scene::Transform::Decomposed {
 				rotation,
@@ -119,16 +109,33 @@ impl Blueprint {
 		};
 
 		// create the node
-		let node = Rc::new(Node {
-			children,
-			data,
-			transform,
-			parent: None, // TODO get parent stuff working
-		});
+		let new_node = Rc::new(RefCell::new(
+			Node {
+				children: Vec::new(),
+				data,
+				transform,
+				parent,
+			}
+		));
 
-		blueprint.nodes.push(node.clone());
+		// parse the rest of the children
+		let mut children = Vec::new();
+		for child in node.children() {
+			match Self::parse_tree(blueprint, gltf, &child, Some(new_node.clone()), state, memory.clone(), carton) {
+				Ok(child) => { // add children meshes
+					if let Some(child) = child {
+						children.push(child);
+					}
+				},
+				Err(error) => return Err(error),
+			}
+		}
 
-		Ok(Some(node))
+		new_node.borrow_mut().children = children;
+
+		blueprint.nodes.push(new_node.clone());
+
+		Ok(Some(new_node))
 	}
 
 	/// Parses a mesh object and loads all vertex data into memory.
