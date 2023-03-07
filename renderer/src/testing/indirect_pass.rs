@@ -33,6 +33,7 @@ struct RenderTextures {
 /// Stores program related information used by the pass object.
 #[derive(Debug)]
 struct Programs {
+	bone_uniforms: Vec<glam::Mat4>,
 	composite_program: Rc<Program>,
 	g_buffer_program: Rc<Program>,
 	object_uniforms: Vec<ObjectUniform>,
@@ -43,6 +44,8 @@ struct Programs {
 /// Stores references to the pages allocated by the pass object.
 #[derive(Debug)]
 struct AllocatedMemory {
+	bone_storage_page: PageUUID,
+	bone_storage_node: Node,
 	bone_indices: PageUUID,
 	bone_weights: PageUUID,
 	global_uniform_node: Node,
@@ -134,6 +137,17 @@ impl<'a> IndirectPass<'a> {
 
 			let max_objects_per_batch = object_storage_size / std::mem::size_of::<ObjectUniform>() as u64;
 
+			// create the storage buffer for object bone matrices
+			let bone_storage_size = 5_000_000;
+			let bone_storage_page_uuid = memory.new_page(
+				bone_storage_size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+			);
+
+			let bone_page = memory.get_page_mut(bone_storage_page_uuid).unwrap();
+			let bone_storage_node = bone_page.allocate_node(
+				bone_storage_size, 4, NodeKind::Buffer
+			).unwrap();
+
 			// create vertex attribute pages
 			let positions_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 			let normals_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
@@ -144,6 +158,8 @@ impl<'a> IndirectPass<'a> {
 			let bone_weights = memory.new_page(48_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
 
 			AllocatedMemory {
+				bone_storage_page: bone_storage_page_uuid,
+				bone_storage_node,
 				bone_indices,
 				bone_weights,
 				global_uniform_node,
@@ -199,6 +215,14 @@ impl<'a> IndirectPass<'a> {
 							size: NonZeroU64::new(allocated_memory.object_storage_node.size),
 						}),
 					},
+					wgpu::BindGroupEntry {
+						binding: 2,
+						resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+							buffer: memory.get_page(allocated_memory.bone_storage_page).unwrap().get_buffer(),
+							offset: allocated_memory.bone_storage_node.offset,
+							size: NonZeroU64::new(allocated_memory.bone_storage_node.size),
+						}),
+					},
 				],
 				label: None,
 				layout: g_buffer_program.get_bind_group_layouts()[0],
@@ -249,6 +273,7 @@ impl<'a> IndirectPass<'a> {
 			};
 
 			Programs {
+				bone_uniforms: Vec::new(),
 				composite_program,
 				g_buffer_program,
     		object_uniforms: Vec::new(),
@@ -704,6 +729,8 @@ impl Pass for IndirectPass<'_> {
 				.flat_map(|x| x.get_shapes())
 				.collect::<Vec<&Rc<shapes::Shape>>>();
 
+			let mut bone_index = 0;
+
 			// iterate through the shapes in the batch and draw them
 			for shape in shapes {
 				for (node, mesh) in shape.get_blueprint().get_mesh_nodes().iter() { // TODO lets maybe not do a three level nested for loop
@@ -730,6 +757,19 @@ impl Pass for IndirectPass<'_> {
 							self.programs.object_uniforms.push(ObjectUniform::default());
 						}
 
+						// allocate `bone_uniforms`
+						if self.programs.bone_uniforms.len() + shape.bones.len() > self.programs.bone_uniforms.len() {
+							for _ in 0..shape.bones.len() { // TODO speed this up
+								self.programs.bone_uniforms.push(glam::Mat4::IDENTITY);
+							}
+						}
+
+						// set bone uniforms
+						for (current_transform, bone) in shape.bones.iter().zip(mesh.bones.iter()) {
+							self.programs.bone_uniforms[bone_index] = current_transform.mul_mat4(&bone.inverse_bind_matrix);
+							bone_index += 1;
+						}
+
 						// put the object uniforms into the array
 						let model_matrix = node.borrow().transform.mul_mat4(&glam::Mat4::from_translation(shape.position));
 						let texture = memory.texture_pager.get_cell(&texture).unwrap();
@@ -741,12 +781,9 @@ impl Pass for IndirectPass<'_> {
 								texture.get_size() as f32 / texture_size as f32,
 								texture.get_size() as f32 / texture_size as f32
 							).to_array(),
-							roughness: glam::Vec4::new(
-								primitive.material.roughness,
-								0.0,
-								0.0,
-								0.0
-							).to_array(),
+							roughness: primitive.material.roughness,
+							bone_offset: 0,
+							_padding: [0.0, 0.0],
 						};
 
 						draw_call_count += 1;
@@ -765,6 +802,14 @@ impl Pass for IndirectPass<'_> {
 				.write_slice(
 					&self.allocated_memory.object_storage_node,
 					bytemuck::cast_slice(&self.programs.object_uniforms[0..draw_call_count as usize])
+				);
+
+			// write bone matrices to storage buffer
+			memory.get_page(self.allocated_memory.bone_storage_page)
+				.unwrap()
+				.write_slice(
+					&self.allocated_memory.bone_storage_node,
+					bytemuck::cast_slice(&self.programs.bone_uniforms[0..bone_index])
 				);
 
 			// do the render pass

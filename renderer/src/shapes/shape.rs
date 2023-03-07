@@ -12,6 +12,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Shape {
+	pub bones: Vec<glam::Mat4>,
 	blueprint: Rc<shapes::blueprint::Blueprint>,
 	id: u64,
 	pub position: Vec3,
@@ -38,14 +39,24 @@ impl Shape {
 		let id = *next_shape_id;
 		*next_shape_id += 1;
 
+		let mut bones = Vec::new();
+		for bone in blueprint.get_bones().iter() {
+			bones.push(bone.transform);
+		}
+
 		Shape {
+			bones,
 			blueprint,
-			id: id,
+			id,
 			position: Vec3::default(),
 		}
 	}
 
 	pub fn get_blueprint(&self) -> Rc<shapes::blueprint::Blueprint> {
 		self.blueprint.clone()
+	}
+
+	pub fn update_bones(&self) {
+
 	}
 }

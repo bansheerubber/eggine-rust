@@ -23,6 +23,7 @@ struct ObjectData {
 	mat4 model;
 	vec4 textureOffset;
 	float roughness;
+	uint boneOffset;
 };
 
 layout(std140, set = 0, binding = 1) readonly buffer objectBlock
@@ -30,12 +31,26 @@ layout(std140, set = 0, binding = 1) readonly buffer objectBlock
 	ObjectData objects[];
 } ob;
 
+// how to index: gl_DrawID + boneIndex
+layout(std140, set = 0, binding = 2) readonly buffer boneMatrices
+{
+	mat4 matrices[];
+} bones;
+
 void main() {
-	gl_Position = vb.perspective * vb.view * ob.objects[gl_DrawID].model * vec4(vVertex, 1.0);
+	uint boneOffset = ob.objects[gl_DrawID].boneOffset;
+
+	mat4 skinMatrix =
+		vBoneWeights.x * bones.matrices[boneOffset + vBoneIndices.x]
+		+ vBoneWeights.y * bones.matrices[boneOffset + vBoneIndices.y]
+		+ vBoneWeights.z * bones.matrices[boneOffset + vBoneIndices.z]
+		+ vBoneWeights.w * bones.matrices[boneOffset + vBoneIndices.w];
+
+	gl_Position = vb.perspective * vb.view * ob.objects[gl_DrawID].model * skinMatrix * vec4(vVertex, 1.0);
 
 	// pass some stuff to the fragment shader
 	position = vVertex;
-	normal = vNormal;
+	normal = mat3(skinMatrix) * vNormal;
 	uv = vUV * ob.objects[gl_DrawID].textureOffset.z + ob.objects[gl_DrawID].textureOffset.xy;
 	camera = vb.cameraPosition;
 

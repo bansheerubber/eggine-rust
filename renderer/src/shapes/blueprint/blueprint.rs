@@ -9,13 +9,16 @@ use carton::Carton;
 use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
 use crate::shapes;
 
-use super::{ DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, };
+use super::{ Bone, DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, };
 
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
 pub struct Blueprint {
+	bones: Vec<Bone>,
 	/// The GLTF file we loaded the blueprint from.
 	file_name: String,
+	/// JSON index to node.
+	index_to_node: HashMap<usize, Rc<RefCell<Node>>>,
 	/// The meshes decoded from the GLTF.
 	meshes: Vec<Rc<Mesh>>,
 	/// The nodes that contain mesh data.
@@ -46,7 +49,9 @@ impl Blueprint {
 		let gltf = gltf::Gltf::from_reader(gltf_stream).unwrap();
 
 		let mut blueprint = Blueprint {
+			bones: Vec::new(),
 			file_name: file_name.to_string(),
+			index_to_node: HashMap::new(),
 			meshes: Vec::new(),
 			mesh_nodes: Vec::new(),
 			nodes: Vec::new(),
@@ -73,9 +78,14 @@ impl Blueprint {
 		&self.meshes
 	}
 
-	/// Get the nodes with mesh data in `Blueprint`
+	/// Get the nodes with mesh data in `Blueprint`.
 	pub fn get_mesh_nodes(&self) -> &Vec<(Rc<RefCell<Node>>, Rc<Mesh>)> {
 		&self.mesh_nodes
+	}
+
+	/// Get the `Bone`s imported by the `Blueprint`.
+	pub fn get_bones(&self) -> &Vec<Bone> {
+		&self.bones
 	}
 
 	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
@@ -89,24 +99,7 @@ impl Blueprint {
 		carton: &mut Carton
 	) -> Result<Option<Rc<RefCell<Node>>>, Error> {
 		// load node transform
-		let transform = match node.transform() {
-			gltf::scene::Transform::Decomposed {
-				rotation,
-				scale,
-				translation,
-			} => {
-				glam::Mat4::from_scale_rotation_translation(
-					glam::Vec3::from_array(scale),
-					glam::Quat::from_array(rotation),
-					glam::Vec3::from_array(translation),
-				)
-			},
-			gltf::scene::Transform::Matrix {
-				matrix,
-			} => {
-				glam::Mat4::from_cols_array_2d(&matrix)
-			},
-		};
+		let transform = Self::transform_to_mat4(&node.transform());
 
 		// create the node
 		let new_node = Rc::new(RefCell::new(
@@ -144,6 +137,7 @@ impl Blueprint {
 
 		new_node.borrow_mut().children = children;
 
+		blueprint.index_to_node.insert(node.index(), new_node.clone());
 		blueprint.nodes.push(new_node.clone());
 
 		Ok(Some(new_node))
@@ -161,6 +155,8 @@ impl Blueprint {
 		let Some(mesh) = node.mesh() else {
 			return Ok(None);
 		};
+
+		let blob = gltf.blob.as_ref().unwrap(); // get reference to binary data
 
 		// load the primitives
 		let mut primitives = Vec::new();
@@ -185,8 +181,6 @@ impl Blueprint {
 
 				return Err(Error::NoIndices);
 			}
-
-			let blob = gltf.blob.as_ref().unwrap(); // get reference to binary data
 
 			// associate `DataKind`s to different parts of GLTF and eggine state
 			let mut kind_to_node = HashMap::new();
@@ -389,14 +383,41 @@ impl Blueprint {
 			});
 		}
 
+		// figure out the joints
+		let bones = if let Some(skin) = node.skin() {
+			let reader = skin.reader(|_| Some(blob.as_slice()));
+
+			let mut inverse_bind_matrices = Vec::new();
+			for matrix in reader.read_inverse_bind_matrices().unwrap() { // TODO accept `None` value
+				inverse_bind_matrices.push(glam::Mat4::from_cols_array_2d(&matrix));
+			}
+
+			let mut output = Vec::new();
+			for joint in skin.joints() {
+				let bone = Bone {
+					inverse_bind_matrix: inverse_bind_matrices[output.len()],
+					local_transform: Self::transform_to_mat4(&joint.transform()),
+					transform: glam::Mat4::IDENTITY,
+				};
+
+				output.push(bone.clone());
+				blueprint.bones.push(bone);
+			}
+
+			output
+		} else {
+			Vec::new()
+		};
+
 		Ok(Some(Rc::new(Mesh {
+			bones,
 			primitives,
 		})))
 	}
 
 	/// Converts between two sizes of little-endian serialized integer. Zero-extends if the destination size is larger,
 	/// truncates if the destination size is smaller.
-	pub fn convert_integer(buffer: &[u8], out: &mut Vec<u8>, source_size: usize, destination_size: usize) -> u64 {
+	fn convert_integer(buffer: &[u8], out: &mut Vec<u8>, source_size: usize, destination_size: usize) -> u64 {
 		out.extend_from_slice(&buffer[0..std::cmp::min(source_size, destination_size)]); // copy to output
 
 		if destination_size > source_size { // zero-extend
@@ -415,5 +436,28 @@ impl Blueprint {
 		};
 
 		return number & (0xFF_FF_FF_FF >> ((4 - destination_size) * 8));
+	}
+
+
+	/// Converts a gltf transform into a `glam::Mat4`.
+	fn transform_to_mat4(transform: &gltf::scene::Transform) -> glam::Mat4 {
+		match transform {
+			gltf::scene::Transform::Decomposed {
+				rotation,
+				scale,
+				translation,
+			} => {
+				glam::Mat4::from_scale_rotation_translation(
+					glam::Vec3::from_array(*scale),
+					glam::Quat::from_array(*rotation),
+					glam::Vec3::from_array(*translation),
+				)
+			},
+			gltf::scene::Transform::Matrix {
+				matrix,
+			} => {
+				glam::Mat4::from_cols_array_2d(&matrix)
+			},
+		}
 	}
 }

@@ -1,4 +1,5 @@
 mod blueprint;
+mod bone;
 mod data_kind;
 mod error;
 mod material;
@@ -8,6 +9,7 @@ mod node;
 mod state;
 
 pub use blueprint::Blueprint;
+pub use bone::Bone;
 pub use data_kind::DataKind;
 pub use error::Error;
 pub use material::Material;

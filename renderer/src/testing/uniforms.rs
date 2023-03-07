@@ -14,5 +14,7 @@ pub struct GlobalUniform {
 pub struct ObjectUniform {
 	pub model_matrix: [f32; 16],
 	pub texture_offset: [f32; 4],
-	pub roughness: [f32; 4],
+	pub roughness: f32,
+	pub bone_offset: u32,
+	pub _padding: [f32; 2]
 }
