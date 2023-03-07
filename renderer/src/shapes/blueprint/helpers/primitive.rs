@@ -69,6 +69,10 @@ pub fn load_attribute<T: State>(
 
 	// construct indexed eggine buffers. `temp` fills up with a certain amount of data and flushed to GPU VRAM
 	let mut temp = Vec::new();
+	temp.resize(kind.element_size() * kind.element_count() * accessor.count(), 0);
+
+	let mut write_index = 0;
+
 	let view = accessor.view().unwrap();
 
 	// stride defaults to the size of elements in the accessor
@@ -87,22 +91,24 @@ pub fn load_attribute<T: State>(
 
 	if let Some(mapping) = ir.get_attribute_map(kind) { // perform data mapping
 		for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-			let start = temp.len();
-			temp.resize(kind.element_size() * kind.element_count() + temp.len(), 0);
-
 			mapping(
 				ir,
 				accessor.data_type(),
 				accessor.dimensions(),
 				&blob[buffer_index..buffer_index + accessor.size()],
-				&mut temp[start..]
+				&mut temp[write_index..]
 			);
+
+			write_index += kind.element_size() * kind.element_count();
 		}
 	} else { // if no mapping, then do default writing behavior
 		if kind.is_float() { // copy entire vector at once
 			for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-				// copy binary data straight into the buffer (TODO support type conversion?)
-				temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
+				let buffer = &blob[buffer_index..buffer_index + accessor.size()];
+				let write_length = &blob[buffer_index..buffer_index + accessor.size()].len();
+				temp[write_index..write_index + write_length].copy_from_slice(buffer);
+
+				write_index += write_length;
 			}
 		} else { // step through each element of the vector for type conversion
 			let element_size = accessor.data_type().size();
@@ -110,10 +116,8 @@ pub fn load_attribute<T: State>(
 				for i in 0..accessor.dimensions().multiplicity() {
 					let buffer = &blob[buffer_index + i * element_size..buffer_index + (i + 1) * element_size];
 
-					let start = temp.len();
-					temp.resize(kind.element_size() + temp.len(), 0);
-
-					helpers::integer::convert_integer(buffer, &mut temp[start..], element_size, kind.element_size());
+					helpers::integer::convert_integer(buffer, &mut temp[write_index..], element_size, kind.element_size());
+					write_index += kind.element_size();
 				}
 			}
 		}

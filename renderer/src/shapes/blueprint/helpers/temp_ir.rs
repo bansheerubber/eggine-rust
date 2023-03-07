@@ -8,6 +8,7 @@ type VertexAttributeMap = Rc<dyn Fn(&mut TempIR, gltf::accessor::DataType, gltf:
 /// Intermediate representation, used for storing temporary information that is shared between functions.
 #[derive(Default)]
 pub struct TempIR {
+	/// Functions that transcode data into the form the eggine requires for its vertex attribute buffers.
 	pub attribute_default_mappings: HashMap<DataKind, VertexAttributeMap>,
 	/// Highest index found in one primitive. The primitive loading function uses this as an additional return value.
 	pub highest_index: i32,

@@ -194,6 +194,7 @@ impl Blueprint {
 				}
 			}
 
+			// load indices
 			let indices_count = indices_accessor.count();
 			let Some((_, index_node)) = helpers::primitive::load_attribute(None, indices_accessor, ir, state, blob) else {
 				return Err(Error::NoIndices);
