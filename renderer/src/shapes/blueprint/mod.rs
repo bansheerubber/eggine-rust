@@ -2,6 +2,7 @@ mod blueprint;
 mod bone;
 mod data_kind;
 mod error;
+mod helpers;
 mod material;
 mod mesh;
 mod mesh_primitive;

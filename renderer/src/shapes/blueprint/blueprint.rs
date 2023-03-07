@@ -9,7 +9,7 @@ use carton::Carton;
 use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
 use crate::shapes;
 
-use super::{ Bone, DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, };
+use super::{ Bone, DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, helpers, };
 
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
@@ -189,94 +189,10 @@ impl Blueprint {
 
 			// populate `kind_to_accessor` for future data fetching
 			for (semantic, accessor) in primitive.attributes() {
-				// translate GLTF data type into memory system data type
-				let kind = match semantic {
-					gltf::Semantic::Colors(0) => DataKind::Color, // TODO support other color indices? what do they even mean?
-					gltf::Semantic::Joints(0) => DataKind::BoneIndex, // TODO support different skin indices
-					gltf::Semantic::Normals => DataKind::Normal,
-					gltf::Semantic::Positions => DataKind::Position,
-					gltf::Semantic::TexCoords(0) => DataKind::UV, // TODO support other texture coordinates
-					gltf::Semantic::Weights(0) => DataKind::BoneWeight, // TODO support different skin indices
-					kind => {
-						eprintln!("GLTF semantic {:?} not yet supported", kind);
-						continue;
-					}
-    		};
-
-				if accessor.normalized() { // TODO support integer normalization?
-					eprintln!("Accessor normalization not supported");
-					continue;
-				}
-
-				// check if the `accessor::DataType` and `DataKind` are compatible
-				if !kind.is_compatible(&accessor) {
-					eprintln!(
-						"Accessor with parameters '{:?}<{:?}>' are not compatible with 'DataKind::{:?}'",
-						accessor.dimensions(),
-						accessor.data_type(),
-						kind
-					);
-					continue;
-				}
-
-				// allocate the node using state
-				let node = state.get_named_node(
-					kind,
-					(accessor.count() * kind.element_size() * kind.element_count()) as u64,
-					kind.element_size() as u64,
-					NodeKind::Buffer
-				)
-					.or_else(
-						|_| -> Result<Option<MemoryNode>, ()> {
-							eprintln!("Could not allocate node for {:?}", kind);
-							Ok(None)
-						}
-					)
-					.unwrap();
-
-				// if the `DataKind` is not supported by the state, then print an error
-				let Some(node) = node else {
-					eprintln!("Node kind {:?} not supported by blueprint state", kind);
-					continue;
-				};
-
-				// construct indexed eggine buffers. `temp` fills up with a certain amount of data and flushed to GPU VRAM
-				let mut temp = Vec::new();
-				let view = accessor.view().unwrap();
-
-				// stride defaults to the size of elements in the accessor
-				let stride = if let Some(stride) = view.stride() {
-					stride
-				} else {
-					accessor.size()
-				};
-
-				// emit a warning b/c idk if the type conversion works 100% yet
-				if accessor.data_type().size() != kind.element_size() {
-					eprintln!("GLTF {:?} size does not match eggine {:?} size, doing type conversion...", semantic, kind);
-				}
-
-				let start_index = view.offset() + accessor.offset();
-
-				if kind.is_float() { // copy entire vector at once
-					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-						// copy binary data straight into the buffer (TODO support type conversion?)
-						temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
-					}
-				} else { // step through each element of the vector for type conversion
-					let element_size = accessor.data_type().size();
-					for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-						for i in 0..accessor.dimensions().multiplicity() {
-							let buffer = &blob[buffer_index + i * element_size..buffer_index + (i + 1) * element_size];
-							Self::convert_integer(buffer, &mut temp, element_size, kind.element_size());
-						}
-					}
-				}
-
-				state.write_node(kind, &node, temp);
-
 				// store in `kind_to_node` so the `MeshPrimitive` can extract the data
-				kind_to_node.insert(kind, node);
+				if let Some((kind, node)) = helpers::primitive::load_attribute(semantic, accessor, state, blob) {
+					kind_to_node.insert(kind, node);
+				}
 			}
 
 			// allocate index node separately
@@ -319,7 +235,7 @@ impl Blueprint {
 
 				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
 					let buffer = &blob[buffer_index..buffer_index + indices.size()];
-					let index = Self::convert_integer(buffer, &mut temp, indices.size(), INDEX_SIZE);
+					let index = helpers::integer::convert_integer(buffer, &mut temp, indices.size(), INDEX_SIZE);
 					highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
 				}
 
@@ -414,30 +330,6 @@ impl Blueprint {
 			primitives,
 		})))
 	}
-
-	/// Converts between two sizes of little-endian serialized integer. Zero-extends if the destination size is larger,
-	/// truncates if the destination size is smaller.
-	fn convert_integer(buffer: &[u8], out: &mut Vec<u8>, source_size: usize, destination_size: usize) -> u64 {
-		out.extend_from_slice(&buffer[0..std::cmp::min(source_size, destination_size)]); // copy to output
-
-		if destination_size > source_size { // zero-extend
-			for _ in 0..destination_size - source_size {
-				out.push(0);
-			}
-		}
-
-		// return what we just put in the array
-		let number = match source_size {
-			1 => buffer[0] as u64,
-			2 => (buffer[1] as u64) << 8 | buffer[0] as u64,
-			3 => (buffer[2] as u64) << 16 | (buffer[1] as u64) << 8 | buffer[0] as u64,
-			4 => (buffer[3] as u64) << 24 | (buffer[2] as u64) << 16 | (buffer[1] as u64) << 8 | buffer[0] as u64,
-			_ => panic!("size not supported"),
-		};
-
-		return number & (0xFF_FF_FF_FF >> ((4 - destination_size) * 8));
-	}
-
 
 	/// Converts a gltf transform into a `glam::Mat4`.
 	fn transform_to_mat4(transform: &gltf::scene::Transform) -> glam::Mat4 {
