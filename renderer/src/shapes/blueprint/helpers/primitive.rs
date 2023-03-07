@@ -1,8 +1,6 @@
 use crate::memory_subsystem::{ Node, NodeKind, };
 use crate::shapes::blueprint::{ DataKind, State, helpers, };
 
-use super::temp_ir::TempIR;
-
 /// Takes in a GLTF primitive attribute and loads the data into the eggine's memory subsystem. Performs error checking
 /// to ensure that the attribute can be transcoded into the eggine's representation, and also provides functionality for
 /// re-mapping data as its read from GLTF buffers.
@@ -11,7 +9,7 @@ use super::temp_ir::TempIR;
 pub fn load_attribute<T: State>(
 	semantic: Option<gltf::Semantic>,
 	accessor: gltf::Accessor,
-	ir: &mut TempIR,
+	ir: &mut helpers::temp_ir::TempIR,
 	state: &mut Box<T>,
 	blob: &Vec<u8>
 ) -> Option<(DataKind, Node)> {
