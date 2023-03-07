@@ -6,8 +6,7 @@ use std::sync::{ Arc, RwLock, };
 
 use carton::Carton;
 
-use crate::memory_subsystem::{ Memory, Node as MemoryNode, NodeKind, textures, };
-use crate::shapes;
+use crate::memory_subsystem::{ Memory, textures, };
 
 use super::{ Bone, DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, helpers, };
 
@@ -58,10 +57,20 @@ impl Blueprint {
 			textures: HashSet::new(),
 		};
 
+		let mut ir = helpers::temp_ir::TempIR::default();
+
+		ir.attribute_default_mappings.insert(
+			DataKind::Index,
+			Rc::new(|ir, _, _, data, output| {
+				let index = helpers::integer::convert_integer(data, output, data.len(), output.len());
+				ir.highest_index = std::cmp::max(ir.highest_index, index as i32);
+			})
+		);
+
 		// build the `Blueprint` tree
 		for scene in gltf.scenes() {
 			for node in scene.nodes() {
-				Self::parse_tree(&mut blueprint, &gltf, &node, None, state, memory.clone(), carton).unwrap();
+				Self::parse_tree(&mut blueprint, &mut ir, &gltf, &node, None, state, memory.clone(), carton).unwrap();
 			}
 		}
 
@@ -91,6 +100,7 @@ impl Blueprint {
 	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
 	fn parse_tree<T: State>(
 		blueprint: &mut Blueprint,
+		ir: &mut helpers::temp_ir::TempIR,
 		gltf: &gltf::Gltf,
 		node: &gltf::Node,
 		parent: Option<Rc<RefCell<Node>>>,
@@ -113,7 +123,7 @@ impl Blueprint {
 		));
 
 		if node.mesh().is_some() {
-			let mesh = Self::parse_mesh(blueprint, gltf, node, state, memory.clone(), carton)?.unwrap();
+			let mesh = Self::parse_mesh(blueprint, ir, gltf, node, state, memory.clone(), carton)?.unwrap();
 			blueprint.meshes.push(mesh.clone());
 			new_node.borrow_mut().data = NodeData::Mesh(mesh.clone());
 
@@ -125,7 +135,7 @@ impl Blueprint {
 		// parse the rest of the children
 		let mut children = Vec::new();
 		for child in node.children() {
-			match Self::parse_tree(blueprint, gltf, &child, Some(new_node.clone()), state, memory.clone(), carton) {
+			match Self::parse_tree(blueprint, ir, gltf, &child, Some(new_node.clone()), state, memory.clone(), carton) {
 				Ok(child) => { // add children meshes
 					if let Some(child) = child {
 						children.push(child);
@@ -146,6 +156,7 @@ impl Blueprint {
 	/// Parses a mesh object and loads all vertex data into memory.
 	fn parse_mesh<T: State>(
 		blueprint: &mut Blueprint,
+		ir: &mut helpers::temp_ir::TempIR,
 		gltf: &gltf::Gltf,
 		node: &gltf::Node,
 		state: &mut Box<T>,
@@ -166,21 +177,9 @@ impl Blueprint {
 				continue;
 			}
 
-			let Some(indices) = primitive.indices() else {
+			let Some(indices_accessor) = primitive.indices() else {
 				return Err(Error::NoIndices);
 			};
-
-			// make sure indices are compatible
-			if !DataKind::Index.is_compatible(&indices) {
-				eprintln!(
-					"Index accessor with parameters '{:?}<{:?}>' are not compatible with 'DataKind::{:?}'",
-					indices.dimensions(),
-					indices.data_type(),
-					DataKind::Index
-				);
-
-				return Err(Error::NoIndices);
-			}
 
 			// associate `DataKind`s to different parts of GLTF and eggine state
 			let mut kind_to_node = HashMap::new();
@@ -190,57 +189,15 @@ impl Blueprint {
 			// populate `kind_to_accessor` for future data fetching
 			for (semantic, accessor) in primitive.attributes() {
 				// store in `kind_to_node` so the `MeshPrimitive` can extract the data
-				if let Some((kind, node)) = helpers::primitive::load_attribute(semantic, accessor, state, blob) {
+				if let Some((kind, node)) = helpers::primitive::load_attribute(Some(semantic), accessor, ir, state, blob) {
 					kind_to_node.insert(kind, node);
 				}
 			}
 
-			// allocate index node separately
-			let index_node = state.get_named_node(
-				DataKind::Index,
-				(indices.count() * DataKind::Index.element_size() * DataKind::Index.element_count()) as u64,
-				DataKind::Index.element_size() as u64,
-				NodeKind::Buffer
-			)
-				.or_else(
-					|_| -> Result<Option<MemoryNode>, ()> {
-						eprintln!("Could not allocate node for {:?}", DataKind::Index);
-						Ok(None)
-					}
-				)
-				.unwrap()
-				.unwrap();
-
-			// load the indices into VRAM
-			let mut highest_index = 0;
-			{
-				// statically evaluate this to hopefully influence some compiler optimization magic in the below for loops
-				static INDEX_SIZE: usize = std::mem::size_of::<shapes::IndexType>();
-
-				let mut temp = Vec::new();
-				let view = indices.view().unwrap();
-
-				let stride = if let Some(stride) = view.stride() {
-					stride
-				} else {
-					indices.size()
-				};
-
-				let start_index = view.offset() + indices.offset();
-
-				// emit a warning b/c idk if the type conversion works 100% yet
-				if indices.size() != INDEX_SIZE {
-					eprintln!("GLTF index size does not match eggine index size, doing type conversion...");
-				}
-
-				for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-					let buffer = &blob[buffer_index..buffer_index + indices.size()];
-					let index = helpers::integer::convert_integer(buffer, &mut temp, indices.size(), INDEX_SIZE);
-					highest_index = std::cmp::max(highest_index, index as usize); // set the highest index
-				}
-
-				state.write_node(DataKind::Index, &index_node, temp);
-			}
+			let indices_count = indices_accessor.count();
+			let Some((_, index_node)) = helpers::primitive::load_attribute(None, indices_accessor, ir, state, blob) else {
+				return Err(Error::NoIndices);
+			};
 
 			// load the material
 			let material = primitive.material();
@@ -284,7 +241,7 @@ impl Blueprint {
 
 			// construct the mesh primitive
 			primitives.push(MeshPrimitive {
-				first_index: state.calc_first_index(indices.count() as u32),
+				first_index: state.calc_first_index(indices_count as u32),
 				indices: Some(index_node),
 				kind: MeshPrimitiveKind::Triangle,
 				material: Material {
@@ -294,8 +251,8 @@ impl Blueprint {
 				normals: kind_to_node.remove(&DataKind::Normal),
 				positions: kind_to_node.remove(&DataKind::Position),
 				uvs: kind_to_node.remove(&DataKind::UV),
-				vertex_count: indices.count() as u32,
-				vertex_offset: state.calc_vertex_offset(highest_index as i32),
+				vertex_count: indices_count as u32,
+				vertex_offset: state.calc_vertex_offset(ir.highest_index),
 			});
 		}
 

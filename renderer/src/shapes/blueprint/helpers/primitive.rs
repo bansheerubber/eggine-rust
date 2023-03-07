@@ -1,23 +1,29 @@
 use crate::memory_subsystem::{ Node, NodeKind, };
 use crate::shapes::blueprint::{ DataKind, State, helpers, };
 
+use super::temp_ir::TempIR;
+
 /// Takes in a GLTF primitive attribute and loads the data into the eggine's memory subsystem. Performs error checking
 /// to ensure that the attribute can be transcoded into the eggine's representation, and also provides functionality for
 /// re-mapping data as its read from GLTF buffers.
+///
+/// If `semantic` is `None`, then assume we are loading index data.
 pub fn load_attribute<T: State>(
-	semantic: gltf::Semantic,
+	semantic: Option<gltf::Semantic>,
 	accessor: gltf::Accessor,
+	ir: &mut TempIR,
 	state: &mut Box<T>,
 	blob: &Vec<u8>
 ) -> Option<(DataKind, Node)> {
 	// translate GLTF data type into memory system data type
 	let kind = match semantic {
-		gltf::Semantic::Colors(0) => DataKind::Color, // TODO support other color indices? what do they even mean?
-		gltf::Semantic::Joints(0) => DataKind::BoneIndex, // TODO support different skin indices
-		gltf::Semantic::Normals => DataKind::Normal,
-		gltf::Semantic::Positions => DataKind::Position,
-		gltf::Semantic::TexCoords(0) => DataKind::UV, // TODO support other texture coordinates
-		gltf::Semantic::Weights(0) => DataKind::BoneWeight, // TODO support different skin indices
+		Some(gltf::Semantic::Colors(0)) => DataKind::Color, // TODO support other color indices? what do they even mean?
+		Some(gltf::Semantic::Joints(0)) => DataKind::BoneIndex, // TODO support different skin indices
+		Some(gltf::Semantic::Normals) => DataKind::Normal,
+		Some(gltf::Semantic::Positions) => DataKind::Position,
+		Some(gltf::Semantic::TexCoords(0)) => DataKind::UV, // TODO support other texture coordinates
+		Some(gltf::Semantic::Weights(0)) => DataKind::BoneWeight, // TODO support different skin indices
+		None => DataKind::Index,
 		kind => {
 			eprintln!("GLTF semantic {:?} not yet supported", kind);
 			return None;
@@ -79,17 +85,36 @@ pub fn load_attribute<T: State>(
 
 	let start_index = view.offset() + accessor.offset();
 
-	if kind.is_float() { // copy entire vector at once
+	if let Some(mapping) = ir.get_attribute_map(kind) { // perform data mapping
 		for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-			// copy binary data straight into the buffer (TODO support type conversion?)
-			temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
+			let start = temp.len();
+			temp.resize(kind.element_size() * kind.element_count() + temp.len(), 0);
+
+			mapping(
+				ir,
+				accessor.data_type(),
+				accessor.dimensions(),
+				&blob[buffer_index..buffer_index + accessor.size()],
+				&mut temp[start..]
+			);
 		}
-	} else { // step through each element of the vector for type conversion
-		let element_size = accessor.data_type().size();
-		for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
-			for i in 0..accessor.dimensions().multiplicity() {
-				let buffer = &blob[buffer_index + i * element_size..buffer_index + (i + 1) * element_size];
-				helpers::integer::convert_integer(buffer, &mut temp, element_size, kind.element_size());
+	} else { // if no mapping, then do default writing behavior
+		if kind.is_float() { // copy entire vector at once
+			for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+				// copy binary data straight into the buffer (TODO support type conversion?)
+				temp.extend_from_slice(&blob[buffer_index..buffer_index + accessor.size()]);
+			}
+		} else { // step through each element of the vector for type conversion
+			let element_size = accessor.data_type().size();
+			for buffer_index in (start_index..start_index + view.length()).step_by(stride) {
+				for i in 0..accessor.dimensions().multiplicity() {
+					let buffer = &blob[buffer_index + i * element_size..buffer_index + (i + 1) * element_size];
+
+					let start = temp.len();
+					temp.resize(kind.element_size() + temp.len(), 0);
+
+					helpers::integer::convert_integer(buffer, &mut temp[start..], element_size, kind.element_size());
+				}
 			}
 		}
 	}

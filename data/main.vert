@@ -46,11 +46,11 @@ void main() {
 		+ vBoneWeights.z * bones.matrices[boneOffset + vBoneIndices.z]
 		+ vBoneWeights.w * bones.matrices[boneOffset + vBoneIndices.w];
 
-	gl_Position = vb.perspective * vb.view * ob.objects[gl_DrawID].model * skinMatrix * vec4(vVertex, 1.0);
+	gl_Position = vb.perspective * vb.view * ob.objects[gl_DrawID].model * vec4(vVertex, 1.0);
 
 	// pass some stuff to the fragment shader
 	position = vVertex;
-	normal = mat3(skinMatrix) * vNormal;
+	normal = vNormal;
 	uv = vUV * ob.objects[gl_DrawID].textureOffset.z + ob.objects[gl_DrawID].textureOffset.xy;
 	camera = vb.cameraPosition;
 
