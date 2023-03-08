@@ -359,16 +359,16 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			15.0 * self.x_angle.cos() * self.y_angle.sin(),
-			15.0 * self.x_angle.sin() * self.y_angle.sin(),
-			15.0 * self.y_angle.cos(),
+			25.0 * self.x_angle.cos() * self.y_angle.sin(),
+			25.0 * self.x_angle.sin() * self.y_angle.sin(),
+			25.0 * self.y_angle.cos(),
 			0.0,
 		);
 
 		self.x_angle += 0.01;
 		self.y_angle = 1.0;
 
-		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 1.5, aspect_ratio, 0.1, 10000.0);
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 0.1, 10000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
 			glam::Vec3::new(0.0, 0.0, 0.0),
@@ -635,7 +635,7 @@ impl Pass for IndirectPass<'_> {
 						step_mode: wgpu::VertexStepMode::Vertex,
 					},
 					wgpu::VertexBufferLayout { // bone indices
-						array_stride: 4 * 2,
+						array_stride: 2 * 4,
 						attributes: &[wgpu::VertexAttribute {
 							format: wgpu::VertexFormat::Uint16x4,
 							offset: 0,
@@ -758,15 +758,21 @@ impl Pass for IndirectPass<'_> {
 						}
 
 						// allocate `bone_uniforms`
-						if self.programs.bone_uniforms.len() + shape.bones.len() > self.programs.bone_uniforms.len() {
-							for _ in 0..shape.bones.len() { // TODO speed this up
-								self.programs.bone_uniforms.push(glam::Mat4::IDENTITY);
-							}
+						if self.programs.bone_uniforms.len() + mesh.bones.len() > self.programs.bone_uniforms.len() {
+							self.programs.bone_uniforms.resize(
+								self.programs.bone_uniforms.len() + mesh.bones.len(),
+								glam::Mat4::IDENTITY
+							);
 						}
 
+						let inverse_transform = node.borrow().transform.inverse();
+
 						// set bone uniforms
-						for (current_transform, bone) in shape.bones.iter().zip(mesh.bones.iter()) {
-							self.programs.bone_uniforms[bone_index] = current_transform.mul_mat4(&bone.inverse_bind_matrix);
+						for (bone, inverse_bind_matrix) in mesh.bones.iter() {
+							let bone = bone.borrow();
+							self.programs.bone_uniforms[bone_index] = inverse_transform.mul_mat4(
+								&bone.transform.mul_mat4(inverse_bind_matrix)
+							);
 							bone_index += 1;
 						}
 

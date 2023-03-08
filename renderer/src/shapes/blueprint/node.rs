@@ -9,6 +9,8 @@ use super::Mesh;
 pub struct Node {
 	pub children: Vec<Rc<RefCell<Node>>>,
 	pub data: NodeData,
+	/// TODO replace with eggine generated ID?
+	pub gltf_id: usize,
 	pub local_transform: glam::Mat4,
 	pub parent: Option<Rc<RefCell<Node>>>,
 	pub transform: glam::Mat4,
@@ -24,18 +26,14 @@ impl Node {
 
 	/// Accumulates together the transforms from the `Node`'s parents.
 	pub fn accumulate_transform(node: Option<Rc<RefCell<Node>>>, local_transform: glam::Mat4) -> glam::Mat4 {
-		let Some(node) = node else {
-			return glam::Mat4::IDENTITY;
-		};
-
 		let mut accumulator = local_transform;
 
-		let mut next = node.borrow().parent.clone();
+		let mut next = node;
 		loop {
-			if let Some(parent) = next {
-				let parent_transform = parent.borrow().transform;
+			if let Some(temp) = next {
+				let parent_transform = temp.borrow().local_transform;
 				accumulator = parent_transform.mul_mat4(&accumulator);
-				next = parent.borrow().parent.clone();
+				next = temp.borrow().parent.clone();
 			} else {
 				break;
 			}
@@ -49,6 +47,7 @@ impl Node {
 /// into the `Empty` variant.
 #[derive(Debug)]
 pub enum NodeData {
+	Bone,
 	Empty,
 	Mesh(Rc<Mesh>),
 }

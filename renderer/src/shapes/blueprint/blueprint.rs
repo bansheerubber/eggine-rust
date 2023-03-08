@@ -8,12 +8,11 @@ use carton::Carton;
 
 use crate::memory_subsystem::{ Memory, textures, };
 
-use super::{ Bone, DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, helpers, };
+use super::{ DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, helpers, };
 
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
 pub struct Blueprint {
-	bones: Vec<Bone>,
 	/// The GLTF file we loaded the blueprint from.
 	file_name: String,
 	/// JSON index to node.
@@ -48,7 +47,6 @@ impl Blueprint {
 		let gltf = gltf::Gltf::from_reader(gltf_stream).unwrap();
 
 		let mut blueprint = Blueprint {
-			bones: Vec::new(),
 			file_name: file_name.to_string(),
 			index_to_node: HashMap::new(),
 			meshes: Vec::new(),
@@ -74,6 +72,31 @@ impl Blueprint {
 			}
 		}
 
+		// go through stuff that we know are bones and assign a bone object to their node
+		for node_index in ir.joint_ids.iter() {
+			let node = blueprint.index_to_node.get_mut(node_index).unwrap();
+			node.borrow_mut().data = NodeData::Bone;
+		}
+
+		// go through mesh intermediate representation and assign them
+		for (node_index, primitives, joints) in ir.meshes {
+			let mut bones = Vec::new();
+			for (bone_index, inverse_bind_matrix) in joints {
+				bones.push((blueprint.index_to_node[&bone_index].clone(), inverse_bind_matrix));
+			}
+
+			let mesh = Rc::new(Mesh {
+				bones,
+				primitives,
+			});
+
+			let node = blueprint.index_to_node.get_mut(&node_index).unwrap();
+			node.borrow_mut().data = NodeData::Mesh(mesh.clone());
+
+			blueprint.meshes.push(mesh.clone());
+			blueprint.mesh_nodes.push((node.clone(), mesh));
+		}
+
 		Ok(Rc::new(blueprint))
 	}
 
@@ -92,11 +115,6 @@ impl Blueprint {
 		&self.mesh_nodes
 	}
 
-	/// Get the `Bone`s imported by the `Blueprint`.
-	pub fn get_bones(&self) -> &Vec<Bone> {
-		&self.bones
-	}
-
 	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
 	fn parse_tree<T: State>(
 		blueprint: &mut Blueprint,
@@ -109,25 +127,27 @@ impl Blueprint {
 		carton: &mut Carton
 	) -> Result<Option<Rc<RefCell<Node>>>, Error> {
 		// load node transform
-		let transform = Self::transform_to_mat4(&node.transform());
+		let local_transform = Self::transform_to_mat4(&node.transform());
 
 		// create the node
 		let new_node = Rc::new(RefCell::new(
 			Node {
 				children: Vec::new(),
 				data: NodeData::Empty,
-				local_transform: transform,
-				transform: Node::accumulate_transform(parent.clone(), transform),
+				gltf_id: node.index(),
+				local_transform,
+				transform: if let Some(parent) = parent.clone() {
+					parent.borrow().transform.mul_mat4(&local_transform)
+				} else {
+					local_transform
+				},
 				parent,
 			}
 		));
 
 		if node.mesh().is_some() {
-			let mesh = Self::parse_mesh(blueprint, ir, gltf, node, state, memory.clone(), carton)?.unwrap();
-			blueprint.meshes.push(mesh.clone());
-			new_node.borrow_mut().data = NodeData::Mesh(mesh.clone());
-
-			blueprint.mesh_nodes.push((new_node.clone(), mesh));
+			let (primitives, joints) = Self::parse_mesh(blueprint, ir, gltf, node, state, memory.clone(), carton)?.unwrap();
+			ir.meshes.push((node.index(), primitives, joints))
 		} else {
 			new_node.borrow_mut().data = NodeData::Empty;
 		};
@@ -162,7 +182,7 @@ impl Blueprint {
 		state: &mut Box<T>,
 		memory: Arc<RwLock<Memory>>,
 		carton: &mut Carton
-	) -> Result<Option<Rc<Mesh>>, Error> {
+	) -> Result<Option<(Vec<MeshPrimitive>, Vec<(usize, glam::Mat4)>)>, Error> {
 		let Some(mesh) = node.mesh() else {
 			return Ok(None);
 		};
@@ -258,35 +278,18 @@ impl Blueprint {
 		}
 
 		// figure out the joints
-		let bones = if let Some(skin) = node.skin() {
+		let mut joints = Vec::new();
+		if let Some(skin) = node.skin() {
 			let reader = skin.reader(|_| Some(blob.as_slice()));
 
-			let mut inverse_bind_matrices = Vec::new();
-			for matrix in reader.read_inverse_bind_matrices().unwrap() { // TODO accept `None` value
-				inverse_bind_matrices.push(glam::Mat4::from_cols_array_2d(&matrix));
+			for (joint, matrix) in skin.joints().zip(reader.read_inverse_bind_matrices().unwrap()) {
+				joints.push((joint.index(), glam::Mat4::from_cols_array_2d(&matrix)));
+
+				ir.joint_ids.insert(joint.index());
 			}
+		}
 
-			let mut output = Vec::new();
-			for joint in skin.joints() {
-				let bone = Bone {
-					inverse_bind_matrix: inverse_bind_matrices[output.len()],
-					local_transform: Self::transform_to_mat4(&joint.transform()),
-					transform: glam::Mat4::IDENTITY,
-				};
-
-				output.push(bone.clone());
-				blueprint.bones.push(bone);
-			}
-
-			output
-		} else {
-			Vec::new()
-		};
-
-		Ok(Some(Rc::new(Mesh {
-			bones,
-			primitives,
-		})))
+		Ok(Some((primitives, joints)))
 	}
 
 	/// Converts a gltf transform into a `glam::Mat4`.
