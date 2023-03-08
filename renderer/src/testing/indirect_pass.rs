@@ -767,6 +767,9 @@ impl Pass for IndirectPass<'_> {
 
 						let inverse_transform = node.borrow().transform.inverse();
 
+						// the bone offset is the start of where we're going to write bone uniforms
+						let bone_offset = bone_index as u32;
+
 						// set bone uniforms
 						for (bone, inverse_bind_matrix) in mesh.bones.iter() {
 							let bone = bone.borrow();
@@ -788,7 +791,7 @@ impl Pass for IndirectPass<'_> {
 								texture.get_size() as f32 / texture_size as f32
 							).to_array(),
 							roughness: primitive.material.roughness,
-							bone_offset: 0,
+							bone_offset,
 							_padding: [0.0, 0.0],
 						};
 
