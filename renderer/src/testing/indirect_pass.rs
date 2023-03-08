@@ -1006,4 +1006,14 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 		let memory = self.memory.read().unwrap();
 		memory.get_none_texture().unwrap().clone()
 	}
+
+	fn required_attributes(&self) -> Vec<shapes::blueprint::DataKind> {
+		vec![
+			shapes::blueprint::DataKind::BoneIndex,
+			shapes::blueprint::DataKind::BoneWeight,
+			shapes::blueprint::DataKind::Normal,
+			shapes::blueprint::DataKind::Position,
+			shapes::blueprint::DataKind::UV,
+		]
+	}
 }

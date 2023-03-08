@@ -40,11 +40,14 @@ layout(std140, set = 0, binding = 2) readonly buffer boneMatrices
 void main() {
 	uint boneOffset = ob.objects[gl_DrawID].boneOffset;
 
-	mat4 skinMatrix =
-		vBoneWeights.x * bones.matrices[boneOffset + vBoneIndices.x]
-		+ vBoneWeights.y * bones.matrices[boneOffset + vBoneIndices.y]
-		+ vBoneWeights.z * bones.matrices[boneOffset + vBoneIndices.z]
-		+ vBoneWeights.w * bones.matrices[boneOffset + vBoneIndices.w];
+	mat4 skinMatrix = mat4(1.0);
+	if (vBoneWeights.x + vBoneWeights.y + vBoneWeights.z + vBoneWeights.w > 0.9) {
+		skinMatrix =
+			vBoneWeights.x * bones.matrices[boneOffset + vBoneIndices.x]
+			+ vBoneWeights.y * bones.matrices[boneOffset + vBoneIndices.y]
+			+ vBoneWeights.z * bones.matrices[boneOffset + vBoneIndices.z]
+			+ vBoneWeights.w * bones.matrices[boneOffset + vBoneIndices.w];
+	}
 
 	gl_Position = vb.perspective * vb.view * ob.objects[gl_DrawID].model * skinMatrix * vec4(vVertex, 1.0);
 

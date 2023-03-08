@@ -125,3 +125,29 @@ pub fn load_attribute<T: State>(
 
 	Some((kind, node))
 }
+
+/// Allocates zeros for the specified `DataKind`.
+pub fn allocate_empty<T: State>(kind: DataKind, element_count: usize, state: &mut Box<T>) {
+	// allocate the node using state
+	let node = state.get_named_node(
+		kind,
+		(element_count * kind.element_size() * kind.element_count()) as u64,
+		kind.element_size() as u64,
+		NodeKind::Buffer
+	)
+		.or_else(
+			|_| -> Result<Option<Node>, ()> {
+				eprintln!("Could not allocate node for {:?}", kind);
+				Ok(None)
+			}
+		)
+		.unwrap();
+
+	// if the `DataKind` is not supported by the state, then print an error
+	let Some(node) = node else {
+		eprintln!("Node kind {:?} not supported by blueprint state", kind);
+		return;
+	};
+
+	state.write_node(kind, &node, vec![0; element_count * kind.element_size() * kind.element_count()]);
+}

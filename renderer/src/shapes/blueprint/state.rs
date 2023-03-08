@@ -52,4 +52,8 @@ pub trait State {
 
 	/// Gets the none texture.
 	fn get_none_texture(&mut self) -> Rc<textures::Texture>;
+
+	/// Gets the vertex attributes that this `State` needs to be allocated. `DataKind::Index` does not count as a vertex
+	/// attribute that can be allocated.
+	fn required_attributes(&self) -> Vec<DataKind>;
 }

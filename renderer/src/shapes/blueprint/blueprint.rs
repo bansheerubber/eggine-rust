@@ -206,12 +206,30 @@ impl Blueprint {
 
 			state.prepare_mesh_pages();
 
-			// populate `kind_to_accessor` for future data fetching
+			// store in data `kind_to_node` so the `MeshPrimitive` can extract the data
+			let mut element_count = 0;
 			for (semantic, accessor) in primitive.attributes() {
-				// store in `kind_to_node` so the `MeshPrimitive` can extract the data
+				if accessor.count() != element_count && element_count != 0 {
+					panic!("Expected vertex attribute accessors to have the same amount of elements as each other.");
+				}
+
+				element_count = accessor.count();
+
 				if let Some((kind, node)) = helpers::primitive::load_attribute(Some(semantic), accessor, ir, state, blob) {
 					kind_to_node.insert(kind, node);
 				}
+			}
+
+			let default_kinds = state.required_attributes();
+			let mut missing_kinds = default_kinds.iter().filter(|kind| !kind_to_node.contains_key(&kind)).collect::<Vec<&DataKind>>();
+			if missing_kinds.contains(&&DataKind::Index) {
+				eprintln!("Required attributes cannot contain `{:?}`", DataKind::Index);
+				missing_kinds.swap_remove(missing_kinds.iter().position(|x| x == &&DataKind::Index).unwrap());
+			}
+
+			// allocate zeros in all missing vertex attributes
+			for kind in missing_kinds {
+				helpers::primitive::allocate_empty(*kind, element_count, state);
 			}
 
 			// load indices
