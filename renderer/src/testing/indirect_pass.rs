@@ -138,7 +138,7 @@ impl<'a> IndirectPass<'a> {
 			let max_objects_per_batch = object_storage_size / std::mem::size_of::<ObjectUniform>() as u64;
 
 			// create the storage buffer for object bone matrices
-			let bone_storage_size = 5_000_000;
+			let bone_storage_size = 60_000_000;
 			let bone_storage_page_uuid = memory.new_page(
 				bone_storage_size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
 			);
@@ -758,7 +758,7 @@ impl Pass for IndirectPass<'_> {
 						}
 
 						// allocate `bone_uniforms`
-						if self.programs.bone_uniforms.len() + mesh.bones.len() > self.programs.bone_uniforms.len() {
+						if bone_index + mesh.bones.len() > self.programs.bone_uniforms.len() {
 							self.programs.bone_uniforms.resize(
 								self.programs.bone_uniforms.len() + mesh.bones.len(),
 								glam::Mat4::IDENTITY
