@@ -677,6 +677,7 @@ impl Pass for IndirectPass<'_> {
 
 		let mut current_batch = Batch {
     	batch_parameters: Vec::new(),
+			meshes_to_draw: 0,
     	texture_pager: textures::VirtualPager::new(20, memory.get_texture_descriptor().size.width as u16),
 		};
 
@@ -692,12 +693,15 @@ impl Pass for IndirectPass<'_> {
 
 				current_batch = Batch {
 					batch_parameters: Vec::new(),
+					meshes_to_draw: 0,
 					texture_pager: textures::VirtualPager::new(20, texture_size as u16),
 				};
 
 				current_batch.texture_pager.allocate_texture(parameters.get_texture()).unwrap();
 			} else {
 				current_batch.batch_parameters.push(parameters);
+				current_batch.meshes_to_draw += parameters.get_shapes()
+					.fold(0, |acc, shape| acc + shape.get_blueprint().get_meshes().len());
 			}
 		}
 
@@ -707,9 +711,11 @@ impl Pass for IndirectPass<'_> {
 
 		// G-buffer render pass for every single batch
 		for batch in batches.iter() {
+			static DRAW_INDEXED_DIRECT_SIZE: usize = std::mem::size_of::<wgpu::util::DrawIndexedIndirect>();
+
 			// fill the command buffer with calls
-			let mut buffer = Vec::new();
-			let mut draw_call_count: u32 = 0;
+			let mut buffer = vec![0; batch.meshes_to_draw * DRAW_INDEXED_DIRECT_SIZE];
+			let mut draw_call_count: usize = 0;
 
 			// upload textures
 			let textures = batch.batch_parameters.iter()
@@ -744,17 +750,24 @@ impl Pass for IndirectPass<'_> {
 							panic!("Exceeded maximum amount of objects per batch")
 						}
 
-						buffer.extend_from_slice(wgpu::util::DrawIndexedIndirect {
-							base_index: primitive.first_index,
-							base_instance: 0,
-							instance_count: 1,
-							vertex_count: primitive.vertex_count,
-							vertex_offset: primitive.vertex_offset,
-						}.as_bytes());
+						// write draw index indirect into the buffer as fast as possible
+						unsafe {
+							let command = wgpu::util::DrawIndexedIndirect {
+								base_index: primitive.first_index,
+								base_instance: 0,
+								instance_count: 1,
+								vertex_count: primitive.vertex_count,
+								vertex_offset: primitive.vertex_offset,
+							};
 
-						// allocate `object_uniforms`
-						if draw_call_count >= self.programs.object_uniforms.len() as u32 {
-							self.programs.object_uniforms.push(ObjectUniform::default());
+							buffer[
+								draw_call_count * DRAW_INDEXED_DIRECT_SIZE..(draw_call_count + 1) * DRAW_INDEXED_DIRECT_SIZE
+							].copy_from_slice(
+								std::slice::from_raw_parts(
+									&command as *const _ as *const u8,
+									DRAW_INDEXED_DIRECT_SIZE
+								)
+							)
 						}
 
 						// allocate `bone_uniforms`
@@ -771,12 +784,17 @@ impl Pass for IndirectPass<'_> {
 						let bone_offset = bone_index as u32;
 
 						// set bone uniforms
-						for (bone, inverse_bind_matrix) in mesh.bones.iter() {
+						for (bone, inverse_bind_matrix) in mesh.bones.iter() { // TODO move matrix multiplications to compute shader?
 							let bone = bone.borrow();
 							self.programs.bone_uniforms[bone_index] = inverse_transform.mul_mat4(
 								&bone.transform.mul_mat4(inverse_bind_matrix)
 							);
 							bone_index += 1;
+						}
+
+						// allocate `object_uniforms`
+						if draw_call_count >= self.programs.object_uniforms.len() {
+							self.programs.object_uniforms.push(ObjectUniform::default());
 						}
 
 						// put the object uniforms into the array
@@ -895,7 +913,7 @@ impl Pass for IndirectPass<'_> {
 
 				// draw all the objects
 				render_pass.multi_draw_indexed_indirect(
-					memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count
+					memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, draw_call_count as u32
 				);
 
 				// set clear ops
