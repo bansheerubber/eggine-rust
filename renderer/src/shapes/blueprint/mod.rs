@@ -1,3 +1,4 @@
+mod animation;
 mod blueprint;
 mod data_kind;
 mod error;
@@ -8,6 +9,7 @@ mod mesh_primitive;
 mod node;
 mod state;
 
+pub use animation::Animation;
 pub use blueprint::Blueprint;
 pub use data_kind::DataKind;
 pub use error::Error;
