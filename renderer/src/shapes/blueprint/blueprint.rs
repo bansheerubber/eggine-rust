@@ -8,7 +8,6 @@ use carton::Carton;
 
 use crate::memory_subsystem::{ Memory, textures, };
 
-use super::helpers::integer;
 use super::{
 	DataKind,
 	Error,
@@ -26,6 +25,7 @@ use super::{
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
 pub struct Blueprint {
+	animations: Vec<animation::Animation>,
 	/// The GLTF file we loaded the blueprint from.
 	file_name: String,
 	/// JSON index to node.
@@ -60,6 +60,7 @@ impl Blueprint {
 		let gltf = gltf::Gltf::from_reader(gltf_stream).unwrap();
 
 		let mut blueprint = Blueprint {
+			animations: Vec::new(),
 			file_name: file_name.to_string(),
 			index_to_node: HashMap::new(),
 			meshes: Vec::new(),
@@ -127,8 +128,8 @@ impl Blueprint {
 								.bone_to_knot.get_mut(&channel.target().node().index())
 								.unwrap();
 
-							knot.rotation = Some(glam::Quat::from_array(rotation));
-							knot.rotation_interpolation = Some(interpolation.into());
+							knot.transformation[animation::Transform::Rotation as usize] =
+								Some((glam::Vec4::from_array(rotation), interpolation.into()));
 						}
 					},
         	gltf::animation::util::ReadOutputs::Scales(iterator) => {
@@ -140,8 +141,8 @@ impl Blueprint {
 								.bone_to_knot.get_mut(&channel.target().node().index())
 								.unwrap();
 
-							knot.scale = Some(glam::Vec3::from_array(scale));
-							knot.scale_interpolation = Some(interpolation.into());
+							knot.transformation[animation::Transform::Scale as usize] =
+								Some((glam::Vec4::from_array([scale[0], scale[1], scale[2], 0.0]), interpolation.into()));
 						}
 					},
 					gltf::animation::util::ReadOutputs::Translations(iterator) => {
@@ -153,8 +154,8 @@ impl Blueprint {
 								.bone_to_knot.get_mut(&channel.target().node().index())
 								.unwrap();
 
-							knot.translation = Some(glam::Vec3::from_array(translation));
-							knot.translation_interpolation = Some(interpolation.into());
+							knot.transformation[animation::Transform::Translate as usize] =
+								Some((glam::Vec4::from_array([translation[0], translation[1], translation[2], 0.0]), interpolation.into()));
 						}
 					},
     		}
@@ -163,12 +164,7 @@ impl Blueprint {
 			let mut keyframes = time_to_keyframe.into_values().collect::<Vec<animation::Keyframe>>();
 			keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
 
-			let animation = animation::Animation {
-				keyframes,
-				name: animation.name().unwrap().to_string(),
-			};
-
-			println!("{:2}", animation);
+			blueprint.animations.push(animation::Animation::new(keyframes, animation.name().unwrap()));
 		}
 
 		// go through stuff that we know are bones and assign a bone object to their node
