@@ -8,7 +8,20 @@ use carton::Carton;
 
 use crate::memory_subsystem::{ Memory, textures, };
 
-use super::{ DataKind, Error, Material, Mesh, Node, NodeData, MeshPrimitive, MeshPrimitiveKind, State, helpers, };
+use super::helpers::integer;
+use super::{
+	DataKind,
+	Error,
+	Material,
+	Mesh,
+	MeshPrimitive,
+	MeshPrimitiveKind,
+	Node,
+	NodeData,
+	State,
+	animation,
+	helpers,
+};
 
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
@@ -70,6 +83,92 @@ impl Blueprint {
 			for node in scene.nodes() {
 				Self::parse_tree(&mut blueprint, &mut ir, &gltf, &node, None, state, memory.clone(), carton).unwrap();
 			}
+		}
+
+		// put together animations
+		let blob = gltf.blob.as_ref().unwrap(); // get reference to binary data
+		for animation in gltf.animations() {
+			let mut time_to_keyframe: HashMap<u32, animation::Keyframe> = HashMap::new();
+
+			// ensures a knot is present in a keyframe from `time_to_keyframe`
+			let insert_knot = |time: f32, time_to_keyframe: &mut HashMap<u32, animation::Keyframe>, node_index: usize| {
+				if !time_to_keyframe.contains_key(&time.to_bits()) {
+					time_to_keyframe.insert(
+						time.to_bits(),
+						animation::Keyframe {
+							bone_to_knot: HashMap::new(),
+							time,
+						}
+					);
+				}
+
+				let keyframe = time_to_keyframe.get_mut(&time.to_bits()).unwrap();
+				if !keyframe.bone_to_knot.contains_key(&node_index) {
+					keyframe.bone_to_knot.insert(node_index, animation::Knot::default());
+				}
+			};
+
+			// write knots to keyframes
+			for channel in animation.channels() {
+				let reader = channel.reader(|_| Some(blob.as_slice()));
+				let inputs = reader.read_inputs().unwrap();
+				let node_index = channel.target().node().index();
+				let interpolation = channel.sampler().interpolation();
+
+				// insert knots
+				match reader.read_outputs().unwrap() {
+        	gltf::animation::util::ReadOutputs::MorphTargetWeights(_) => println!("not implemented"),
+					gltf::animation::util::ReadOutputs::Rotations(iterator) => {
+						for (time, rotation) in inputs.zip(iterator.into_f32()) {
+							insert_knot(time, &mut time_to_keyframe, node_index);
+
+							let knot = time_to_keyframe.get_mut(&time.to_bits())
+								.unwrap()
+								.bone_to_knot.get_mut(&channel.target().node().index())
+								.unwrap();
+
+							knot.rotation = Some(glam::Quat::from_array(rotation));
+							knot.rotation_interpolation = Some(interpolation.into());
+						}
+					},
+        	gltf::animation::util::ReadOutputs::Scales(iterator) => {
+						for (time, scale) in inputs.zip(iterator) {
+							insert_knot(time, &mut time_to_keyframe, node_index);
+
+							let knot = time_to_keyframe.get_mut(&time.to_bits())
+								.unwrap()
+								.bone_to_knot.get_mut(&channel.target().node().index())
+								.unwrap();
+
+							knot.scale = Some(glam::Vec3::from_array(scale));
+							knot.scale_interpolation = Some(interpolation.into());
+						}
+					},
+					gltf::animation::util::ReadOutputs::Translations(iterator) => {
+						for (time, translation) in inputs.zip(iterator) {
+							insert_knot(time, &mut time_to_keyframe, node_index);
+
+							let knot = time_to_keyframe.get_mut(&time.to_bits())
+								.unwrap()
+								.bone_to_knot.get_mut(&channel.target().node().index())
+								.unwrap();
+
+							knot.translation = Some(glam::Vec3::from_array(translation));
+							knot.translation_interpolation = Some(interpolation.into());
+						}
+					},
+    		}
+			}
+
+			let mut keyframes = time_to_keyframe.into_values().collect::<Vec<animation::Keyframe>>();
+			keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+
+			let animation = animation::Animation {
+				keyframes,
+				name: animation.name().unwrap().to_string(),
+			};
+
+			println!("{:2}", animation);
 		}
 
 		// go through stuff that we know are bones and assign a bone object to their node
@@ -189,7 +288,7 @@ impl Blueprint {
 
 		let blob = gltf.blob.as_ref().unwrap(); // get reference to binary data
 
-		// load the primitives
+		// l	oad the primitives
 		let mut primitives = Vec::new();
 		for primitive in mesh.primitives() {
 			if primitive.mode() != gltf::mesh::Mode::Triangles {
