@@ -13,8 +13,8 @@ use crate::metadata::{ FileMetadata, encode_metadata };
 pub enum Compression {
 	/// No compression. ID is encoded as 0.
 	None,
-	/// ZStd compression with specified level. ID is encoded as 1.
-	ZStd(i8),
+	/// ZStd compression with specified level and dictionary. ID is encoded as 1.
+	ZStd(i8, Vec<u8>),
 }
 
 /// Compression is encoded as a 2 byte ID with a varying amount of bytes that describe the configuration settings of the
@@ -24,13 +24,15 @@ where
 	T: WriteStream<u8, Error> + U8WriteStream<Error>
 {
 	fn encode(&self, stream: &mut T) -> Result<(), Error> {
-		match *self {
+		match self {
     	Compression::None => {
 				stream.write_u16(0)?;
 			}
-    	Compression::ZStd(level) => {
+    	Compression::ZStd(level, dictionary) => {
 				stream.write_u16(1)?;
-				stream.write_u8(level as u8)?;
+				stream.write_u8(*level as u8)?;
+				stream.write_u16(dictionary.len() as u16)?;
+				stream.write_vector(dictionary)?;
 			}
 		}
 
@@ -49,8 +51,12 @@ where
 		match id {
 			0 => Ok((Compression::None, new_position)),
 			1 => {
-				let (level, new_position) = stream.read_u8()?;
-				Ok((Compression::ZStd(level as i8), new_position))
+				let (level, _) = stream.read_u8()?;
+				
+				let (dictionary_length, _) = stream.read_u16()?;
+				let (dictionary, new_position) = stream.read_vector(dictionary_length as usize)?;
+
+				Ok((Compression::ZStd(level as i8, dictionary), new_position))
 			},
 			_ => Err(Box::new(CartonError::InvalidCompression)),
 		}
