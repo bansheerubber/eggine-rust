@@ -9,6 +9,7 @@ serde = { features = ["derive"], version = "1.0.147" }
 streams = { path = "../streams" }
 toml = "0.5.9"
 walkdir = "2.3.2"
+zstd = "0.12.3"
 
 [lib]
 name = "carton"

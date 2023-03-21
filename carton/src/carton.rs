@@ -1,4 +1,5 @@
 use std::fs::OpenOptions;
+use std::io::Write;
 use streams::{ Decode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
 use walkdir::WalkDir;
@@ -108,7 +109,7 @@ impl Carton {
 /// start of the file is updated to point to the absolute location of the file table.
 impl<T> EncodeMut<u8, T, Error> for Carton
 where
-	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error>
+	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error> + Write
 {
 	fn encode_mut(&mut self, stream: &mut T) -> Result<(), Error> {
 		// write magic number and the version

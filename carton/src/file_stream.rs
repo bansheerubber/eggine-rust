@@ -1,9 +1,5 @@
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
-use std::io::Write;
+use std::fs::{ File, OpenOptions, };
+use std::io::{ Read, Seek, SeekFrom, Write, };
 
 use streams::u8_io::reading::U8ReadStringStream;
 use streams::{ Decode, Encode, EncodeMut, Endable, ReadStream, Peekable, Seekable, StreamPosition, WriteStream, };
@@ -151,6 +147,21 @@ impl U8WriteStream<Error> for FileWriteStream {
 		} else {
 			Ok(())
 		}
+	}
+}
+
+impl Write for FileWriteStream {
+	fn write(&mut self, buffer: &[u8]) -> Result<usize, std::io::Error> {
+		let file = match self.get_file_mut() {
+			Ok(file) => file,
+			Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "File not found")),
+		};
+
+		file.write(buffer)
+	}
+
+	fn flush(&mut self) -> Result<(), std::io::Error> {
+		Ok(())
 	}
 }
 

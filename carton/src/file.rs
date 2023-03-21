@@ -1,8 +1,9 @@
 use std::fs;
-use std::io::Read;
+use std::io::{ Read, Write, };
 use std::path::Path;
 use streams::{ Decode, Encode, ReadStream, Seekable, StreamPosition, WriteStream, };
 use streams::u8_io::{ U8ReadStream, U8ReadStringStream, U8WriteStream, };
+use zstd::Encoder;
 
 use crate::{ CartonError, Error, };
 use crate::tables::StringTable;
@@ -100,7 +101,7 @@ impl File {
 		};
 
 		Ok(File {
-			compression: Compression::None,
+			compression: Compression::ZStd(3, Vec::new()),
 			file_name: String::from(file_name),
 			metadata,
 			size: std::fs::metadata(file_name).unwrap().len(),
@@ -145,7 +146,7 @@ impl File {
 pub(crate) fn encode_file<T>(stream: &mut T, file: &File, string_table: &mut StringTable)
 	-> Result<(StreamPosition, StreamPosition), Error>
 where
-	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error>
+	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error> + Write
 {
 	let metadata_position = stream.get_position()? as u64;
 
@@ -162,16 +163,43 @@ where
 
 	let mut vector = Vec::new();
 
-	let mut file = match fs::File::open(file.get_file_name()) {
+	let mut raw_file = match fs::File::open(file.get_file_name()) {
     Ok(file) => file,
     Err(error) => return Err(Box::new(CartonError::FileError(error))),
 	};
 
-	if let Err(error) = file.read_to_end(&mut vector) {
+	if let Err(error) = raw_file.read_to_end(&mut vector) {
 		return Err(Box::new(CartonError::FileError(error)));
 	}
 
-	stream.write_vector(&vector)?;
+	match file.get_compression() {
+    Compression::None => stream.write_vector(&vector)?,
+    Compression::ZStd(level, dictionary) => {
+			let encoder = if dictionary.len() > 0 {
+				Encoder::new(stream, *level as i32)
+			} else {
+				Encoder::with_dictionary(stream, *level as i32, dictionary)
+			};
+
+			let mut encoder = match encoder {
+				Ok(encoder) => encoder,
+				Err(error) => return Err(Box::new(CartonError::FileError(error))),
+			};
+
+			match encoder.write(&vector) { // compress data
+				Ok(bytes) => {
+					if bytes == 0 && vector.len() != 0 {
+						return Err(Box::new(CartonError::UnexpectedEof));
+					}
+				},
+				Err(error) => return Err(Box::new(CartonError::FileError(error))),
+			}
+
+			if let Err(error) = encoder.finish() {
+				return Err(Box::new(CartonError::FileError(error)));
+			}
+		},
+	}
 
 	Ok((metadata_position, file_position))
 }
