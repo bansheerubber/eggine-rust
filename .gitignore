@@ -4,3 +4,7 @@
 *.fbx
 *.spv
 /*.log
+data/*.glb
+data/*.qoi
+data/*.png
+*callgrind*
