@@ -13,6 +13,7 @@ pub enum CartonError {
 	InvalidVersion,
 	NoFile,
 	NotInStringTable(u64),
+	NoOriginalSize,
 	UnexpectedEof,
 	UnexpectedFileName,
 	UnexpectedTable,

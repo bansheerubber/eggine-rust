@@ -53,7 +53,7 @@ where
 			0 => Ok((Compression::None, new_position)),
 			1 => {
 				let (level, _) = stream.read_u8()?;
-				
+
 				let (dictionary_length, _) = stream.read_u16()?;
 				let (dictionary, new_position) = stream.read_vector(dictionary_length as usize)?;
 
@@ -63,6 +63,9 @@ where
 		}
 	}
 }
+
+/// First element is size in carton, second element is original file size.
+type FileSize = (u64, u64);
 
 /// Represents a file in a carton.
 #[derive(Debug, PartialEq)]
@@ -74,7 +77,7 @@ pub struct File {
 	/// The metadata for this file.
 	metadata: Option<FileMetadata>,
 	/// The size of the file.
-	size: u64,
+	size: FileSize,
 }
 
 /// Represents a problem with reading a file.
@@ -100,11 +103,19 @@ impl File {
 			None
 		};
 
+		let size = std::fs::metadata(file_name).unwrap().len();
+		let compression = Compression::None;
+		let size = if compression == Compression::None {
+			(size, size)
+		} else {
+			(0, size)
+		};
+
 		Ok(File {
-			compression: Compression::ZStd(3, Vec::new()),
+			compression,
 			file_name: String::from(file_name),
 			metadata,
-			size: std::fs::metadata(file_name).unwrap().len(),
+			size,
 		})
 	}
 
@@ -137,9 +148,14 @@ impl File {
 		&self.metadata
 	}
 
-	/// Get the file's size.
+	/// Get the file's original size, before carton compression.
 	pub fn get_size(&self) -> u64 {
-		self.size
+		self.size.1
+	}
+
+	/// Gets the file's compressed size.
+	pub fn get_compressed_size(&self) -> u64 {
+		self.size.0
 	}
 }
 
@@ -221,7 +237,7 @@ pub(crate) struct IntermediateFile {
 	pub(crate) compression: Compression,
 	pub(crate) file_name: String,
 	pub(crate) file_offset: u64,
-	pub(crate) size: u64,
+	pub(crate) size: FileSize,
 }
 
 pub(crate) fn decode_file<T>(stream: &mut T) -> Result<(IntermediateFile, StreamPosition), Error>
@@ -233,7 +249,7 @@ where
 		compression: Compression::None,
 		file_name: String::new(),
 		file_offset: 0,
-		size: 0,
+		size: (0, 0),
 	};
 
 	// read compression level
@@ -242,7 +258,9 @@ where
 
 	// read file size
 	let (size, _) = stream.read_u64()?;
-	intermediate.size = size;
+	let (original_size, _) = stream.read_u64()?;
+
+	intermediate.size = (size, original_size);
 
 	// read file name
 	let (name, _) = stream.read_string()?;
