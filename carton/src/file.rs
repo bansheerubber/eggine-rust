@@ -143,7 +143,7 @@ impl File {
 	}
 }
 
-pub(crate) fn encode_file<T>(stream: &mut T, file: &File, string_table: &mut StringTable)
+pub(crate) fn encode_file<T>(stream: &mut T, file: &mut File, string_table: &mut StringTable)
 	-> Result<(StreamPosition, StreamPosition), Error>
 where
 	T: WriteStream<u8, Error> + U8WriteStream<Error> + Seekable<Error> + Write
@@ -154,31 +154,27 @@ where
 		encode_metadata(stream, metadata, string_table)?;
 	}
 
-	file.get_compression().encode(stream)?; // can never be the value 7
-
-	stream.write_u64(file.get_size())?;
-	stream.write_string(file.get_file_name())?;
-
-	let file_position = stream.get_position()?;
-
-	let mut vector = Vec::new();
-
 	let mut raw_file = match fs::File::open(file.get_file_name()) {
     Ok(file) => file,
     Err(error) => return Err(Box::new(CartonError::FileError(error))),
 	};
 
-	if let Err(error) = raw_file.read_to_end(&mut vector) {
-		return Err(Box::new(CartonError::FileError(error)));
-	}
+	let data = match file.get_compression() {
+    Compression::None => {
+			let mut vector = Vec::new();
+			if let Err(error) = raw_file.read_to_end(&mut vector) {
+				return Err(Box::new(CartonError::FileError(error)));
+			}
 
-	match file.get_compression() {
-    Compression::None => stream.write_vector(&vector)?,
+			vector
+		},
     Compression::ZStd(level, dictionary) => {
+			let output = Vec::new();
+
 			let encoder = if dictionary.len() > 0 {
-				Encoder::new(stream, *level as i32)
+				Encoder::new(output, *level as i32)
 			} else {
-				Encoder::with_dictionary(stream, *level as i32, dictionary)
+				Encoder::with_dictionary(output, *level as i32, dictionary)
 			};
 
 			let mut encoder = match encoder {
@@ -186,20 +182,36 @@ where
 				Err(error) => return Err(Box::new(CartonError::FileError(error))),
 			};
 
-			match encoder.write(&vector) { // compress data
-				Ok(bytes) => {
-					if bytes == 0 && vector.len() != 0 {
-						return Err(Box::new(CartonError::UnexpectedEof));
-					}
-				},
+			let mut vector = Vec::new();
+			if let Err(error) = raw_file.read_to_end(&mut vector) {
+				return Err(Box::new(CartonError::FileError(error)));
+			}
+
+			match encoder.write_all(&vector) { // compress data
+				Ok(()) => {},
 				Err(error) => return Err(Box::new(CartonError::FileError(error))),
 			}
 
-			if let Err(error) = encoder.finish() {
-				return Err(Box::new(CartonError::FileError(error)));
+			match encoder.finish() {
+				Ok(output) => output,
+				Err(error) => return Err(Box::new(CartonError::FileError(error))),
 			}
 		},
-	}
+	};
+
+	// update file's original size
+	file.size = (data.len() as u64, file.size.1);
+
+	file.get_compression().encode(stream)?; // can never be the value 7
+
+	stream.write_u64(file.get_compressed_size())?;
+	stream.write_u64(file.get_size())?;
+
+	stream.write_string(file.get_file_name())?;
+
+	let file_position = stream.get_position()?;
+
+	stream.write_vector(&data)?;
 
 	Ok((metadata_position, file_position))
 }
