@@ -54,9 +54,14 @@ impl FileTable {
 		&self.file_positions
 	}
 
-	/// Get a reference for files by file name
+	/// Get a reference for files by file name.
 	pub fn get_files_by_name(&self) -> &HashMap<String, File> {
 		&self.files_by_name
+	}
+
+	/// Get a reference for files by file name.
+	pub(crate) fn get_files_by_name_mut(&mut self) -> &mut HashMap<String, File> {
+		&mut self.files_by_name
 	}
 }
 

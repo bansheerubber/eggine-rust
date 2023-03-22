@@ -88,7 +88,8 @@ impl Carton {
 		}
 	}
 
-	pub fn get_file_data(&mut self, file_name: &str) -> Result<CartonFileReadStream, Error> {
+	/// Retreives a file from a carton and returns a stream that reads it.
+	pub fn get_file_data(&self, file_name: &str) -> Result<CartonFileReadStream, Error> {
 		if self.file.is_none() {
 			return Err(Box::new(CartonError::FileNotOpen));
 		}
@@ -98,6 +99,28 @@ impl Carton {
 		}
 
 		CartonFileReadStream::new(self, &self.file_table.get_files_by_name()[file_name])
+	}
+
+	/// Retreives a file from a carton and returns it's parameters.
+	pub fn get_file(&self, file_name: &str) -> Result<&File, Error> {
+		if self.file.is_none() {
+			return Err(Box::new(CartonError::FileNotOpen));
+		}
+
+		if !self.file_table.get_files_by_name().contains_key(file_name) {
+			return Err(Box::new(CartonError::DecodedFileNotFound));
+		}
+
+		Ok(&self.file_table.get_files_by_name()[file_name])
+	}
+
+	/// Returns the names of all files stored in the carton.
+	pub fn get_file_names(&self) -> Result<impl std::iter::Iterator<Item = &String>, Error> {
+		if self.file.is_none() {
+			return Err(Box::new(CartonError::FileNotOpen));
+		}
+
+		Ok(self.file_table.get_files_by_name().keys())
 	}
 }
 
@@ -127,7 +150,7 @@ where
 
 		// encode files
 		let mut positions = Vec::new();
-		for file in self.file_table.get_files_by_name().values() {
+		for file in self.file_table.get_files_by_name_mut().values_mut() {
 			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table)?;
 			positions.push((String::from(file.get_file_name()), metadata_position, file_position));
 		}

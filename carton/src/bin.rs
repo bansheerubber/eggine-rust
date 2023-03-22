@@ -1,6 +1,7 @@
 use carton::Carton;
 use clap::Parser;
-use std::process::{ Command, Stdio, };
+use streams::{Endable, u8_io::U8ReadStream};
+use std::{process::{ Command, Stdio, }, io::{Read, Write}};
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
@@ -11,7 +12,7 @@ struct Args {
 	source: Option<String>,
 
 	/// Output file name for generated carton.
-	#[arg(short, long, requires = "source", conflicts_with = "import")]
+	#[arg(short, long, requires = "source")]
 	output: Option<String>,
 
 	/// Compile shader source code into SPIR-V using `glslc` before packing the carton.
@@ -19,8 +20,12 @@ struct Args {
 	shaders: bool,
 
 	/// Carton file name for importing a carton. Exports carton's contents to a directory of the same name as the carton.
-	#[arg(short, long, exclusive = true)]
+	#[arg(short, long)]
 	import: Option<String>,
+
+	/// Overwrites files with conflicting names on carton import.
+	#[arg(long)]
+	overwrite: bool,
 }
 
 #[derive(Debug)]
@@ -104,7 +109,71 @@ fn main() {
 		carton.to_file(&output);
 
 		println!("Directory contents '{}' written to carton '{}'.", source, output);
-	} else if args.import.is_some() {
-		todo!();
+	} else if let Some(import) = args.import {
+		let output_directory = if args.output.is_some() {
+			format!("{}/", args.output.unwrap())
+		} else {
+			format!("{}/", import.replace(".carton", ""))
+		};
+
+		// check if import path is valid
+		let path = std::path::Path::new(&import);
+		if path.is_dir() {
+			eprintln!("Error: The import file is not a carton file.");
+			return;
+		} else if !path.exists() {
+			eprintln!("Error: The import file does not exist.");
+			return;
+		};
+
+		// check if output directory is valid
+		if output_directory.len() > 0 && !args.overwrite {
+			let path = std::path::Path::new(&output_directory);
+			if path.is_dir() {
+				eprintln!("Error: The output directory already exists.");
+				return;
+			}
+		}
+
+		let carton = Carton::read(&import).unwrap();
+		for file_name in carton.get_file_names().unwrap() {
+			match carton.get_file_data(file_name) {
+				Ok(mut stream) => {
+					let output_file_name = format!("{}{}", output_directory, file_name);
+					let output_path = std::path::Path::new(&output_file_name);
+					if output_path.exists() && !args.overwrite {
+						eprintln!("Error: The file '{}' already exists", output_file_name);
+						continue;
+					}
+
+					if let Err(error) = std::fs::create_dir_all(output_path.parent().unwrap()) {
+						eprintln!("Error: Could not create directories for file '{}': {:?}", output_file_name, error);
+						continue;
+					}
+
+					let Ok(mut file) = std::fs::File::create(output_path) else {
+						eprintln!("Error: Could not create output file '{}'", output_file_name);
+						continue;
+					};
+
+					let file_parameters = carton.get_file(file_name).unwrap();
+					let mut buffer = Vec::new();
+					buffer.resize(file_parameters.get_size() as usize, 0);
+
+					if let Err(error) = stream.read(&mut buffer) {
+						eprintln!("Error: Could not read data from file '{}': {:?}", file_name, error);
+						continue;
+					}
+
+					if let Err(error) = file.write(&buffer) {
+						eprintln!("Error: Could not write data to file '{}': {:?}", output_file_name, error);
+						continue;
+					}
+				},
+				Err(error) => {
+					eprintln!("Could not read file '{}': {:?}", file_name, error);
+				},
+			}
+		}
 	}
 }
