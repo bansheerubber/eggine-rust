@@ -22,6 +22,7 @@ pub(crate) struct FileTable {
 	/// carton from a `.carton` file, then the file position mapping becomes valid only after we decode the entire carton.
 	file_positions: HashMap<String, u64>,
 }
+
 impl FileTable {
 	/// Adds a standalone file from disk.
 	pub fn add_from_disk(&mut self, file: File) {
@@ -76,7 +77,10 @@ where
 		stream.write_u8(TableID::FileTable as u8)?;
 		stream.write_u64(self.metadata_positions.len() as u64)?;
 
-		for (file_name, position) in self.metadata_positions.iter() {
+		let mut files = self.metadata_positions.iter().collect::<Vec<(&String, &u64)>>();
+		files.sort();
+
+		for (file_name, position) in files {
 			stream.write_string(file_name)?;
 			stream.write_u64(*position)?;
 		}

@@ -75,16 +75,24 @@ impl Carton {
 
 	/// Add a directory to the carton. All files in the directory will be added into the carton.
 	pub fn add_directory(&mut self, directory_name: &str) {
+		let mut files = Vec::new();
+
 		for entry in WalkDir::new(directory_name) {
 			let entry = entry.unwrap();
 			if entry.metadata().unwrap().is_file() {
-				let file_name = entry.path().to_str().unwrap();
+				let file_name = entry.path().to_str().unwrap().to_string();
 				if file_name.contains("metadata") || file_name.contains("toml") {
 					continue;
 				}
 
-				self.add_file(file_name);
+				files.push(file_name);
 			}
+		}
+
+		files.sort();
+
+		for file_name in files {
+			self.add_file(&file_name);
 		}
 	}
 
@@ -149,8 +157,11 @@ where
 		stream.write_u64(0)?;
 
 		// encode files
+		let mut files = self.file_table.get_files_by_name_mut().values_mut().collect::<Vec<&mut File>>();
+		files.sort_by(|a, b| a.get_file_name().cmp(b.get_file_name()));
+
 		let mut positions = Vec::new();
-		for file in self.file_table.get_files_by_name_mut().values_mut() {
+		for file in files {
 			let (metadata_position, file_position) = encode_file(stream, file, &mut self.string_table)?;
 			positions.push((String::from(file.get_file_name()), metadata_position, file_position));
 		}
