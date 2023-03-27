@@ -10,7 +10,7 @@ use crate::tables::StringTable;
 use crate::metadata::{ FileMetadata, encode_metadata };
 
 /// Represents the compression algorithm used for a file.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Compression {
 	/// No compression. ID is encoded as 0.
 	None,
@@ -90,7 +90,7 @@ pub enum FileError {
 impl File {
 	/// Create a file representation from a file name. Attempts to parse TOML metadata if it finds a `.toml` file that
 	/// otherwise has the same name as the input file name.
-	pub fn from_file(file_name: &str) -> Result<File, FileError> {
+	pub fn from_file(file_name: &str, compression: Compression) -> Result<File, FileError> {
 		if !Path::new(file_name).exists() {
 			return Err(FileError::DoesntExist);
 		}
@@ -104,7 +104,7 @@ impl File {
 		};
 
 		let size = std::fs::metadata(file_name).unwrap().len();
-		let compression = Compression::None;
+
 		let size = if compression == Compression::None {
 			(size, size)
 		} else {

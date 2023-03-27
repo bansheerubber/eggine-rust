@@ -1,7 +1,7 @@
 use carton::Carton;
 use clap::Parser;
-use streams::{Endable, u8_io::U8ReadStream};
-use std::{process::{ Command, Stdio, }, io::{Read, Write}};
+use std::process::{ Command, Stdio, };
+use std::io::{ Read, Write, };
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
@@ -26,6 +26,10 @@ struct Args {
 	/// Overwrites files with conflicting names on carton import.
 	#[arg(long)]
 	overwrite: bool,
+
+	/// Compresses files while generating a carton file.
+	#[arg[short, long, requires = "source", conflicts_with = "import"]]
+	compress: bool,
 }
 
 #[derive(Debug)]
@@ -104,7 +108,7 @@ fn main() {
 			}
 		}
 
-		let mut carton = Carton::default();
+		let mut carton = Carton::new(args.compress);
 		carton.add_directory(&source);
 		carton.to_file(&output);
 

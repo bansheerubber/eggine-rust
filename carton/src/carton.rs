@@ -8,7 +8,7 @@ use crate::carton_file_stream::CartonFileReadStream;
 use crate::{ CartonError, Error, };
 use crate::tables::{ FileTable, TableID, };
 use crate::tables::StringTable;
-use crate::file::{ File, decode_file, encode_file };
+use crate::file::{ Compression, File, decode_file, encode_file, };
 use crate::file_stream::{ FileReadStream, FileWriteStream, };
 use crate::metadata::decode_value;
 
@@ -22,18 +22,21 @@ const CARTON_VERSION: u8 = 2;
 /// structure and automatically assigns imported files with metadata read from TOML files.
 #[derive(Debug)]
 pub struct Carton {
+	/// Determines if files should be compressed.
+	pub(crate) compress: Compression,
 	pub(crate) file: Option<std::fs::File>,
 	/// Keeps track of files in the carton.
 	pub(crate) file_table: FileTable,
 	/// Stores strings used throughout the carton.
-	pub string_table: StringTable,
+	pub(crate) string_table: StringTable,
 	/// Version of the carton encoding.
-	pub version: u8,
+	pub(crate) version: u8,
 }
 
 impl Default for Carton {
 	fn default() -> Self {
 		Carton {
+			compress: Compression::None,
 			file: None,
 			file_table: FileTable::default(),
 			string_table: StringTable::default(),
@@ -43,6 +46,17 @@ impl Default for Carton {
 }
 
 impl Carton {
+	pub fn new(compress: bool) -> Self {
+		Carton {
+			compress: if compress {
+				Compression::ZStd(3, Vec::new())
+			} else {
+				Compression::None
+			},
+			..Carton::default()
+		}
+	}
+
 	/// Write the carton to a file.
 	pub fn to_file(&mut self, file_name: &str) {
 		let mut stream = FileWriteStream::new(file_name).unwrap();
@@ -70,7 +84,7 @@ impl Carton {
 
 	/// Add a file to the carton. The file will be written into the carton archive format when it is exported.
 	pub fn add_file(&mut self, file_name: &str) {
-		self.file_table.add_from_disk(File::from_file(file_name).unwrap());
+		self.file_table.add_from_disk(File::from_file(file_name, self.compress.clone()).unwrap());
 	}
 
 	/// Add a directory to the carton. All files in the directory will be added into the carton.
