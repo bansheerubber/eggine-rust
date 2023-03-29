@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use std::collections::hash_set::Iter;
+use std::cell::RefCell;
 use std::hash::Hash;
 use std::rc::Rc;
+use std::slice::Iter;
 
 use crate::memory_subsystem::textures;
 use crate::shapes;
@@ -9,7 +9,7 @@ use crate::shapes;
 /// The parameters that are used in the batching algorithm to generate the smallest number of shape batches.
 #[derive(Debug)]
 pub(crate) struct BatchParameters {
-	shapes: HashSet<Rc<shapes::Shape>>,
+	shapes: Vec<Rc<RefCell<shapes::Shape>>>,
 	texture: Rc<textures::Texture>,
 }
 
@@ -42,16 +42,16 @@ impl PartialOrd for BatchParameters {
 impl BatchParameters {
 	pub fn new(texture: Rc<textures::Texture>) -> Self {
 		BatchParameters {
-			shapes: HashSet::new(),
+			shapes: Vec::new(),
 			texture,
 		}
 	}
 
-	pub fn add_shape(&mut self, shape: Rc<shapes::Shape>) {
-		self.shapes.insert(shape);
+	pub fn add_shape(&mut self, shape: Rc<RefCell<shapes::Shape>>) {
+		self.shapes.push(shape);
 	}
 
-	pub fn get_shapes(&self) -> Iter<'_, Rc<shapes::Shape>> {
+	pub fn get_shapes(&self) -> Iter<'_, Rc<RefCell<shapes::Shape>>> {
 		self.shapes.iter()
 	}
 

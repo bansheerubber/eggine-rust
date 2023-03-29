@@ -1,5 +1,6 @@
 use carton::Carton;
 use glam::Vec4Swizzles;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::rc::Rc;
@@ -88,8 +89,6 @@ pub struct IndirectPass<'a> {
 	programs: Programs,
 	/// The render textures used in the initial passes in the deferred shading pipeline.
 	render_textures: RenderTextures,
-	/// The shapes that this pass renders.
-	shapes: Vec<Rc<shapes::Shape>>,
 	/// The amount of bytes written to the vertices page.
 	vertices_page_written: u64,
 
@@ -311,7 +310,6 @@ impl<'a> IndirectPass<'a> {
 				memory: boss.get_memory().clone(),
 				programs,
 				render_textures,
-				shapes: Vec::new(),
 				vertices_page_written: 0,
 
 				x_angle: 0.0,
@@ -341,17 +339,15 @@ impl<'a> IndirectPass<'a> {
 
 	/// Gives `Shape` ownership over to this `Pass` object.
 	pub fn add_shape(&mut self, shape: shapes::Shape) {
-		let shape = Rc::new(shape);
+		let shape = Rc::new(RefCell::new(shape));
 
-		for texture in shape.get_blueprint().get_textures().iter() {
+		for texture in shape.borrow().get_blueprint().get_textures().iter() {
 			let batch = self.batching_parameters.get_mut(&shapes::BatchParametersKey {
 				texture: texture.clone(),
 			}).unwrap();
 
 			batch.add_shape(shape.clone());
 		}
-
-		self.shapes.push(shape);
 	}
 
 	/// Prepares the uniforms for the current tick.
@@ -701,7 +697,7 @@ impl Pass for IndirectPass<'_> {
 			} else {
 				current_batch.batch_parameters.push(parameters);
 				current_batch.meshes_to_draw += parameters.get_shapes()
-					.fold(0, |acc, shape| acc + shape.get_blueprint().get_meshes().len());
+					.fold(0, |acc, shape| acc + shape.borrow().get_blueprint().get_meshes().len());
 			}
 		}
 
@@ -733,12 +729,14 @@ impl Pass for IndirectPass<'_> {
 
 			let shapes = batch.batch_parameters.iter()
 				.flat_map(|x| x.get_shapes())
-				.collect::<Vec<&Rc<shapes::Shape>>>();
+				.collect::<Vec<&Rc<RefCell<shapes::Shape>>>>();
 
 			let mut bone_index = 0;
 
 			// iterate through the shapes in the batch and draw them
 			for shape in shapes {
+				let mut shape = shape.borrow_mut();
+
 				for (node, mesh) in shape.get_blueprint().get_mesh_nodes().iter() { // TODO lets maybe not do a three level nested for loop
 					for primitive in mesh.primitives.iter() {
 						let texture = &primitive.material.texture;
