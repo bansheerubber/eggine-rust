@@ -210,6 +210,15 @@ impl Blueprint {
 		&self.mesh_nodes
 	}
 
+	/// Get an animation by index.
+	pub fn get_animation(&self, index: usize) -> Option<&animation::Animation> {
+		if index >= self.animations.len() {
+			None
+		} else {
+			Some(&self.animations[index])
+		}
+	}
+
 	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
 	fn parse_tree<T: State>(
 		blueprint: &mut Blueprint,

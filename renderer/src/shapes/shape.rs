@@ -1,5 +1,6 @@
 use glam::Vec3;
 use lazy_static::lazy_static;
+use std::cell::RefCell;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -12,6 +13,10 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Shape {
+	/// Index of the animtaion being played on the shape.
+	active_animation: Option<usize>,
+	/// The current animation time in seconds.
+	animation_timer: f32,
 	blueprint: Rc<shapes::blueprint::Blueprint>,
 	id: u64,
 	pub position: Vec3,
@@ -39,6 +44,8 @@ impl Shape {
 		*next_shape_id += 1;
 
 		Shape {
+			active_animation: Some(0),
+			animation_timer: 0.0,
 			blueprint,
 			id,
 			position: Vec3::default(),
@@ -49,7 +56,41 @@ impl Shape {
 		self.blueprint.clone()
 	}
 
-	pub fn update_bones(&self) {
+	pub fn update_animation_timer(&mut self, increment: f32) {
+		self.animation_timer += increment;
+	}
 
+	/// Traansforms a mesh's bone using the active animation.
+	pub fn get_bone_matrix(
+		&self,
+		bone: &Rc<RefCell<shapes::blueprint::Node>>,
+		inverse_bind_matrix: &glam::Mat4,
+		inverse_transform: &glam::Mat4
+	) -> glam::Mat4 {
+		let bone = bone.borrow();
+
+		if let Some(animation_index) = self.active_animation {
+			let Some(animation) = self.blueprint.get_animation(animation_index) else {
+				return inverse_transform.mul_mat4(&bone.transform.mul_mat4(inverse_bind_matrix));
+			};
+
+			// animations store location transformations, so we need to figure out the global transformation by accumulating
+			// together the bone's parent transforms
+			let mut accumulator = animation.transform_node(bone.gltf_id, self.animation_timer);
+			let mut next = bone.parent.clone();
+			loop {
+				if let Some(temp) = next {
+					let parent_transform = animation.transform_node(temp.borrow().gltf_id, self.animation_timer);
+					accumulator = parent_transform.mul_mat4(&accumulator);
+					next = temp.borrow().parent.clone();
+				} else {
+					break;
+				}
+			}
+
+			inverse_transform.mul_mat4(&&accumulator.mul_mat4(inverse_bind_matrix))
+		} else {
+			inverse_transform.mul_mat4(&bone.transform.mul_mat4(inverse_bind_matrix))
+		}
 	}
 }
