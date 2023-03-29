@@ -1,4 +1,6 @@
-use std::{collections::HashMap, fmt::Write};
+use glam::Vec4Swizzles;
+use std::collections::HashMap;
+use std::fmt::Write;
 
 /// Describes the interpolation algorithm to use in an animation.
 #[derive(Clone, Copy, Debug)]
@@ -21,7 +23,7 @@ impl From<gltf::animation::Interpolation> for Interpolation {
 pub enum Transform {
 	Translate = 0,
 	Scale,
-	Rotation,
+	Rotate,
 }
 
 /// Describes the transform of a `Bone` at a specific time in the animation.
@@ -48,7 +50,7 @@ impl std::fmt::Display for Knot {
 			formatter.write_str("s None, ")?;
 		}
 
-		if let Some((rotation, interpolation)) = self.transformation[Transform::Rotation as usize].as_ref() {
+		if let Some((rotation, interpolation)) = self.transformation[Transform::Rotate as usize].as_ref() {
 			formatter.write_fmt(format_args!(
 				"r [{},{},{},{}] ({:?})", rotation.x, rotation.y, rotation.z, rotation.w, interpolation
 			))?;
@@ -89,7 +91,8 @@ impl std::fmt::Display for Keyframe {
 }
 
 /// Describes a section of an animation timeline. Meshes can have multiple animations, like a walk cycle, a jump, etc.
-/// The animation stores lookup tables that are used to set bone transforms.
+/// The animation stores lookup tables that are used to set bone transforms. Currently, only one animation can play at
+/// a time.
 #[derive(Debug)]
 pub struct Animation {
 	/// Vector of keyframes in the animation sorted by the time they appear in the animation timeline.
@@ -119,11 +122,24 @@ impl Animation {
 		}
 	}
 
-	pub fn transform_node(&self, bone: usize, time: f32) {
+	pub fn transform_node(&self, bone: usize, time: f32) -> glam::Mat4 {
 		let mut start_transformation: [Option<((glam::Vec4, Interpolation), f32)>; 3] = [None, None, None];
 		let mut end_transformation: [Option<((glam::Vec4, Interpolation), f32)>; 3] = [None, None, None];
 
 		let mut transformations_written = 0;
+
+		let min_time = self.keyframes[0].time;
+		let max_time = self.keyframes[self.keyframes.len() - 1].time;
+		let duration = max_time - min_time;
+		let translated_time = time - min_time; // translate time into animation timespace
+
+		let time = if time < min_time {
+			translated_time + duration * (translated_time.abs() / duration).ceil() + min_time
+		} else if time >= max_time {
+			translated_time - duration * (translated_time.abs() / duration).floor() + min_time
+		} else {
+			time
+		};
 
 		for i in 0..self.keyframes.len() {
 			let keyframe = &self.keyframes[i];
@@ -149,18 +165,31 @@ impl Animation {
 			}
 
 			if transformations_written == 3 {
-				continue;
+				break;
 			}
 		}
 
-		for i in 0..3 {
-			println!(
-				"{} -> {}, {}s -> {}s",
-				start_transformation[i].unwrap().0.0,
-				end_transformation[i].unwrap().0.0,
-				start_transformation[i].unwrap().1,
-				end_transformation[i].unwrap().1
-			);
-		}
+		glam::Mat4::from_scale_rotation_translation(
+			// handle scale
+			start_transformation[Transform::Scale as usize].unwrap().0.0.lerp(
+				end_transformation[Transform::Scale as usize].unwrap().0.0,
+				(time - start_transformation[Transform::Scale as usize].unwrap().1)
+					/ (end_transformation[Transform::Scale as usize].unwrap().1 - start_transformation[Transform::Scale as usize].unwrap().1)
+			).xyz(),
+			// handle rotation
+			glam::Quat::from_vec4(
+				start_transformation[Transform::Rotate as usize].unwrap().0.0
+			).slerp(
+				glam::Quat::from_vec4(end_transformation[Transform::Rotate as usize].unwrap().0.0),
+				(time - start_transformation[Transform::Rotate as usize].unwrap().1)
+					/ (end_transformation[Transform::Rotate as usize].unwrap().1 - start_transformation[Transform::Rotate as usize].unwrap().1)
+			),
+			// handle translation
+			start_transformation[Transform::Translate as usize].unwrap().0.0.lerp(
+				end_transformation[Transform::Translate as usize].unwrap().0.0,
+				(time - start_transformation[Transform::Translate as usize].unwrap().1)
+					/ (end_transformation[Transform::Translate as usize].unwrap().1 - start_transformation[Transform::Translate as usize].unwrap().1)
+			).xyz()
+		)
 	}
 }

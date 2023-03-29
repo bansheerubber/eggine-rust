@@ -128,7 +128,7 @@ impl Blueprint {
 								.bone_to_knot.get_mut(&channel.target().node().index())
 								.unwrap();
 
-							knot.transformation[animation::Transform::Rotation as usize] =
+							knot.transformation[animation::Transform::Rotate as usize] =
 								Some((glam::Vec4::from_array(rotation), interpolation.into()));
 						}
 					},
