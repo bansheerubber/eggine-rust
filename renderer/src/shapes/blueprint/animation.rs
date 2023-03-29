@@ -20,6 +20,7 @@ impl From<gltf::animation::Interpolation> for Interpolation {
 	}
 }
 
+/// Array indices for intermediate calculations.
 pub enum Transform {
 	Translate = 0,
 	Scale,
@@ -122,7 +123,9 @@ impl Animation {
 		}
 	}
 
-	pub fn transform_node(&self, bone: usize, time: f32) -> glam::Mat4 {
+	/// Calculates a bone's local transformation matrix based on the supplied animation time. Handles interpolation
+	/// keyframes when necessary.
+	pub fn transform_bone(&self, bone: usize, time: f32) -> glam::Mat4 {
 		let mut start_transformation: [Option<((glam::Vec4, Interpolation), f32)>; 3] = [None, None, None];
 		let mut end_transformation: [Option<((glam::Vec4, Interpolation), f32)>; 3] = [None, None, None];
 
@@ -133,6 +136,7 @@ impl Animation {
 		let duration = max_time - min_time;
 		let translated_time = time - min_time; // translate time into animation timespace
 
+		// wrap time into the range [min_time, max_time)
 		let time = if time < min_time {
 			translated_time + duration * (translated_time.abs() / duration).ceil() + min_time
 		} else if time >= max_time {
@@ -169,6 +173,7 @@ impl Animation {
 			}
 		}
 
+		// TODO handle interpolation
 		glam::Mat4::from_scale_rotation_translation(
 			// handle scale
 			start_transformation[Transform::Scale as usize].unwrap().0.0.lerp(

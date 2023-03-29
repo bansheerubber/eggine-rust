@@ -56,11 +56,13 @@ impl Shape {
 		self.blueprint.clone()
 	}
 
+	/// Increments the shape's animation timer.
 	pub fn update_animation_timer(&mut self, increment: f32) {
 		self.animation_timer += increment;
 	}
 
-	/// Traansforms a mesh's bone using the active animation.
+	/// Calculates a bone's global (relative to bone's root parent) transformation matrix based on the shape's animation
+	/// state.
 	pub fn get_bone_matrix(
 		&self,
 		bone: &Rc<RefCell<shapes::blueprint::Node>>,
@@ -76,11 +78,11 @@ impl Shape {
 
 			// animations store location transformations, so we need to figure out the global transformation by accumulating
 			// together the bone's parent transforms
-			let mut accumulator = animation.transform_node(bone.gltf_id, self.animation_timer);
+			let mut accumulator = animation.transform_bone(bone.gltf_id, self.animation_timer);
 			let mut next = bone.parent.clone();
 			loop {
 				if let Some(temp) = next {
-					let parent_transform = animation.transform_node(temp.borrow().gltf_id, self.animation_timer);
+					let parent_transform = animation.transform_bone(temp.borrow().gltf_id, self.animation_timer);
 					accumulator = parent_transform.mul_mat4(&accumulator);
 					next = temp.borrow().parent.clone();
 				} else {
