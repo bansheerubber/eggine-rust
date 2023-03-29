@@ -11,7 +11,11 @@ pub trait Pass {
 
 	/// Encodes draw calls into the specified encoder.
 	fn encode(
-		&mut self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
+		&mut self,
+		deltatime: f64,
+		encoder: &mut wgpu::CommandEncoder,
+		pipelines: &Vec<&wgpu::RenderPipeline>,
+		view: &wgpu::TextureView
 	);
 
 	/// Callback for when the `Boss` is resized.

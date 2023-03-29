@@ -656,7 +656,11 @@ impl Pass for IndirectPass<'_> {
 
 	/// Encode all draw commands.
 	fn encode(
-		&mut self, encoder: &mut wgpu::CommandEncoder, pipelines: &Vec<&wgpu::RenderPipeline>, view: &wgpu::TextureView
+		&mut self,
+		deltatime: f64,
+		encoder: &mut wgpu::CommandEncoder,
+		pipelines: &Vec<&wgpu::RenderPipeline>,
+		view: &wgpu::TextureView
 	) {
 		// update the uniforms
 		self.update_uniforms();
@@ -783,10 +787,7 @@ impl Pass for IndirectPass<'_> {
 
 						// set bone uniforms
 						for (bone, inverse_bind_matrix) in mesh.bones.iter() { // TODO move matrix multiplications to compute shader?
-							let bone = bone.borrow();
-							self.programs.bone_uniforms[bone_index] = inverse_transform.mul_mat4(
-								&bone.transform.mul_mat4(inverse_bind_matrix)
-							);
+							self.programs.bone_uniforms[bone_index] = shape.get_bone_matrix(bone, inverse_bind_matrix, &inverse_transform);
 							bone_index += 1;
 						}
 
@@ -814,6 +815,8 @@ impl Pass for IndirectPass<'_> {
 						draw_call_count += 1;
 					}
 				}
+
+				shape.update_animation_timer(deltatime as f32);
 			}
 
 			// ensure immediate write to the buffer

@@ -166,7 +166,7 @@ impl<'a> Boss<'a> {
 					})
 					.collect::<Vec<&wgpu::RenderPipeline>>();
 
-				pass.encode(&mut encoder, &pass_pipelines, &view);
+				pass.encode(deltatime, &mut encoder, &pass_pipelines, &view);
 			}
 
 			self.context.queue.submit(Some(encoder.finish()));
