@@ -44,7 +44,7 @@ impl Shape {
 		*next_shape_id += 1;
 
 		Shape {
-			active_animation: Some(0),
+			active_animation: None,
 			animation_timer: 0.0,
 			blueprint,
 			id,
