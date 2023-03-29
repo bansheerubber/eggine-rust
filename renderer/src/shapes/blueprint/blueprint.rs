@@ -222,7 +222,7 @@ impl Blueprint {
 		carton: &mut Carton
 	) -> Result<Option<Rc<RefCell<Node>>>, Error> {
 		// load node transform
-		let local_transform = Self::transform_to_mat4(&node.transform());
+		let local_transform = helpers::matrix::transform_to_mat4(&node.transform());
 
 		// create the node
 		let new_node = Rc::new(RefCell::new(
@@ -403,27 +403,5 @@ impl Blueprint {
 		}
 
 		Ok(Some((primitives, joints)))
-	}
-
-	/// Converts a gltf transform into a `glam::Mat4`.
-	fn transform_to_mat4(transform: &gltf::scene::Transform) -> glam::Mat4 {
-		match transform {
-			gltf::scene::Transform::Decomposed {
-				rotation,
-				scale,
-				translation,
-			} => {
-				glam::Mat4::from_scale_rotation_translation(
-					glam::Vec3::from_array(*scale),
-					glam::Quat::from_array(*rotation),
-					glam::Vec3::from_array(*translation),
-				)
-			},
-			gltf::scene::Transform::Matrix {
-				matrix,
-			} => {
-				glam::Mat4::from_cols_array_2d(&matrix)
-			},
-		}
 	}
 }
