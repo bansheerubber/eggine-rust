@@ -1,3 +1,4 @@
+mod animation_context;
 mod batch_parameters;
 pub mod blueprint;
 mod shape;
@@ -7,6 +8,10 @@ pub type BoneIndexType = u16;
 pub type FloatType = f32;
 pub type IndexType = u32;
 
+pub use animation_context::AnimationBlending;
+pub use animation_context::AnimationContext;
+pub use animation_context::AnimationIteration;
+pub use animation_context::AnimationTimescale;
 pub(crate) use batch_parameters::BatchParameters;
 pub(crate) use batch_parameters::BatchParametersKey;
 pub use shape::Shape;

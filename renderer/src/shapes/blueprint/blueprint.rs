@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet, };
 use std::hash::Hash;
 use std::rc::Rc;
-use std::slice::Iter;
 use std::sync::{ Arc, RwLock, };
 
 use carton::Carton;
@@ -26,7 +25,7 @@ use super::{
 /// A collection of meshes loaded from a single GLTF file.
 #[derive(Debug)]
 pub struct Blueprint {
-	animations: Vec<animation::Animation>,
+	animations: HashMap<String, animation::Animation>,
 	/// The GLTF file we loaded the blueprint from.
 	file_name: String,
 	/// JSON index to node.
@@ -64,12 +63,11 @@ impl Blueprint {
 		};
 
 		let animations = helpers::animation::decode_animation_table(gltf_metadata);
-		println!("frog {:?}", animations);
 
 		let gltf = gltf::Gltf::from_reader(gltf_stream).unwrap();
 
 		let mut blueprint = Blueprint {
-			animations: Vec::new(),
+			animations: HashMap::new(),
 			file_name: file_name.to_string(),
 			index_to_node: HashMap::new(),
 			meshes: Vec::new(),
@@ -192,7 +190,7 @@ impl Blueprint {
 			}
 
 			for (name, keyframes) in name_to_keyframes {
-				blueprint.animations.push(animation::Animation::new(keyframes, &name));
+				blueprint.animations.insert(name.clone(), animation::Animation::new(keyframes, &name));
 			}
 		}
 
@@ -240,15 +238,12 @@ impl Blueprint {
 	}
 
 	/// Get an animation by index.
-	pub fn get_animation(&self, index: usize) -> Option<&animation::Animation> {
-		if index >= self.animations.len() {
-			None
-		} else {
-			Some(&self.animations[index])
-		}
+	pub fn get_animation(&self, key: &str) -> Option<&animation::Animation> {
+		self.animations.get(key)
 	}
 
-	pub fn get_animations(&self) -> Iter<'_, animation::Animation> {
+	/// Gets an iterator over all animations.
+	pub fn get_animations(&self) -> std::collections::hash_map::Iter<'_, String, animation::Animation> {
 		self.animations.iter()
 	}
 

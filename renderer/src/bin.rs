@@ -56,16 +56,108 @@ async fn main() {
 	// test_pass.add_shape(shape);
 
 	// load the second test shape
-	let blueprint = shapes::blueprint::Blueprint::load("data/pig.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
+	let blueprint = shapes::blueprint::Blueprint::load("data/lizard.glb", &mut carton, &mut test_pass, boss.get_memory()).unwrap();
 	let blueprint = test_pass.add_blueprint(blueprint);
 
 	let shape = shapes::Shape::new(blueprint.clone());
-	test_pass.add_shape(shape);
+	let shape = test_pass.add_shape(shape);
+
+	{
+		shape.borrow_mut().play_animation(shapes::AnimationContext {
+			blending: shapes::AnimationBlending {
+				priority: 0,
+				weight: 1.0,
+			},
+			looping_behavior: shapes::AnimationIteration::Infinite,
+			name: String::from("walk"),
+			timescale: 1.0,
+			..shapes::AnimationContext::default()
+		});
+	}
+
+	{
+		shape.borrow_mut().play_animation(shapes::AnimationContext {
+			blending: shapes::AnimationBlending {
+				priority: 0,
+				weight: 1.0,
+			},
+			looping_behavior: shapes::AnimationIteration::Infinite,
+			name: String::from("walk"),
+			timescale: 1.0,
+			..shapes::AnimationContext::default()
+		});
+	}
+
+	// {
+	// 	shape.borrow_mut().play_animation(shapes::AnimationContext {
+	// 		blending: shapes::AnimationBlending {
+	// 			priority: 0,
+	// 			weight: 1.0,
+	// 		},
+	// 		looping_behavior: shapes::AnimationIteration::Infinite,
+	// 		name: String::from("walk"),
+	// 		timescale: 1.0,
+	// 		..shapes::AnimationContext::default()
+	// 	});
+	// }
+
+	// {
+	// 	shape.borrow_mut().play_animation(shapes::AnimationContext {
+	// 		blending: shapes::AnimationBlending {
+	// 			priority: 0,
+	// 			weight: 1.0,
+	// 		},
+	// 		looping_behavior: shapes::AnimationIteration::Infinite,
+	// 		name: String::from("walk"),
+	// 		timescale: 1.0,
+	// 		..shapes::AnimationContext::default()
+	// 	});
+	// }
+
+
+	// {
+	// 	shape.borrow_mut().play_animation(shapes::AnimationContext {
+	// 		blending: shapes::AnimationBlending {
+	// 			priority: 0,
+	// 			weight: 1.0,
+	// 		},
+	// 		looping_behavior: shapes::AnimationIteration::Infinite,
+	// 		name: String::from("walk"),
+	// 		timescale: 1.0,
+	// 		..shapes::AnimationContext::default()
+	// 	});
+	// }
+
+	// {
+	// 	shape.borrow_mut().play_animation(shapes::AnimationContext {
+	// 		blending: shapes::AnimationBlending {
+	// 			priority: 0,
+	// 			weight: 1.0,
+	// 		},
+	// 		looping_behavior: shapes::AnimationIteration::Infinite,
+	// 		name: String::from("walk"),
+	// 		timescale: 1.0,
+	// 		..shapes::AnimationContext::default()
+	// 	});
+	// }
+
+	// {
+	// 	shape.borrow_mut().play_animation(shapes::AnimationContext {
+	// 		blending: shapes::AnimationBlending {
+	// 			priority: 0,
+	// 			weight: 1.0,
+	// 		},
+	// 		looping_behavior: shapes::AnimationIteration::Infinite,
+	// 		name: String::from("walk"),
+	// 		timescale: 1.0,
+	// 		..shapes::AnimationContext::default()
+	// 	});
+	// }
 
 	// let mut rng = rand::thread_rng();
 
-	// for _ in 0..10000 {
-	// 	let mut shape = shape::Shape::new(blueprint.clone());
+	// for _ in 0..5000 {
+	// 	let mut shape = shapes::Shape::new(blueprint.clone());
 	// 	shape.position = glam::Vec3::new(rng.gen::<f32>() * 30.0, rng.gen::<f32>() * 30.0, 0.0);
 
 	// 	test_pass.add_shape(shape);
