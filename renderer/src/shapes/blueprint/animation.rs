@@ -28,7 +28,7 @@ pub enum Transform {
 }
 
 /// Describes the transform of a `Bone` at a specific time in the animation.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Knot {
 	pub transformation: [Option<(glam::Vec4, Interpolation)>; 3],
 }
@@ -63,7 +63,7 @@ impl std::fmt::Display for Knot {
 	}
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Keyframe {
 	/// Lookup table for translating `Bone` node IDs to their transform at this keyframe.
 	pub bone_to_knot: HashMap<usize, Knot>,
@@ -123,6 +123,10 @@ impl Animation {
 		}
 	}
 
+	pub fn get_name(&self) -> &str {
+		&self.name
+	}
+
 	/// Calculates a bone's local transformation matrix based on the supplied animation time. Handles interpolation
 	/// keyframes when necessary.
 	pub fn transform_bone(&self, bone: usize, time: f32) -> glam::Mat4 {
@@ -144,6 +148,9 @@ impl Animation {
 		} else {
 			time
 		};
+
+		// shouldn't need to do this, but floating point error accumulates and can screw up the below code
+		let time = f32::clamp(time, min_time, max_time);
 
 		for i in 0..self.keyframes.len() {
 			let keyframe = &self.keyframes[i];

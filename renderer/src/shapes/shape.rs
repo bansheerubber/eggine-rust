@@ -56,6 +56,20 @@ impl Shape {
 		self.blueprint.clone()
 	}
 
+	/// Looks up an animation by the specified name and then plays it.
+	pub fn play_animation_by_name(&mut self, name: &str) {
+		let mut index = 0;
+		for animation in self.blueprint.get_animations() {
+			if animation.get_name() == name {
+				self.active_animation = Some(index);
+				self.animation_timer = 0.0;
+				break;
+			}
+
+			index += 1;
+		}
+	}
+
 	/// Increments the shape's animation timer.
 	pub fn update_animation_timer(&mut self, increment: f32) {
 		self.animation_timer += increment;

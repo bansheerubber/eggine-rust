@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{ HashMap, HashSet, };
 use std::hash::Hash;
 use std::rc::Rc;
+use std::slice::Iter;
 use std::sync::{ Arc, RwLock, };
 
 use carton::Carton;
@@ -56,6 +57,14 @@ impl Blueprint {
 			Err(error) => return Err(Error::CartonError(error)),
 			Ok(gltf_stream) => gltf_stream,
 		};
+
+		let gltf_metadata = match carton.get_file_metadata(file_name) {
+			Err(error) => return Err(Error::CartonError(error)),
+			Ok(gltf_metadata) => gltf_metadata,
+		};
+
+		let animations = helpers::animation::decode_animation_table(gltf_metadata);
+		println!("frog {:?}", animations);
 
 		let gltf = gltf::Gltf::from_reader(gltf_stream).unwrap();
 
@@ -164,7 +173,27 @@ impl Blueprint {
 			let mut keyframes = time_to_keyframe.into_values().collect::<Vec<animation::Keyframe>>();
 			keyframes.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
 
-			blueprint.animations.push(animation::Animation::new(keyframes, animation.name().unwrap()));
+			// build individual animations together
+			let mut name_to_keyframes: HashMap<String, Vec<animation::Keyframe>> = HashMap::new();
+			for keyframe in keyframes.iter() {
+				for animation in animations.iter() {
+					if !name_to_keyframes.contains_key(&animation.name) {
+						name_to_keyframes.insert(animation.name.clone(), Vec::new());
+					}
+
+					// add the keyframe to the appropriate list based off of time
+					let start_time = animation.start as f32 / animation.fps as f32;
+					let end_time = animation.end as f32 / animation.fps as f32;
+
+					if start_time <= keyframe.time && keyframe.time <= end_time {
+						name_to_keyframes.get_mut(&animation.name).unwrap().push(keyframe.clone());
+					}
+				}
+			}
+
+			for (name, keyframes) in name_to_keyframes {
+				blueprint.animations.push(animation::Animation::new(keyframes, &name));
+			}
 		}
 
 		// go through stuff that we know are bones and assign a bone object to their node
@@ -217,6 +246,10 @@ impl Blueprint {
 		} else {
 			Some(&self.animations[index])
 		}
+	}
+
+	pub fn get_animations(&self) -> Iter<'_, animation::Animation> {
+		self.animations.iter()
 	}
 
 	/// Recursively parses the GLTF tree and adds loaded structures into the `Blueprint`.
