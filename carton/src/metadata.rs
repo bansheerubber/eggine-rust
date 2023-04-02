@@ -25,6 +25,17 @@ pub struct FileMetadata {
 	value: toml::Value,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum MetadataType {
+	String,
+	Integer,
+	Float,
+	Boolean,
+	DateTime,
+	Array,
+	Table,
+}
+
 impl FileMetadata {
 	/// Parse a TOML metadata file into a `FileMetadata` struct. A subset of TOML is supported, specifically string
 	/// key/value pairs inside of the `values` table.
@@ -58,6 +69,38 @@ impl FileMetadata {
 			file_name: String::from(file_name),
 			value,
 		}
+	}
+
+	/// Returns true if the supplied properties are present in the supplied table.
+	pub fn check_types(value: &toml::value::Table, properties: &[(&str, MetadataType)]) -> bool {
+		for (key, metadata_type) in properties.iter() {
+			let Some(test_value) = value.get(&key.to_string()) else { // if no key return false
+				return false;
+			};
+
+			// check types
+			if metadata_type == &MetadataType::String && !test_value.is_str() {
+				return false;
+			} else if metadata_type == &MetadataType::Integer && !test_value.is_integer() {
+				return false;
+			} else if metadata_type == &MetadataType::Float && !test_value.is_float() {
+				return false;
+			} else if metadata_type == &MetadataType::Boolean && !test_value.is_bool() {
+				return false;
+			} else if metadata_type == &MetadataType::DateTime && !test_value.is_datetime() {
+				return false;
+			} else if metadata_type == &MetadataType::Array && !test_value.is_array() {
+				return false;
+			} else if metadata_type == &MetadataType::Table && !test_value.is_table() {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	pub fn get_value(&self) -> &toml::Value {
+		&self.value
 	}
 
 	pub(crate) fn get_file_metadata_toml(&self) -> &toml::Value {
