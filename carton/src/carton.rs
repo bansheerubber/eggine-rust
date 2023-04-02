@@ -10,7 +10,7 @@ use crate::tables::{ FileTable, TableID, };
 use crate::tables::StringTable;
 use crate::file::{ Compression, File, decode_file, encode_file, };
 use crate::file_stream::{ FileReadStream, FileWriteStream, };
-use crate::metadata::decode_value;
+use crate::metadata::{ FileMetadata, decode_value, };
 
 const CARTON_VERSION: u8 = 2;
 
@@ -110,7 +110,7 @@ impl Carton {
 		}
 	}
 
-	/// Retreives a file from a carton and returns a stream that reads it.
+	/// Retrieves a file from a carton and returns a stream that reads it.
 	pub fn get_file_data(&self, file_name: &str) -> Result<CartonFileReadStream, Error> {
 		if self.file.is_none() {
 			return Err(Box::new(CartonError::FileNotOpen));
@@ -123,7 +123,20 @@ impl Carton {
 		CartonFileReadStream::new(self, &self.file_table.get_files_by_name()[file_name])
 	}
 
-	/// Retreives a file from a carton and returns it's parameters.
+	/// Retrieves metadatad from a file in the carton.
+	pub fn get_file_metadata(&self, file_name: &str) -> Result<&Option<FileMetadata>, Error> {
+		if self.file.is_none() {
+			return Err(Box::new(CartonError::FileNotOpen));
+		}
+
+		if !self.file_table.get_files_by_name().contains_key(file_name) {
+			return Err(Box::new(CartonError::DecodedFileNotFound));
+		}
+
+		Ok(self.file_table.get_files_by_name()[file_name].get_metadata())
+	}
+
+	/// Retrieves a file from a carton and returns it's parameters.
 	pub fn get_file(&self, file_name: &str) -> Result<&File, Error> {
 		if self.file.is_none() {
 			return Err(Box::new(CartonError::FileNotOpen));
