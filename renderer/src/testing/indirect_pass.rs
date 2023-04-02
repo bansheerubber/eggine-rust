@@ -338,7 +338,7 @@ impl<'a> IndirectPass<'a> {
 	}
 
 	/// Gives `Shape` ownership over to this `Pass` object.
-	pub fn add_shape(&mut self, shape: shapes::Shape) {
+	pub fn add_shape(&mut self, shape: shapes::Shape) -> Rc<RefCell<shapes::Shape>> {
 		let shape = Rc::new(RefCell::new(shape));
 
 		for texture in shape.borrow().get_blueprint().get_textures().iter() {
@@ -348,6 +348,8 @@ impl<'a> IndirectPass<'a> {
 
 			batch.add_shape(shape.clone());
 		}
+
+		return shape;
 	}
 
 	/// Prepares the uniforms for the current tick.
@@ -361,7 +363,7 @@ impl<'a> IndirectPass<'a> {
 			0.0,
 		);
 
-		self.x_angle += 0.01;
+		self.x_angle = -std::f32::consts::FRAC_PI_4;
 		self.y_angle = 1.0;
 
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 0.1, 10000.0);
