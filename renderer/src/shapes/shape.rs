@@ -1,7 +1,6 @@
 use glam::Vec3;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -15,7 +14,7 @@ lazy_static! {
 #[derive(Debug)]
 pub struct Shape {
 	/// The animations playing on the shape.
-	active_animations: Vec<shapes::AnimationContext>,
+	active_animations: Vec<shapes::animations::Context>,
 	blueprint: Rc<shapes::blueprint::Blueprint>,
 	id: u64,
 	pub position: Vec3,
@@ -55,9 +54,9 @@ impl Shape {
 	}
 
 	/// Plays an animation based on the given animation context.
-	pub fn play_animation(&mut self, animation: shapes::AnimationContext) {
+	pub fn play_animation(&mut self, animation: shapes::animations::Context) {
 		// do not play animations that would never play to begin with
-		if animation.looping_behavior == shapes::AnimationIteration::Count(0) {
+		if animation.looping_behavior == shapes::animations::PlayCount::Count(0) {
 			return;
 		}
 
