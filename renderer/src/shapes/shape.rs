@@ -54,16 +54,30 @@ impl Shape {
 	}
 
 	/// Plays an animation based on the given animation context.
-	pub fn play_animation(&mut self, animation: shapes::animations::Context) {
+	pub fn play_animation(&mut self, animation: shapes::animations::Context) -> shapes::animations::Id {
 		// do not play animations that would never play to begin with
 		if animation.looping_behavior == shapes::animations::PlayCount::Count(0) {
-			return;
+			return 0;
 		}
+
+		let id = animation.id;
 
 		self.active_animations.push(animation);
 
 		// sort animations by priority
 		self.active_animations.sort_by(|a, b| b.blending.priority.cmp(&a.blending.priority));
+
+		return id;
+	}
+
+	/// Gets an animation based on the animation's id.
+	pub fn get_animation(&self, id: shapes::animations::Id) -> Option<&shapes::animations::Context> {
+		self.active_animations.iter().find(|x| x.id == id)
+	}
+
+	/// Gets an animation based on the animation's id.
+	pub fn get_animation_mut(&mut self, id: shapes::animations::Id) -> Option<&mut shapes::animations::Context> {
+		self.active_animations.iter_mut().find(|x| x.id == id)
 	}
 
 	/// Increments the timers for all playing animations.

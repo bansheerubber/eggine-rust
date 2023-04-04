@@ -63,29 +63,19 @@ async fn main() {
 	let shape = test_pass.add_shape(shape);
 
 	{
-		shape.borrow_mut().play_animation(shapes::animations::Context {
-			blending: shapes::animations::Blending {
-				priority: 0,
-				weight: 1.0,
-			},
-			looping_behavior: shapes::animations::PlayCount::Infinite,
-			name: String::from("walk"),
-			timescale: 1.0,
-			..shapes::animations::Context::default()
-		});
-	}
+		let mut egg = shape.borrow_mut();
 
-	{
-		shape.borrow_mut().play_animation(shapes::animations::Context {
-			blending: shapes::animations::Blending {
+		let id = egg.play_animation(shapes::animations::Context::new(
+			"walk",
+			shapes::animations::Blending {
 				priority: 0,
 				weight: 1.0,
 			},
-			looping_behavior: shapes::animations::PlayCount::Infinite,
-			name: String::from("walk"),
-			timescale: 1.0,
-			..shapes::animations::Context::default()
-		});
+			shapes::animations::PlayCount::Infinite,
+			1.0
+		));
+
+		// egg.get_animation_mut(id).unwrap().pause();
 	}
 
 	// {
