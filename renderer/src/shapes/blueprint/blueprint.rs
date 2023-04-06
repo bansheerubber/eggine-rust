@@ -184,7 +184,10 @@ impl Blueprint {
 					let end_time = animation.end as f32 / animation.fps as f32;
 
 					if start_time <= keyframe.time && keyframe.time <= end_time {
-						name_to_keyframes.get_mut(&animation.name).unwrap().push(keyframe.clone());
+						name_to_keyframes.get_mut(&animation.name).unwrap().push(animation::Keyframe {
+							bone_to_knot: keyframe.bone_to_knot.clone(),
+							time: keyframe.time - start_time,
+						});
 					}
 				}
 			}
