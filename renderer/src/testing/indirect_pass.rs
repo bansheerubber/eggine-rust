@@ -799,7 +799,7 @@ impl Pass for IndirectPass<'_> {
 						}
 
 						// put the object uniforms into the array
-						let model_matrix = node.borrow().transform.mul_mat4(&glam::Mat4::from_translation(shape.position));
+						let model_matrix = node.borrow().transform.mul_mat4(shape.get_transformation());
 						let texture = memory.texture_pager.get_cell(&texture).unwrap();
 						self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
 							model_matrix: model_matrix.to_cols_array(),

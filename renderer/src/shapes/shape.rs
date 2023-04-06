@@ -1,4 +1,4 @@
-use glam::Vec3;
+use glam::{ Mat4, Quat, Vec3, };
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::hash::Hash;
@@ -17,7 +17,10 @@ pub struct Shape {
 	active_animations: Vec<shapes::animations::Context>,
 	blueprint: Rc<shapes::blueprint::Blueprint>,
 	id: u64,
-	pub position: Vec3,
+	position: Vec3,
+	rotation: Quat,
+	scale: Vec3,
+	transformation: Mat4,
 }
 
 impl Hash for Shape {
@@ -45,7 +48,10 @@ impl Shape {
 			active_animations: Vec::new(),
 			blueprint,
 			id,
-			position: Vec3::default(),
+			position: Vec3::new(0.0, 0.0, 0.0),
+			rotation: Quat::default(),
+			scale: Vec3::new(1.0, 1.0, 1.0),
+			transformation: Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0)),
 		}
 	}
 
@@ -140,5 +146,52 @@ impl Shape {
 		} else {
 			unanimated_position
 		}
+	}
+
+	/// Set the shape's position.
+	pub fn set_position(&mut self, position: Vec3) {
+		self.position = position;
+
+		self.transformation = Mat4::from_scale_rotation_translation(
+			self.scale, self.rotation, self.position
+		)
+	}
+
+	/// Get the shape's position.
+	pub fn get_position(&self) -> Vec3 {
+		self.position
+	}
+
+	/// Set the shape's rotation.
+	pub fn set_rotation(&mut self, rotation: Quat) {
+		self.rotation = rotation;
+
+		self.transformation = Mat4::from_scale_rotation_translation(
+			self.scale, self.rotation, self.position
+		)
+	}
+
+	/// Get the shape's rotation.
+	pub fn get_rotation(&mut self) -> Quat {
+		self.rotation
+	}
+
+	/// Set the shape's scale.
+	pub fn set_scale(&mut self, scale: Vec3) {
+		self.scale = scale;
+
+		self.transformation = Mat4::from_scale_rotation_translation(
+			self.scale, self.rotation, self.position
+		)
+	}
+
+	/// Get the shape's scale.
+	pub fn get_scale(&self) -> Vec3 {
+		self.scale
+	}
+
+	/// Get the shape transformation matrix.
+	pub fn get_transformation(&self) -> &Mat4 {
+		&self.transformation
 	}
 }
