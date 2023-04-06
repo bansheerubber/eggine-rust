@@ -127,6 +127,11 @@ impl Animation {
 		&self.name
 	}
 
+	/// Gets the length of the animation by subtracting the first keyframe time from the last keyframe time
+	pub fn get_length(&self) -> f32 {
+		self.keyframes[self.keyframes.len() - 1].time - self.keyframes[0].time
+	}
+
 	/// Calculates a bone's local transformation matrix based on the supplied animation time. Handles interpolation
 	/// keyframes when necessary.
 	pub fn transform_bone(&self, bone: usize, time: f32) -> glam::Mat4 {

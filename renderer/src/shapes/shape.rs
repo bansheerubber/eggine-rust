@@ -1,6 +1,7 @@
 use glam::{ Mat4, Quat, Vec3, };
 use lazy_static::lazy_static;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -91,6 +92,24 @@ impl Shape {
 		for animation in self.active_animations.iter_mut() {
 			animation.update_timer(deltatime);
 		}
+
+		// see if animations are done or not
+		let mut removed = HashSet::new();
+		for animation in self.active_animations.iter() {
+			let Some(blueprint_animation) = self.blueprint.get_animation(&animation.name) else {
+				break;
+			};
+
+			if let &shapes::animations::PlayCount::Count(count) = animation.get_play_count() {
+				if f32::floor(animation.get_timer() / blueprint_animation.get_length()) as u64 >= count {
+					removed.insert(animation.id);
+				}
+			}
+		}
+
+		self.active_animations.retain(|x| {
+			!removed.contains(&x.id)
+		});
 	}
 
 	/// Calculates a bone's global (relative to bone's root parent) transformation matrix based on the shape's animation

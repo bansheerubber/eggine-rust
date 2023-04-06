@@ -69,8 +69,12 @@ impl Context {
 		self.timescale = timescale;
 	}
 
-	pub fn get_timescale(&mut self) -> animations::Timescale {
+	pub fn get_timescale(&self) -> animations::Timescale {
 		self.timescale
+	}
+
+	pub fn get_play_count(&self) -> &animations::PlayCount {
+		&self.looping_behavior
 	}
 
 	/// Stop the animation from playing.
