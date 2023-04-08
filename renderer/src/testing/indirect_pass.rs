@@ -34,10 +34,10 @@ struct RenderTextures {
 /// Stores program related information used by the pass object.
 #[derive(Debug)]
 struct Programs {
-	bone_uniforms: Vec<glam::Mat4>,
+	bone_uniforms: HashMap<u64, Vec<glam::Mat4>>,
 	composite_program: Rc<Program>,
 	g_buffer_program: Rc<Program>,
-	object_uniforms: Vec<ObjectUniform>,
+	object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
 	texture_bind_group: wgpu::BindGroup,
 	uniform_bind_group: wgpu::BindGroup,
 }
@@ -272,10 +272,10 @@ impl<'a> IndirectPass<'a> {
 			};
 
 			Programs {
-				bone_uniforms: Vec::new(),
+				bone_uniforms: HashMap::new(),
 				composite_program,
 				g_buffer_program,
-    		object_uniforms: Vec::new(),
+    		object_uniforms: HashMap::new(),
 				texture_bind_group,
 				uniform_bind_group,
 			}
@@ -357,19 +357,19 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			25.0 * self.x_angle.cos() * self.y_angle.sin(),
-			25.0 * self.x_angle.sin() * self.y_angle.sin(),
-			25.0 * self.y_angle.cos(),
+			75.0 * self.x_angle.cos() * self.y_angle.sin(),
+			75.0 * self.x_angle.sin() * self.y_angle.sin(),
+			75.0 * self.y_angle.cos(),
 			0.0,
 		);
 
-		self.x_angle = -std::f32::consts::FRAC_PI_4;
+		self.x_angle += 0.01;
 		self.y_angle = 1.0;
 
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 0.1, 10000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
-			glam::Vec3::new(0.0, 0.0, 0.0),
+			glam::Vec3::new(30.0, 30.0, 0.0),
 			glam::Vec3::Z, // z is up
 		);
 
@@ -715,6 +715,20 @@ impl Pass for IndirectPass<'_> {
 		for batch in batches.iter() {
 			static DRAW_INDEXED_DIRECT_SIZE: usize = std::mem::size_of::<wgpu::util::DrawIndexedIndirect>();
 
+			// get bone uniforms map for this batch
+			if !self.programs.bone_uniforms.contains_key(&batch.make_key()) {
+				self.programs.bone_uniforms.insert(batch.make_key(), Vec::new());
+			}
+
+			let bone_uniforms = self.programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
+
+			// get object uniforms for this batch
+			if !self.programs.object_uniforms.contains_key(&batch.make_key()) {
+				self.programs.object_uniforms.insert(batch.make_key(), Vec::new());
+			}
+
+			let object_uniforms = self.programs.object_uniforms.get_mut(&batch.make_key()).unwrap();
+
 			// fill the command buffer with calls
 			let mut buffer = vec![0; batch.meshes_to_draw * DRAW_INDEXED_DIRECT_SIZE];
 			let mut draw_call_count: usize = 0;
@@ -775,9 +789,9 @@ impl Pass for IndirectPass<'_> {
 						}
 
 						// allocate `bone_uniforms`
-						if bone_index + mesh.bones.len() > self.programs.bone_uniforms.len() {
-							self.programs.bone_uniforms.resize(
-								self.programs.bone_uniforms.len() + mesh.bones.len(),
+						if bone_index + mesh.bones.len() > bone_uniforms.len() {
+							bone_uniforms.resize(
+								bone_uniforms.len() + mesh.bones.len(),
 								glam::Mat4::IDENTITY
 							);
 						}
@@ -789,19 +803,19 @@ impl Pass for IndirectPass<'_> {
 
 						// set bone uniforms
 						for (bone, inverse_bind_matrix) in mesh.bones.iter() { // TODO move matrix multiplications to compute shader?
-							self.programs.bone_uniforms[bone_index] = shape.get_bone_matrix(bone, inverse_bind_matrix, &inverse_transform);
+							bone_uniforms[bone_index] = shape.get_bone_matrix(bone, inverse_bind_matrix, &inverse_transform);
 							bone_index += 1;
 						}
 
 						// allocate `object_uniforms`
-						if draw_call_count >= self.programs.object_uniforms.len() {
-							self.programs.object_uniforms.push(ObjectUniform::default());
+						if draw_call_count >= object_uniforms.len() {
+							object_uniforms.push(ObjectUniform::default());
 						}
 
 						// put the object uniforms into the array
 						let model_matrix = node.borrow().transform.mul_mat4(shape.get_transformation());
 						let texture = memory.texture_pager.get_cell(&texture).unwrap();
-						self.programs.object_uniforms[draw_call_count as usize] = ObjectUniform {
+						object_uniforms[draw_call_count as usize] = ObjectUniform {
 							model_matrix: model_matrix.to_cols_array(),
 							texture_offset: glam::Vec4::new(
 								texture.get_position().x as f32 / texture_size as f32,
@@ -831,7 +845,7 @@ impl Pass for IndirectPass<'_> {
 				.unwrap()
 				.write_slice(
 					&self.allocated_memory.object_storage_node,
-					bytemuck::cast_slice(&self.programs.object_uniforms[0..draw_call_count as usize])
+					bytemuck::cast_slice(&object_uniforms[0..draw_call_count as usize])
 				);
 
 			// write bone matrices to storage buffer
@@ -839,7 +853,7 @@ impl Pass for IndirectPass<'_> {
 				.unwrap()
 				.write_slice(
 					&self.allocated_memory.bone_storage_node,
-					bytemuck::cast_slice(&self.programs.bone_uniforms[0..bone_index])
+					bytemuck::cast_slice(&bone_uniforms[0..bone_index])
 				);
 
 			// do the render pass
