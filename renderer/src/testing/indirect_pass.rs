@@ -52,6 +52,7 @@ struct AllocatedMemory {
 	global_uniform_node: Node,
 	indices_page: PageUUID,
 	indirect_command_buffer: PageUUID,
+	indirect_command_buffer_map: HashMap<u64, Vec<u8>>,
 	indirect_command_buffer_node: Node,
 	max_objects_per_batch: u64,
 	normals_page: PageUUID,
@@ -164,6 +165,7 @@ impl<'a> IndirectPass<'a> {
 				global_uniform_node,
 				indices_page,
 				indirect_command_buffer,
+				indirect_command_buffer_map: HashMap::new(),
 				indirect_command_buffer_node,
 				max_objects_per_batch,
 				normals_page,
@@ -729,8 +731,12 @@ impl Pass for IndirectPass<'_> {
 
 			let object_uniforms = self.programs.object_uniforms.get_mut(&batch.make_key()).unwrap();
 
-			// fill the command buffer with calls
-			let mut buffer = vec![0; batch.meshes_to_draw * DRAW_INDEXED_DIRECT_SIZE];
+			// get indirect command buffer for this batch
+			self.allocated_memory.indirect_command_buffer_map.insert(
+				batch.make_key(), vec![0; batch.meshes_to_draw * DRAW_INDEXED_DIRECT_SIZE]
+			);
+
+			let buffer = self.allocated_memory.indirect_command_buffer_map.get_mut(&batch.make_key()).unwrap();
 			let mut draw_call_count: usize = 0;
 
 			// upload textures
