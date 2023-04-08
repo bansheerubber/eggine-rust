@@ -7,6 +7,8 @@ use crate::shapes;
 #[derive(Debug)]
 pub(crate) struct Batch<'a> {
 	pub batch_parameters: Vec<&'a shapes::BatchParameters>,
+	pub bone_index: usize,
+	pub draw_call_count: usize,
 	pub meshes_to_draw: usize,
 	pub texture_pager: textures::VirtualPager,
 }
