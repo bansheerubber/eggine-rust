@@ -38,6 +38,7 @@ struct Programs {
 	composite_program: Rc<Program>,
 	g_buffer_program: Rc<Program>,
 	object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
+	prepass_program: Rc<Program>,
 	texture_bind_group: wgpu::BindGroup,
 	uniform_bind_group: wgpu::BindGroup,
 }
@@ -273,11 +274,30 @@ impl<'a> IndirectPass<'a> {
 				shader_table.create_program("combination-shader", fragment_shader, vertex_shader)
 			};
 
+			// create the depth prepass program
+			let prepass_program = {
+				// define shader names
+				let fragment_shader = "data/depth-prepass.frag.spv".to_string();
+				let vertex_shader = "data/depth-prepass.vert.spv".to_string();
+
+				// lock shader table
+				let shader_table = boss.get_shader_table();
+				let mut shader_table = shader_table.write().unwrap();
+
+				// load from carton
+				let fragment_shader = shader_table.load_shader_from_carton(&fragment_shader, carton).unwrap();
+				let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
+
+				// create the program
+				shader_table.create_program("depth-prepass", fragment_shader, vertex_shader)
+			};
+
 			Programs {
 				bone_uniforms: HashMap::new(),
 				composite_program,
 				g_buffer_program,
-    		object_uniforms: HashMap::new(),
+				object_uniforms: HashMap::new(),
+				prepass_program,
 				texture_bind_group,
 				uniform_bind_group,
 			}
@@ -365,7 +385,7 @@ impl<'a> IndirectPass<'a> {
 			0.0,
 		);
 
-		self.x_angle += 0.01;
+		self.x_angle = std::f32::consts::PI;
 		self.y_angle = 1.0;
 
 		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 0.1, 10000.0);
@@ -586,8 +606,8 @@ impl Pass for IndirectPass<'_> {
 			State { // state for the G-buffer stage
 				depth_stencil: Some(wgpu::DepthStencilState {
 					bias: wgpu::DepthBiasState::default(),
-					depth_write_enabled: true,
-					depth_compare: wgpu::CompareFunction::Less,
+					depth_write_enabled: false,
+					depth_compare: wgpu::CompareFunction::LessEqual,
 					format: wgpu::TextureFormat::Depth32Float,
 					stencil: wgpu::StencilState::default(),
 				}),
@@ -656,6 +676,47 @@ impl Pass for IndirectPass<'_> {
 					write_mask: wgpu::ColorWrites::ALL,
 				})],
 				vertex_attributes: &[],
+			},
+			State { // state for the depth prepass
+				depth_stencil: Some(wgpu::DepthStencilState {
+					bias: wgpu::DepthBiasState::default(),
+					depth_write_enabled: true,
+					depth_compare: wgpu::CompareFunction::Less,
+					format: wgpu::TextureFormat::Depth32Float,
+					stencil: wgpu::StencilState::default(),
+				}),
+				label: "depth-prepass".to_string(),
+				program: &self.programs.prepass_program,
+				render_targets: Vec::new(),
+				vertex_attributes: &[
+					wgpu::VertexBufferLayout { // vertices
+						array_stride: 4 * 3,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x3,
+							offset: 0,
+							shader_location: 0,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
+					wgpu::VertexBufferLayout { // bone weights
+						array_stride: 4 * 4,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x4,
+							offset: 0,
+							shader_location: 1,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
+					wgpu::VertexBufferLayout { // bone indices
+						array_stride: 2 * 4,
+						attributes: &[wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Uint16x4,
+							offset: 0,
+							shader_location: 2,
+						}],
+						step_mode: wgpu::VertexStepMode::Vertex,
+					},
+				],
 			},
 		]
 	}
@@ -842,9 +903,86 @@ impl Pass for IndirectPass<'_> {
 			}
 		}
 
+		// depth pre-pass
+		let mut depth_buffer_load_op = wgpu::LoadOp::Clear(1.0);
+
+		for batch in batches.iter() {
+			let bone_uniforms = self.programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
+			let object_uniforms = self.programs.object_uniforms.get_mut(&batch.make_key()).unwrap();
+			let buffer = self.allocated_memory.indirect_command_buffer_map.get_mut(&batch.make_key()).unwrap();
+
+			// ensure immediate write to the buffer
+			memory.get_page(self.allocated_memory.indirect_command_buffer)
+				.unwrap()
+				.write_buffer(&self.allocated_memory.indirect_command_buffer_node, &buffer);
+
+			// write object uniforms to storage buffer
+			memory.get_page(self.allocated_memory.object_storage_page)
+				.unwrap()
+				.write_slice(
+					&self.allocated_memory.object_storage_node,
+					bytemuck::cast_slice(&object_uniforms[0..batch.draw_call_count])
+				);
+
+			// write bone matrices to storage buffer
+			memory.get_page(self.allocated_memory.bone_storage_page)
+				.unwrap()
+				.write_slice(
+					&self.allocated_memory.bone_storage_node,
+					bytemuck::cast_slice(&bone_uniforms[0..batch.bone_index])
+				);
+
+			// do the render pass
+			{
+				let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+					color_attachments: &[],
+					depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+						depth_ops: Some(wgpu::Operations {
+							load: depth_buffer_load_op,
+							store: true,
+						}),
+						stencil_ops: None,
+						view: &self.render_textures.depth_view,
+					}),
+					label: Some("depth-prepass"),
+				});
+
+				render_pass.set_pipeline(pipelines[2]);
+
+				// set vertex attributes
+				render_pass.set_index_buffer(
+					memory.get_page(self.allocated_memory.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
+					wgpu::IndexFormat::Uint32
+				);
+
+				render_pass.set_vertex_buffer(
+					0, memory.get_page(self.allocated_memory.positions_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
+
+				render_pass.set_vertex_buffer(
+					1, memory.get_page(self.allocated_memory.bone_weights).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
+
+				render_pass.set_vertex_buffer(
+					2, memory.get_page(self.allocated_memory.bone_indices).unwrap().get_buffer().slice(0..self.vertices_page_written)
+				);
+
+				// bind uniforms
+				render_pass.set_bind_group(0, &self.programs.uniform_bind_group, &[]);
+
+				// draw all the objects
+				render_pass.multi_draw_indexed_indirect(
+					memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, batch.draw_call_count as u32
+				);
+
+				// set clear ops
+				depth_buffer_load_op = wgpu::LoadOp::Load;
+			}
+		}
+
 		// G-buffer render pass for every single batch
 		let mut g_buffer_load_op = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
-		let mut depth_buffer_load_op = wgpu::LoadOp::Clear(1.0);
+		depth_buffer_load_op = wgpu::LoadOp::Load;
 
 		for batch in batches.iter() {
 			let bone_uniforms = self.programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
@@ -904,12 +1042,12 @@ impl Pass for IndirectPass<'_> {
 					depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
 						depth_ops: Some(wgpu::Operations {
 							load: depth_buffer_load_op,
-							store: true,
+							store: false,
 						}),
 						stencil_ops: None,
 						view: &self.render_textures.depth_view,
 					}),
-					label: None,
+					label: Some("g-buffer-pass"),
 				});
 
 				render_pass.set_pipeline(pipelines[0]);
@@ -951,7 +1089,6 @@ impl Pass for IndirectPass<'_> {
 
 				// set clear ops
 				g_buffer_load_op = wgpu::LoadOp::Load;
-				depth_buffer_load_op = wgpu::LoadOp::Load;
 			}
 		}
 
@@ -971,7 +1108,7 @@ impl Pass for IndirectPass<'_> {
 					}),
 				],
 				depth_stencil_attachment: None,
-				label: None,
+				label: Some("composite-pass"),
 			});
 
 			// create the render bundle if necessary
