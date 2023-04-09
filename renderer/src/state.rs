@@ -11,6 +11,7 @@ use super::shaders::Program;
 pub struct State<'a> {
 	/// Describes the depth stencil used in the pipeline.
 	pub depth_stencil: Option<wgpu::DepthStencilState>,
+	pub label: String,
 	/// Program to be used in the pipeline.
 	pub program: &'a Program,
 	pub render_targets: Vec<Option<wgpu::ColorTargetState>>,

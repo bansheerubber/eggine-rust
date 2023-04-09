@@ -218,7 +218,7 @@ impl<'a> Boss<'a> {
 				module: &state.program.fragment_shader.module,
 				targets: &state.render_targets,
 			}),
-			label: None,
+			label: Some(state.label.as_str()),
 			layout: Some(&pipeline_layout),
 			multisample: wgpu::MultisampleState::default(),
 			multiview: None,
