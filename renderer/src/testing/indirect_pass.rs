@@ -18,84 +18,84 @@ use super::uniforms::ObjectUniform;
 
 /// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
 #[derive(Debug)]
-struct RenderTextures {
-	composite_bind_group: wgpu::BindGroup,
-	depth_view: wgpu::TextureView,
-	diffuse_format: wgpu::TextureFormat,
-	diffuse_view: wgpu::TextureView,
-	normal_format: wgpu::TextureFormat,
-	normal_view: wgpu::TextureView,
-	specular_format: wgpu::TextureFormat,
-	specular_view: wgpu::TextureView,
-	window_height: u32,
-	window_width: u32,
+pub(crate) struct RenderTextures {
+	pub(crate) composite_bind_group: wgpu::BindGroup,
+	pub(crate) depth_view: wgpu::TextureView,
+	pub(crate) diffuse_format: wgpu::TextureFormat,
+	pub(crate) diffuse_view: wgpu::TextureView,
+	pub(crate) normal_format: wgpu::TextureFormat,
+	pub(crate) normal_view: wgpu::TextureView,
+	pub(crate) specular_format: wgpu::TextureFormat,
+	pub(crate) specular_view: wgpu::TextureView,
+	pub(crate) window_height: u32,
+	pub(crate) window_width: u32,
 }
 
 /// Stores program related information used by the pass object.
 #[derive(Debug)]
-struct Programs {
-	bone_uniforms: HashMap<u64, Vec<glam::Mat4>>,
-	composite_program: Rc<Program>,
-	g_buffer_program: Rc<Program>,
-	object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
-	prepass_program: Rc<Program>,
-	texture_bind_group: wgpu::BindGroup,
-	uniform_bind_group: wgpu::BindGroup,
+pub(crate) struct Programs {
+	pub(crate) bone_uniforms: HashMap<u64, Vec<glam::Mat4>>,
+	pub(crate) composite_program: Rc<Program>,
+	pub(crate) g_buffer_program: Rc<Program>,
+	pub(crate) object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
+	pub(crate) prepass_program: Rc<Program>,
+	pub(crate) texture_bind_group: wgpu::BindGroup,
+	pub(crate) uniform_bind_group: wgpu::BindGroup,
 }
 
 /// Stores references to the pages allocated by the pass object.
 #[derive(Debug)]
-struct AllocatedMemory {
-	bone_storage_page: PageUUID,
-	bone_storage_node: Node,
-	bone_indices: PageUUID,
-	bone_weights: PageUUID,
-	global_uniform_node: Node,
-	indices_page: PageUUID,
-	indirect_command_buffer: PageUUID,
-	indirect_command_buffer_map: HashMap<u64, Vec<u8>>,
-	indirect_command_buffer_node: Node,
-	max_objects_per_batch: u64,
-	normals_page: PageUUID,
-	object_storage_page: PageUUID,
-	object_storage_node: Node,
-	positions_page: PageUUID,
-	uniforms_page: PageUUID,
-	uvs_page: PageUUID,
+pub(crate) struct AllocatedMemory {
+	pub(crate) bone_storage_page: PageUUID,
+	pub(crate) bone_storage_node: Node,
+	pub(crate) bone_indices: PageUUID,
+	pub(crate) bone_weights: PageUUID,
+	pub(crate) global_uniform_node: Node,
+	pub(crate) indices_page: PageUUID,
+	pub(crate) indirect_command_buffer: PageUUID,
+	pub(crate) indirect_command_buffer_map: HashMap<u64, Vec<u8>>,
+	pub(crate) indirect_command_buffer_node: Node,
+	pub(crate) max_objects_per_batch: u64,
+	pub(crate) normals_page: PageUUID,
+	pub(crate) object_storage_page: PageUUID,
+	pub(crate) object_storage_node: Node,
+	pub(crate) positions_page: PageUUID,
+	pub(crate) uniforms_page: PageUUID,
+	pub(crate) uvs_page: PageUUID,
 }
 
 /// Renders `Shape`s using deferred shading w/ indirect draw calls.
 #[derive(Debug)]
 pub struct IndirectPass<'a> {
 	/// The pages and nodes allocated on the GPU.
-	allocated_memory: AllocatedMemory,
+	pub(crate) allocated_memory: AllocatedMemory,
 	/// The batches of shapes used during rendering.
-	batching_parameters: HashMap<shapes::BatchParametersKey, shapes::BatchParameters>,
+	pub(crate) batching_parameters: HashMap<shapes::BatchParametersKey, shapes::BatchParameters>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
-	blueprints: Vec<Rc<shapes::blueprint::Blueprint>>,
+	pub(crate) blueprints: Vec<Rc<shapes::blueprint::Blueprint>>,
 	/// Since the compositor step's render operations do not change frame-to-frame, pre-record the operations to a render
 	/// bundle for improved performance.
-	compositor_render_bundle: Option<wgpu::RenderBundle>,
+	pub(crate) compositor_render_bundle: Option<wgpu::RenderBundle>,
 	/// Stores `wgpu` created objects required for basic rendering operations.
-	context: Rc<WGPUContext>,
+	pub(crate) context: Rc<WGPUContext>,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
-	highest_vertex_offset: i32,
+	pub(crate) highest_vertex_offset: i32,
 	/// The amount of bytes written to the indices page.
-	indices_page_written: u64,
+	pub(crate) indices_page_written: u64,
 	/// The total number of indices written into the index buffer. Used to calculate the `first_index` for meshes in an
 	/// indirect indexed draw call.
-	indices_written: u32,
+	pub(crate) indices_written: u32,
 	/// Reference to the memory subsystem, used to allocate/write data.
-	memory: Arc<RwLock<Memory<'a>>>,
+	pub(crate) memory: Arc<RwLock<Memory<'a>>>,
 	/// Program related information.
-	programs: Programs,
+	pub(crate) programs: Programs,
 	/// The render textures used in the initial passes in the deferred shading pipeline.
-	render_textures: RenderTextures,
+	pub(crate) render_textures: RenderTextures,
 	/// The amount of bytes written to the vertices page.
-	vertices_page_written: u64,
+	pub(crate) vertices_page_written: u64,
 
-	x_angle: f32,
-	y_angle: f32,
+	pub(crate) x_angle: f32,
+	pub(crate) y_angle: f32,
 }
 
 impl<'a> IndirectPass<'a> {
@@ -864,86 +864,24 @@ impl Pass for IndirectPass<'_> {
 			}
 		}
 
-		// depth pre-pass
-		let mut depth_buffer_load_op = wgpu::LoadOp::Clear(1.0);
+		drop(memory);
 
-		for batch in batches.iter() {
-			let bone_uniforms = self.programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
-			let object_uniforms = self.programs.object_uniforms.get_mut(&batch.make_key()).unwrap();
-			let buffer = self.allocated_memory.indirect_command_buffer_map.get_mut(&batch.make_key()).unwrap();
+		IndirectPass::depth_prepass(
+			&self.memory,
+			&mut self.allocated_memory,
+			&mut self.programs,
+			&self.render_textures,
+			self.indices_page_written,
+			self.vertices_page_written,
+			&batches,
+			encoder,
+			pipelines
+		);
 
-			// ensure immediate write to the buffer
-			memory.get_page(self.allocated_memory.indirect_command_buffer)
-				.unwrap()
-				.write_buffer(&self.allocated_memory.indirect_command_buffer_node, &buffer);
-
-			// write object uniforms to storage buffer
-			memory.get_page(self.allocated_memory.object_storage_page)
-				.unwrap()
-				.write_slice(
-					&self.allocated_memory.object_storage_node,
-					bytemuck::cast_slice(&object_uniforms[0..batch.draw_call_count])
-				);
-
-			// write bone matrices to storage buffer
-			memory.get_page(self.allocated_memory.bone_storage_page)
-				.unwrap()
-				.write_slice(
-					&self.allocated_memory.bone_storage_node,
-					bytemuck::cast_slice(&bone_uniforms[0..batch.bone_index])
-				);
-
-			// do the render pass
-			{
-				let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-					color_attachments: &[],
-					depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-						depth_ops: Some(wgpu::Operations {
-							load: depth_buffer_load_op,
-							store: true,
-						}),
-						stencil_ops: None,
-						view: &self.render_textures.depth_view,
-					}),
-					label: Some("depth-prepass"),
-				});
-
-				render_pass.set_pipeline(pipelines[2]);
-
-				// set vertex attributes
-				render_pass.set_index_buffer(
-					memory.get_page(self.allocated_memory.indices_page).unwrap().get_buffer().slice(0..self.indices_page_written),
-					wgpu::IndexFormat::Uint32
-				);
-
-				render_pass.set_vertex_buffer(
-					0, memory.get_page(self.allocated_memory.positions_page).unwrap().get_buffer().slice(0..self.vertices_page_written)
-				);
-
-				render_pass.set_vertex_buffer(
-					1, memory.get_page(self.allocated_memory.bone_weights).unwrap().get_buffer().slice(0..self.vertices_page_written)
-				);
-
-				render_pass.set_vertex_buffer(
-					2, memory.get_page(self.allocated_memory.bone_indices).unwrap().get_buffer().slice(0..self.vertices_page_written)
-				);
-
-				// bind uniforms
-				render_pass.set_bind_group(0, &self.programs.uniform_bind_group, &[]);
-
-				// draw all the objects
-				render_pass.multi_draw_indexed_indirect(
-					memory.get_page(self.allocated_memory.indirect_command_buffer).unwrap().get_buffer(), 0, batch.draw_call_count as u32
-				);
-
-				// set clear ops
-				depth_buffer_load_op = wgpu::LoadOp::Load;
-			}
-		}
+		let memory = self.memory.read().unwrap();
 
 		// G-buffer render pass for every single batch
 		let mut g_buffer_load_op = wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT);
-		depth_buffer_load_op = wgpu::LoadOp::Load;
 
 		for batch in batches.iter() {
 			let bone_uniforms = self.programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
@@ -1002,7 +940,7 @@ impl Pass for IndirectPass<'_> {
 					],
 					depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
 						depth_ops: Some(wgpu::Operations {
-							load: depth_buffer_load_op,
+							load: wgpu::LoadOp::Load,
 							store: false,
 						}),
 						stencil_ops: None,
