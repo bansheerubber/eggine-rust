@@ -9,7 +9,6 @@ use std::sync::{ Arc, RwLock, };
 use crate::{ Pass, shapes, };
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
-use crate::memory_subsystem::textures::Pager;
 use crate::shaders::Program;
 use crate::state::State;
 
@@ -768,7 +767,7 @@ impl Pass for IndirectPass<'_> {
 			pipelines
 		);
 
-		// combine the textures in the G-buffer
+		// combine the textures in the G-buffer. doesn't have its own file since this is only like 20 lines long
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 				color_attachments: &[
