@@ -5,6 +5,9 @@ use crate::testing::indirect_pass::{ AllocatedMemory, Programs, RenderTextures, 
 use crate::testing::{ Batch, IndirectPass, };
 
 impl IndirectPass<'_> {
+	/// This performs the G-buffer render pass.
+	///
+	/// TODO rewrite this so that it only takes one batch instead of the entire batches vector, so batches work properly
 	pub(crate) fn g_buffer_pass(
 		memory: &Arc<RwLock<Memory>>,
 		allocated_memory: &mut AllocatedMemory,

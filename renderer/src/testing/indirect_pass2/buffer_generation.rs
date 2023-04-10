@@ -10,6 +10,13 @@ use crate::testing::uniforms::ObjectUniform;
 use crate::testing::{ Batch, IndirectPass, };
 
 impl IndirectPass<'_> {
+	/// Iterate through the shapes in the provided batches and populate GPU buffers. The following buffers are filled:
+	/// 1. indirect command buffer
+	/// 2. uniform buffer
+	/// 3. bone uniform buffer
+	/// 4. texture buffers
+	///
+	/// TODO rewrite this so that it only takes one batch instead of the entire batches vector, so batches work properly
 	pub(crate) fn buffer_generation(
 		memory: &Arc<RwLock<Memory>>,
 		allocated_memory: &mut AllocatedMemory,

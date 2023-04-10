@@ -7,6 +7,10 @@ use crate::memory_subsystem::{ Memory, textures, };
 use crate::memory_subsystem::textures::Pager;
 
 impl IndirectPass<'_> {
+	/// Iterates through the `IndirectPass`'s batch parameters and consolidates them into individual batches based on GPU
+	/// parameters. Batches are generated based on the GPU's:
+	/// 1. texture page size
+	/// 2. other stuff that will be introduced in the future maybe
 	pub(crate) fn generate_batches<'a>(
 		memory: &Arc<RwLock<Memory>>,
 		batching_parameters: &'a HashMap<shapes::BatchParametersKey, shapes::BatchParameters>,

@@ -735,6 +735,7 @@ impl Pass for IndirectPass<'_> {
 		// break up batches depending on how much we're able to fill a virtual texture quad
 		let mut batches = IndirectPass::generate_batches(&self.memory, &self.batching_parameters);
 
+		// TODO as soon as multiple batches need processing, this will break. buffers need to be re-gened per pass
 		IndirectPass::buffer_generation(
 			&self.memory,
 			&mut self.allocated_memory,
