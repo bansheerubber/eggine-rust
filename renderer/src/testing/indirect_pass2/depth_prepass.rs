@@ -5,6 +5,8 @@ use crate::testing::indirect_pass::{ AllocatedMemory, Programs, RenderTextures, 
 use crate::testing::{ Batch, IndirectPass, };
 
 impl IndirectPass<'_> {
+	// This function has its own file because it otherwise makes the `IndirectPass::encode` function unbearable to read.
+
 	/// This performs the depth prepass.
 	///
 	/// TODO rewrite this so that it only takes one batch instead of the entire batches vector, so batches work properly

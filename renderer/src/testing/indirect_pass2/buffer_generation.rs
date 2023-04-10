@@ -10,6 +10,8 @@ use crate::testing::uniforms::ObjectUniform;
 use crate::testing::{ Batch, IndirectPass, };
 
 impl IndirectPass<'_> {
+	// This function has its own file because it otherwise makes the `IndirectPass::encode` function unbearable to read.
+
 	/// Iterate through the shapes in the provided batches and populate GPU buffers. The following buffers are filled:
 	/// 1. indirect command buffer
 	/// 2. uniform buffer

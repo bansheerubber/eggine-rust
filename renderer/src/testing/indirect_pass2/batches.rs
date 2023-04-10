@@ -7,6 +7,8 @@ use crate::memory_subsystem::{ Memory, textures, };
 use crate::memory_subsystem::textures::Pager;
 
 impl IndirectPass<'_> {
+	// This function has its own file because it otherwise makes the `IndirectPass::encode` function unbearable to read.
+
 	/// Iterates through the `IndirectPass`'s batch parameters and consolidates them into individual batches based on GPU
 	/// parameters. Batches are generated based on the GPU's:
 	/// 1. texture page size
