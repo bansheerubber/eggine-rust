@@ -9,8 +9,8 @@ use std::sync::{ Arc, RwLock, };
 use crate::{ Pass, shapes, };
 use crate::boss::{ Boss, WGPUContext, };
 use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
-use crate::shaders::Program;
-use crate::state::State;
+use crate::shaders::{ ComputeProgram, Program, };
+use crate::state::{ ComputeState, RenderState, };
 
 use super::GlobalUniform;
 use super::uniforms::ObjectUniform;
@@ -37,6 +37,7 @@ pub(crate) struct Programs {
 	pub(crate) composite_program: Rc<Program>,
 	pub(crate) g_buffer_program: Rc<Program>,
 	pub(crate) object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
+	pub(crate) occlusion_program: Rc<ComputeProgram>,
 	pub(crate) prepass_program: Rc<Program>,
 	pub(crate) texture_bind_group: wgpu::BindGroup,
 	pub(crate) uniform_bind_group: wgpu::BindGroup,
@@ -194,7 +195,7 @@ impl<'a> IndirectPass<'a> {
 				let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
 
 				// create the program
-				shader_table.create_program("main-shader", fragment_shader, vertex_shader)
+				shader_table.create_render_program("main-shader", fragment_shader, vertex_shader)
 			};
 
 			// create uniforms bind groups
@@ -270,7 +271,7 @@ impl<'a> IndirectPass<'a> {
 				let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
 
 				// create the program
-				shader_table.create_program("combination-shader", fragment_shader, vertex_shader)
+				shader_table.create_render_program("combination-shader", fragment_shader, vertex_shader)
 			};
 
 			// create the depth prepass program
@@ -288,7 +289,23 @@ impl<'a> IndirectPass<'a> {
 				let vertex_shader = shader_table.load_shader_from_carton(&vertex_shader, carton).unwrap();
 
 				// create the program
-				shader_table.create_program("depth-prepass", fragment_shader, vertex_shader)
+				shader_table.create_render_program("depth-prepass", fragment_shader, vertex_shader)
+			};
+
+			// create the occlusion compute shader program
+			let occlusion_program = {
+				// define shader names
+				let compute_shader = "data/occlusion.comp.spv".to_string();
+
+				// lock shader table
+				let shader_table = boss.get_shader_table();
+				let mut shader_table = shader_table.write().unwrap();
+
+				// load from carton
+				let compute_shader = shader_table.load_shader_from_carton(&compute_shader, carton).unwrap();
+
+				// create the program
+				shader_table.create_compute_program("occlusion", compute_shader)
 			};
 
 			Programs {
@@ -296,6 +313,7 @@ impl<'a> IndirectPass<'a> {
 				composite_program,
 				g_buffer_program,
 				object_uniforms: HashMap::new(),
+				occlusion_program,
 				prepass_program,
 				texture_bind_group,
 				uniform_bind_group,
@@ -600,9 +618,9 @@ impl<'a> IndirectPass<'a> {
 
 /// Pass implementation. Indirectly render all shapes we have ownership over.
 impl Pass for IndirectPass<'_> {
-	fn states<'a>(&'a self) -> Vec<State<'a>> {
+	fn render_states<'a>(&'a self) -> Vec<RenderState<'a>> {
 		vec![
-			State { // state for the G-buffer stage
+			RenderState { // state for the G-buffer stage
 				depth_stencil: Some(wgpu::DepthStencilState {
 					bias: wgpu::DepthBiasState::default(),
 					depth_write_enabled: false,
@@ -665,7 +683,7 @@ impl Pass for IndirectPass<'_> {
 					},
 				],
 			},
-			State { // state for the composite stage
+			RenderState { // state for the composite stage
 				depth_stencil: None,
 				label: "composite-prepass".to_string(),
 				program: &self.programs.composite_program,
@@ -676,7 +694,7 @@ impl Pass for IndirectPass<'_> {
 				})],
 				vertex_attributes: &[],
 			},
-			State { // state for the depth prepass
+			RenderState { // state for the depth prepass
 				depth_stencil: Some(wgpu::DepthStencilState {
 					bias: wgpu::DepthBiasState::default(),
 					depth_write_enabled: true,
@@ -720,12 +738,20 @@ impl Pass for IndirectPass<'_> {
 		]
 	}
 
+	fn compute_states<'a>(&'a self) -> Vec<ComputeState<'a>> {
+		vec![ComputeState {
+			label: "occlusion-pass".to_string(),
+			program: &self.programs.occlusion_program,
+		}]
+	}
+
 	/// Encode all draw commands.
 	fn encode(
 		&mut self,
 		deltatime: f64,
 		encoder: &mut wgpu::CommandEncoder,
-		pipelines: &Vec<&wgpu::RenderPipeline>,
+		render_pipelines: &Vec<&wgpu::RenderPipeline>,
+		compute_pipelines: &Vec<&wgpu::ComputePipeline>,
 		view: &wgpu::TextureView
 	) {
 		// update the uniforms
@@ -752,8 +778,18 @@ impl Pass for IndirectPass<'_> {
 			self.vertices_page_written,
 			&batches,
 			encoder,
-			pipelines
+			render_pipelines
 		);
+
+		// run occlusion compute shader
+		{
+			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+				label: Some("occlusion-pass"),
+			});
+
+			compute_pass.set_pipeline(compute_pipelines[0]);
+			compute_pass.dispatch_workgroups(5, 0, 0);
+		}
 
 		IndirectPass::g_buffer_pass(
 			&self.memory,
@@ -764,7 +800,7 @@ impl Pass for IndirectPass<'_> {
 			self.vertices_page_written,
 			&batches,
 			encoder,
-			pipelines
+			render_pipelines
 		);
 
 		// combine the textures in the G-buffer. doesn't have its own file since this is only like 20 lines long
@@ -786,7 +822,7 @@ impl Pass for IndirectPass<'_> {
 
 			// create the render bundle if necessary
 			if self.compositor_render_bundle.is_none() {
-				self.create_compositor_bundle(pipelines[1]);
+				self.create_compositor_bundle(render_pipelines[1]);
 			}
 
 			render_pass.execute_bundles([self.compositor_render_bundle.as_ref().unwrap()]);

@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use crate::boss::WGPUContext;
 
-use super::{ Program, Shader, Uniform, };
+use super::{ ComputeProgram, Program, Shader, Uniform, };
 
 #[derive(Debug)]
 pub enum ShaderError {
@@ -18,9 +18,11 @@ pub enum ShaderError {
 /// Manages shader loading, and stores/manages loaded shaders.
 #[derive(Debug)]
 pub struct ShaderTable {
+	/// Map of program names to objects.
+	compute_programs: HashMap<String, Rc<ComputeProgram>>,
 	context: Rc<WGPUContext>,
 	/// Map of program names to objects.
-	programs: HashMap<String, Rc<Program>>,
+	render_programs: HashMap<String, Rc<Program>>,
 }
 
 /// Describes the state of the uniform parsing state machine.
@@ -36,15 +38,23 @@ impl ShaderTable {
 	/// Creates a new `ShaderTable`.
 	pub fn new(context: Rc<WGPUContext>) -> Self {
 		ShaderTable {
+			compute_programs: HashMap::new(),
 			context,
-			programs: HashMap::new(),
+			render_programs: HashMap::new(),
 		}
 	}
 
 	/// Creates a program from the supplied shaders and inserts into the shader table.
-	pub fn create_program(&mut self, name: &str, fragment_shader: Shader, vertex_shader: Shader) -> Rc<Program> {
+	pub fn create_render_program(&mut self, name: &str, fragment_shader: Shader, vertex_shader: Shader) -> Rc<Program> {
 		let program = Rc::new(Program::new(name, fragment_shader, vertex_shader, self.context.clone()));
-		self.programs.insert(name.to_string(), program.clone());
+		self.render_programs.insert(name.to_string(), program.clone());
+		return program;
+	}
+
+	/// Creates a program from the supplied shader and inserts into the shader table.
+	pub fn create_compute_program(&mut self, name: &str, compute_shader: Shader) -> Rc<ComputeProgram> {
+		let program = Rc::new(ComputeProgram::new(name, compute_shader, self.context.clone()));
+		self.compute_programs.insert(name.to_string(), program.clone());
 		return program;
 	}
 
@@ -56,6 +66,8 @@ impl ShaderTable {
 			wgpu::ShaderStages::FRAGMENT
 		} else if file_name.contains(".vert.spv") {
 			wgpu::ShaderStages::VERTEX
+		} else if file_name.contains(".comp.spv") {
+			wgpu::ShaderStages::COMPUTE
 		} else {
 			return Err(ShaderError::UnrecognizedExtension);
 		};
@@ -99,6 +111,8 @@ impl ShaderTable {
 			wgpu::ShaderStages::FRAGMENT
 		} else if file_name.contains(".vert.spv") {
 			wgpu::ShaderStages::VERTEX
+		} else if file_name.contains(".comp.spv") {
+			wgpu::ShaderStages::COMPUTE
 		} else {
 			return Err(ShaderError::UnrecognizedExtension);
 		};
@@ -128,7 +142,7 @@ impl ShaderTable {
 
 	/// Retreives the shader associated with the supplied file name.
 	pub fn get_program(&self, name: &str) -> Option<Rc<Program>> {
-		self.programs.get(name).cloned()
+		self.render_programs.get(name).cloned()
 	}
 
 	/// Parse uniforms from the shader source codeso the renderer can assemble `wgpu::DescriptorSetLayoutBindings`.
@@ -204,11 +218,10 @@ impl ShaderTable {
 					"binding" => {
 						current_uniform.binding = token_buffer.as_str()[..token_buffer.len() - 1].trim().parse().unwrap();
 					},
-					"location" => {},
 					"set" => {
 						current_uniform.set = token_buffer.as_str()[..token_buffer.len() - 1].trim().parse().unwrap();
 					},
-					"std140" => {},
+					"std140" | "location" | "local_size_x" | "local_size_y" | "local_size_z" => {},
 					_ => panic!("Could not parse layout parameter '{}'", parameter_name),
 				}
 

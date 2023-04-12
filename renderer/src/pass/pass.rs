@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::state::{ ComputeState, RenderState, };
 
 /// Produces a ready-to-render framebuffer that is composited with other `Pass`s by the `Boss`. A `Pass` controls its
 /// own scene state. A `Pass` that implements a city renderer will store references to all buildings, roads, props, etc.
@@ -6,15 +6,19 @@ use crate::state::State;
 /// state (like render pipeline creation), so a `Pass` must communicate with the `Boss` to acquire the necessary state
 /// to create a `wgpu::RenderPass`.
 pub trait Pass {
-	/// Called by the `Boss` so it can prepare any needed pipelines for `encode`.
-	fn states<'a>(&'a self) -> Vec<State<'a>>;
+	/// Called by the `Boss` so it can prepare any needed render pipelines for `encode`.
+	fn render_states<'a>(&'a self) -> Vec<RenderState<'a>>;
+
+	/// Called by the `Boss` so it can prepare any needed compute pipelines for `encode`.
+	fn compute_states<'a>(&'a self) -> Vec<ComputeState<'a>>;
 
 	/// Encodes draw calls into the specified encoder.
 	fn encode(
 		&mut self,
 		deltatime: f64,
 		encoder: &mut wgpu::CommandEncoder,
-		pipelines: &Vec<&wgpu::RenderPipeline>,
+		render_pipelines: &Vec<&wgpu::RenderPipeline>,
+		compute_pipelines: &Vec<&wgpu::ComputePipeline>,
 		view: &wgpu::TextureView
 	);
 

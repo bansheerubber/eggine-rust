@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::Pass;
 use crate::memory_subsystem::Memory;
 use crate::shaders::ShaderTable;
-use crate::state::{ State, StateKey, };
+use crate::state::{ ComputeState, ComputeStateKey, RenderState, RenderStateKey, };
 
 use super::{ DebugContext, WGPUContext, };
 
@@ -22,7 +22,8 @@ pub struct Boss<'a> {
 	memory: Arc<RwLock<Memory<'a>>>,
 	passes: Vec<Box<dyn Pass>>,
 	shader_table: Arc<RwLock<ShaderTable>>,
-	state_to_pipeline: HashMap<StateKey, wgpu::RenderPipeline>,
+	state_to_compute_pipeline: HashMap<ComputeStateKey, wgpu::ComputePipeline>,
+	state_to_render_pipeline: HashMap<RenderStateKey, wgpu::RenderPipeline>,
 	surface_config: wgpu::SurfaceConfiguration,
 }
 
@@ -99,7 +100,8 @@ impl<'a> Boss<'a> {
 			debug: DebugContext::default(),
 			last_rendered_frame: Instant::now(),
 			passes: Vec::new(),
-			state_to_pipeline: HashMap::new(),
+			state_to_compute_pipeline: HashMap::new(),
+			state_to_render_pipeline: HashMap::new(),
 			surface_config,
 		}
 	}
@@ -121,21 +123,18 @@ impl<'a> Boss<'a> {
 		let frame = self.context.surface.get_current_texture().expect("Could not acquire next texture");
 		let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-		// figure out the pipelines needed for the `Pass`s
-		let mut states = Vec::new();
-
 		// steal passes for a second
 		let mut passes = std::mem::take(&mut self.passes);
 		{
 			for pass in passes.iter() {
-				let pass_states = pass.states();
-				states.push(pass_states);
-			}
-
-			// create pipelines
-			for pass_states in states.iter() {
+				let pass_states = pass.render_states();
 				for state in pass_states.iter() {
-					self.create_pipeline(state);
+					self.create_render_pipeline(state);
+				}
+
+				let pass_states = pass.compute_states();
+				for state in pass_states.iter() {
+					self.create_compute_pipeline(state);
 				}
 			}
 
@@ -159,14 +158,21 @@ impl<'a> Boss<'a> {
 
 			// encode passes
 			for pass in passes.iter_mut() {
-				let states = pass.states();
-				let pass_pipelines = states.iter()
+				let states = pass.render_states();
+				let render_pass_pipelines = states.iter()
 					.map(|x| {
-						self.get_pipeline(x).unwrap()
+						self.get_render_pipeline(x).unwrap()
 					})
 					.collect::<Vec<&wgpu::RenderPipeline>>();
 
-				pass.encode(deltatime, &mut encoder, &pass_pipelines, &view);
+				let states = pass.compute_states();
+				let compute_pass_pipelines = states.iter()
+					.map(|x| {
+						self.get_compute_pipeline(x).unwrap()
+					})
+					.collect::<Vec<&wgpu::ComputePipeline>>();
+
+				pass.encode(deltatime, &mut encoder, &render_pass_pipelines, &compute_pass_pipelines, &view);
 			}
 
 			self.context.queue.submit(Some(encoder.finish()));
@@ -196,10 +202,10 @@ impl<'a> Boss<'a> {
 		(self.surface_config.width, self.surface_config.height)
 	}
 
-	/// Creates a `wgpu` pipeline based on the current render state.
-	pub fn create_pipeline(&mut self, state: &State) {
+	/// Creates a `wgpu` render pipeline based on the current render state.
+	fn create_render_pipeline(&mut self, state: &RenderState) {
 		// check cache before creating new pipeline
-		if self.state_to_pipeline.contains_key(&state.key()) {
+		if self.state_to_render_pipeline.contains_key(&state.key()) {
 			return;
 		}
 
@@ -238,11 +244,40 @@ impl<'a> Boss<'a> {
 			},
 		});
 
-		self.state_to_pipeline.insert(state.key(), render_pipeline); // cache the pipeline
+		self.state_to_render_pipeline.insert(state.key(), render_pipeline); // cache the pipeline
 	}
 
-	pub fn get_pipeline(&self, state: &State) -> Option<&wgpu::RenderPipeline> {
-		self.state_to_pipeline.get(&state.key())
+	fn get_render_pipeline(&self, state: &RenderState) -> Option<&wgpu::RenderPipeline> {
+		self.state_to_render_pipeline.get(&state.key())
+	}
+
+	/// Creates a `wgpu` compute pipeline based on the current render state.
+	fn create_compute_pipeline(&mut self, state: &ComputeState) {
+		// check cache before creating new pipeline
+		if self.state_to_compute_pipeline.contains_key(&state.key()) {
+			return;
+		}
+
+		// create the pipeline
+		let pipeline_layout = self.context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			bind_group_layouts: &state.program.get_bind_group_layouts(),
+			label: None,
+			push_constant_ranges: &[],
+		});
+
+		// create the render pipeline
+		let compute_pipeline = self.context.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+			entry_point: "main",
+			label: Some(state.label.as_str()),
+			layout: Some(&pipeline_layout),
+			module: &state.program.shader.module,
+		});
+
+		self.state_to_compute_pipeline.insert(state.key(), compute_pipeline); // cache the pipeline
+	}
+
+	fn get_compute_pipeline(&self, state: &ComputeState) -> Option<&wgpu::ComputePipeline> {
+		self.state_to_compute_pipeline.get(&state.key())
 	}
 
 	/// Sets the ordering of the `Pass`s that are handled each frame.
