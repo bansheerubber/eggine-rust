@@ -83,14 +83,18 @@ fn main() {
 				let entry = entry.unwrap();
 				if entry.metadata().unwrap().is_file() {
 					let file_name = entry.path().to_str().unwrap();
-					if (!file_name.contains(".vert") && !file_name.contains(".frag")) || file_name.contains(".spv") {
+					if (!file_name.contains(".vert") && !file_name.contains(".frag") && !file_name.contains(".comp"))
+						|| file_name.contains(".spv")
+					{
 						continue;
 					}
 
 					let shader_stage = if file_name.contains(".vert") {
 						"vert"
-					} else {
+					} else if file_name.contains(".frag") {
 						"frag"
+					} else {
+						"comp"
 					};
 
 					let output = run_command(
