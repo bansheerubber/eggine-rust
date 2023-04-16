@@ -108,7 +108,7 @@ impl Shader {
 								has_dynamic_offset: false, // TODO what should this be
 								min_binding_size: None, // TODO what should this be
 								ty: wgpu::BufferBindingType::Storage {
-									read_only: true, // TODO what should this be
+									read_only: uniform.readonly,
 								},
 							},
 							visibility: self.stage,

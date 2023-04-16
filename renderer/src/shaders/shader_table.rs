@@ -171,6 +171,7 @@ impl ShaderTable {
 			binding: 0,
 			kind: String::new(),
 			name: String::new(),
+			readonly: true,
 			set: 0,
 			storage: false,
 		};
@@ -238,7 +239,8 @@ impl ShaderTable {
 				// find uniform types and names
 				let split = token_buffer.trim().split(" ").collect::<Vec<&str>>();
 
-				if split.len() < 4 {
+				// if we find a semicolon, short circuit
+				if split.len() < 4 && !split[split.len() - 1].ends_with(";") {
 					continue;
 				}
 
@@ -257,16 +259,24 @@ impl ShaderTable {
 						binding: 0,
 						kind: String::new(),
 						name: String::new(),
+						readonly: true,
 						set: 0,
 						storage: false,
 					};
-				} else if split[0] == "readonly" && split[1] == "buffer" {
-					let kind = String::from(split[2]);
-					let name = String::from(split[3].replace(";", ""));
+				} else if split.len() > 1 && (split[0] == "buffer" || split[1] == "buffer") {
+					let (offset, readonly) = if split[0] == "readonly" {
+						(1, true)
+					} else {
+						(0, false)
+					};
+
+					let kind = String::from(split[0 + offset]);
+					let name = String::from(split[1 + offset].replace(";", ""));
 
 					current_uniform.kind = kind;
 					current_uniform.name = name;
 					current_uniform.storage = true;
+					current_uniform.readonly = readonly;
 
 					uniforms.push(current_uniform);
 
@@ -275,6 +285,7 @@ impl ShaderTable {
 						binding: 0,
 						kind: String::new(),
 						name: String::new(),
+						readonly,
 						set: 0,
 						storage: false,
 					};

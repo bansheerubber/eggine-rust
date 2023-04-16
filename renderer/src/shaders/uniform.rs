@@ -7,6 +7,7 @@ pub struct Uniform {
 	pub kind: String,
 	/// The name of the uniform as found in the shader source.
 	pub name: String,
+	pub readonly: bool,
 	/// The set of the uniform as found in the shader source.
 	pub set: u32,
 	pub storage: bool,
