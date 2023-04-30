@@ -71,7 +71,7 @@ async fn main() {
 				priority: 0,
 				weight: 1.0,
 			},
-			shapes::animations::PlayCount::Infinite,
+			shapes::animations::PlayCount::Count(1),
 			1.0
 		));
 
@@ -144,14 +144,14 @@ async fn main() {
 	// 	});
 	// }
 
-	// let mut rng = rand::thread_rng();
+	let mut rng = rand::thread_rng();
 
-	// for _ in 0..5000 {
-	// 	let mut shape = shapes::Shape::new(blueprint.clone());
-	// 	shape.position = glam::Vec3::new(rng.gen::<f32>() * 30.0, rng.gen::<f32>() * 30.0, 0.0);
+	for _ in 0..500 {
+		let mut shape = shapes::Shape::new(blueprint.clone());
+		shape.set_position(glam::Vec3::new(rng.gen::<f32>() * 30.0, rng.gen::<f32>() * 30.0, 0.0));
 
-	// 	test_pass.add_shape(shape);
-	// }
+		test_pass.add_shape(shape);
+	}
 
 	// set the boss's passes
 	boss.set_passes(vec![test_pass]);

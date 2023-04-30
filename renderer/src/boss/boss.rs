@@ -70,7 +70,7 @@ impl<'a> Boss<'a> {
 			alpha_mode: swapchain_capabilities.alpha_modes[0],
 			format: swapchain_format,
 			height: size.height,
-			present_mode: wgpu::PresentMode::Immediate,
+			present_mode: wgpu::PresentMode::Fifo,
 			usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: vec![],
 			width: size.width,
@@ -195,6 +195,8 @@ impl<'a> Boss<'a> {
 		for pass in self.passes.iter_mut() {
 			pass.resize(&self.surface_config);
 		}
+
+		self.create_pass_bind_groups();
 	}
 
 	/// Returns the current size of the window.
@@ -280,9 +282,50 @@ impl<'a> Boss<'a> {
 		self.state_to_compute_pipeline.get(&state.key())
 	}
 
+	/// Iterates through all passes and creates their bind groups as necessary.
+	fn create_pass_bind_groups(&mut self) {
+		// steal passes for a second
+		let mut passes = std::mem::take(&mut self.passes);
+		{
+			// create pipelines
+			for pass in passes.iter() {
+				let pass_states = pass.render_states();
+				for state in pass_states.iter() {
+					self.create_render_pipeline(state);
+				}
+
+				let pass_states = pass.compute_states();
+				for state in pass_states.iter() {
+					self.create_compute_pipeline(state);
+				}
+			}
+
+			// create the passes' bind groups, using fresh pipelines
+			for pass in passes.iter_mut() {
+				let states = pass.render_states();
+				let render_pass_pipelines = states.iter()
+					.map(|x| {
+						self.get_render_pipeline(x).unwrap()
+					})
+					.collect::<Vec<&wgpu::RenderPipeline>>();
+
+				let states = pass.compute_states();
+				let compute_pass_pipelines = states.iter()
+					.map(|x| {
+						self.get_compute_pipeline(x).unwrap()
+					})
+					.collect::<Vec<&wgpu::ComputePipeline>>();
+
+				pass.create_bind_groups(&render_pass_pipelines, &compute_pass_pipelines);
+			}
+		}
+		self.passes = passes; // give ownership of passes back to boss
+	}
+
 	/// Sets the ordering of the `Pass`s that are handled each frame.
 	pub fn set_passes(&mut self, passes: Vec<Box<dyn Pass>>) {
 		self.passes = passes;
+		self.create_pass_bind_groups();
 	}
 
 	/// Gets the `WGPUContext` owned by the boss.

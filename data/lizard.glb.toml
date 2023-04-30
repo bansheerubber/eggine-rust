@@ -1,0 +1,6 @@
+name = "lizard"
+
+[animation.walk]
+start = 201
+end = 240
+fps = 24

@@ -24,6 +24,13 @@ pub trait Pass {
 
 	/// Callback for when the `Boss` is resized.
 	fn resize(&mut self, config: &wgpu::SurfaceConfiguration);
+
+	/// Callback for when the `Boss` thinks bind groups need to be re-created.
+	fn create_bind_groups(
+		&mut self,
+		render_pipelines: &Vec<&wgpu::RenderPipeline>,
+		compute_pipelines: &Vec<&wgpu::ComputePipeline>
+	);
 }
 
 impl std::fmt::Debug for dyn Pass + 'static {

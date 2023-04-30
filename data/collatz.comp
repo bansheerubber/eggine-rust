@@ -1,0 +1,38 @@
+#version 460
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer indicesSSBO
+{
+	int indices[];
+};
+
+int collatz_iterations(int base) {
+	int n = base;
+	int i = 0;
+
+	while (true) {
+		if (n <= 1) {
+			break;
+		}
+
+		if (n % 2 == 0) {
+			n = n / 2;
+		} else {
+			if (n >= 1431655765) {
+				return 4294967295;
+			}
+
+			n = 3 * n + 1;
+		}
+
+		i += 1;
+	}
+
+	return i;
+}
+
+void main() {
+	uint index = gl_GlobalInvocationID.x;
+	indices[index] = collatz_iterations(indices[index]);
+}

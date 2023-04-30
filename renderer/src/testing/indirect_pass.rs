@@ -13,12 +13,12 @@ use crate::shaders::{ ComputeProgram, Program, };
 use crate::state::{ ComputeState, RenderState, };
 
 use super::GlobalUniform;
+// use super::indirect_pass2::DepthPyramidTexture;
 use super::uniforms::ObjectUniform;
 
 /// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
 #[derive(Debug)]
 pub(crate) struct RenderTextures {
-	pub(crate) composite_bind_group: wgpu::BindGroup,
 	pub(crate) depth_view: wgpu::TextureView,
 	pub(crate) diffuse_format: wgpu::TextureFormat,
 	pub(crate) diffuse_view: wgpu::TextureView,
@@ -35,10 +35,17 @@ pub(crate) struct RenderTextures {
 pub(crate) struct Programs {
 	pub(crate) bone_uniforms: HashMap<u64, Vec<glam::Mat4>>,
 	pub(crate) composite_program: Rc<Program>,
+	// pub(crate) depth_pyramid_program: Rc<ComputeProgram>,
 	pub(crate) g_buffer_program: Rc<Program>,
 	pub(crate) object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
-	pub(crate) occlusion_program: Rc<ComputeProgram>,
 	pub(crate) prepass_program: Rc<Program>,
+}
+
+/// Stores bind groups for shaders. Bind groups have a dependency on `RenderState`/`ComputeState` creation.
+#[derive(Debug)]
+pub(crate) struct BindGroups {
+	pub(crate) composite_bind_group: wgpu::BindGroup,
+	// pub(crate) depth_pyramid_bind_group: Vec<wgpu::BindGroup>,
 	pub(crate) texture_bind_group: wgpu::BindGroup,
 	pub(crate) uniform_bind_group: wgpu::BindGroup,
 }
@@ -50,6 +57,7 @@ pub(crate) struct AllocatedMemory {
 	pub(crate) bone_storage_node: Node,
 	pub(crate) bone_indices: PageUUID,
 	pub(crate) bone_weights: PageUUID,
+	// pub(crate) depth_pyramid: Vec<DepthPyramidTexture<'a>>,
 	pub(crate) global_uniform_node: Node,
 	pub(crate) indices_page: PageUUID,
 	pub(crate) indirect_command_buffer: PageUUID,
@@ -71,6 +79,8 @@ pub struct IndirectPass<'a> {
 	pub(crate) allocated_memory: AllocatedMemory,
 	/// The batches of shapes used during rendering.
 	pub(crate) batching_parameters: HashMap<shapes::BatchParametersKey, shapes::BatchParameters>,
+	/// Stores the bind groups used for shaders.
+	pub(crate) bind_groups: Option<BindGroups>,
 	/// The blueprints used by the shapes rendered by this pass implementation.
 	pub(crate) blueprints: Vec<Rc<shapes::blueprint::Blueprint>>,
 	/// Since the compositor step's render operations do not change frame-to-frame, pre-record the operations to a render
@@ -163,6 +173,7 @@ impl<'a> IndirectPass<'a> {
 				bone_storage_node,
 				bone_indices,
 				bone_weights,
+				// depth_pyramid: Vec::new(),
 				global_uniform_node,
 				indices_page,
 				indirect_command_buffer,
@@ -197,64 +208,6 @@ impl<'a> IndirectPass<'a> {
 				// create the program
 				shader_table.create_render_program("main-shader", fragment_shader, vertex_shader)
 			};
-
-			// create uniforms bind groups
-			let uniform_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-				entries: &[
-					wgpu::BindGroupEntry {
-						binding: 0,
-						resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-							buffer: memory.get_page(allocated_memory.uniforms_page).unwrap().get_buffer(),
-							offset: allocated_memory.global_uniform_node.offset,
-							size: NonZeroU64::new(allocated_memory.global_uniform_node.size),
-						}),
-					},
-					wgpu::BindGroupEntry {
-						binding: 1,
-						resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-							buffer: memory.get_page(allocated_memory.object_storage_page).unwrap().get_buffer(),
-							offset: allocated_memory.object_storage_node.offset,
-							size: NonZeroU64::new(allocated_memory.object_storage_node.size),
-						}),
-					},
-					wgpu::BindGroupEntry {
-						binding: 2,
-						resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-							buffer: memory.get_page(allocated_memory.bone_storage_page).unwrap().get_buffer(),
-							offset: allocated_memory.bone_storage_node.offset,
-							size: NonZeroU64::new(allocated_memory.bone_storage_node.size),
-						}),
-					},
-				],
-				label: None,
-				layout: g_buffer_program.get_bind_group_layouts()[0],
-			});
-
-			let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-				address_mode_u: wgpu::AddressMode::ClampToEdge,
-				address_mode_v: wgpu::AddressMode::ClampToEdge,
-				address_mode_w: wgpu::AddressMode::ClampToEdge,
-				label: None,
-				mag_filter: wgpu::FilterMode::Linear,
-				min_filter: wgpu::FilterMode::Nearest,
-				mipmap_filter: wgpu::FilterMode::Nearest,
-				..Default::default()
-			});
-
-			let texture_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-				entries: &[
-					wgpu::BindGroupEntry {
-						binding: 0,
-						resource: wgpu::BindingResource::TextureView(memory.get_texture_view()),
-					},
-					wgpu::BindGroupEntry {
-						binding: 1,
-						resource: wgpu::BindingResource::Sampler(&sampler),
-					},
-				],
-				label: None,
-				layout: g_buffer_program.get_bind_group_layouts()[1],
-			});
 
 			// create the G-buffer combination program
 			let composite_program = {
@@ -293,53 +246,52 @@ impl<'a> IndirectPass<'a> {
 			};
 
 			// create the occlusion compute shader program
-			let occlusion_program = {
-				// define shader names
-				let compute_shader = "data/occlusion.comp.spv".to_string();
+			// let depth_pyramid_program = {
+			// 	// define shader names
+			// 	let compute_shader = "data/depth-pyramid.comp.spv".to_string();
 
-				// lock shader table
-				let shader_table = boss.get_shader_table();
-				let mut shader_table = shader_table.write().unwrap();
+			// 	// lock shader table
+			// 	let shader_table = boss.get_shader_table();
+			// 	let mut shader_table = shader_table.write().unwrap();
 
-				// load from carton
-				let compute_shader = shader_table.load_shader_from_carton(&compute_shader, carton).unwrap();
+			// 	// load from carton
+			// 	let compute_shader = shader_table.load_shader_from_carton(&compute_shader, carton).unwrap();
 
-				// create the program
-				shader_table.create_compute_program("occlusion", compute_shader)
-			};
+			// 	// create the program
+			// 	shader_table.create_compute_program("occlusion", compute_shader)
+			// };
 
 			Programs {
 				bone_uniforms: HashMap::new(),
 				composite_program,
+				// depth_pyramid_program,
 				g_buffer_program,
 				object_uniforms: HashMap::new(),
-				occlusion_program,
 				prepass_program,
-				texture_bind_group,
-				uniform_bind_group,
 			}
 		};
 
 		// create render textures
-		let render_textures = IndirectPass::create_render_textures(
-			&context, boss.get_surface_config(), programs.composite_program.clone()
-		);
+		let render_textures = IndirectPass::create_render_textures(&context, boss.get_surface_config());
 
 		drop(memory);
 
 		// allocate none texture
-		let memory = boss.get_memory();
-		let mut memory = memory.write().unwrap();
-		let format = memory.get_texture_descriptor().format;
-		let none_texture = memory.texture_pager.load_qoi("data/none.qoi", format, carton,).unwrap();
+		{
+			let memory = boss.get_memory();
+			let mut memory = memory.write().unwrap();
+			let format = memory.get_texture_descriptor().format;
+			let none_texture = memory.texture_pager.load_qoi("data/none.qoi", format, carton,).unwrap();
 
-		// upload the none texture
-		memory.set_none_texture(none_texture);
+			// upload the none texture
+			memory.set_none_texture(none_texture);
+		}
 
-		Box::new(
+		let mut indirect_pass = Box::new(
 			IndirectPass {
 				allocated_memory,
 				batching_parameters: HashMap::new(),
+				bind_groups: None,
 				blueprints: Vec::new(),
 				compositor_render_bundle: None,
 				context,
@@ -354,7 +306,11 @@ impl<'a> IndirectPass<'a> {
 				x_angle: 0.0,
 				y_angle: 0.0,
 			}
-		)
+		);
+
+		// indirect_pass.create_depth_pyramid();
+
+		indirect_pass
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
@@ -425,9 +381,7 @@ impl<'a> IndirectPass<'a> {
 	}
 
 	/// Recreates render textures used in the G-buffer.
-	fn create_render_textures(
-		context: &WGPUContext, config: &wgpu::SurfaceConfiguration, combination_program: Rc<Program>
-	) -> RenderTextures {
+	fn create_render_textures(context: &WGPUContext, config: &wgpu::SurfaceConfiguration) -> RenderTextures {
 		// create the depth texture
 		let depth_texture = context.device.create_texture(&wgpu::TextureDescriptor {
 			dimension: wgpu::TextureDimension::D2,
@@ -511,74 +465,7 @@ impl<'a> IndirectPass<'a> {
 
 		let specular_view = specular_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-		// create the samplers for the G-buffer
-		let diffuse_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-			label: None,
-			address_mode_u: wgpu::AddressMode::ClampToEdge,
-			address_mode_v: wgpu::AddressMode::ClampToEdge,
-			address_mode_w: wgpu::AddressMode::ClampToEdge,
-			mag_filter: wgpu::FilterMode::Linear,
-			min_filter: wgpu::FilterMode::Nearest,
-			mipmap_filter: wgpu::FilterMode::Nearest,
-			..Default::default()
-		});
-
-		let normal_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-			label: None,
-			address_mode_u: wgpu::AddressMode::ClampToEdge,
-			address_mode_v: wgpu::AddressMode::ClampToEdge,
-			address_mode_w: wgpu::AddressMode::ClampToEdge,
-			mag_filter: wgpu::FilterMode::Linear,
-			min_filter: wgpu::FilterMode::Nearest,
-			mipmap_filter: wgpu::FilterMode::Nearest,
-			..Default::default()
-		});
-
-		let specular_sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-			label: None,
-			address_mode_u: wgpu::AddressMode::ClampToEdge,
-			address_mode_v: wgpu::AddressMode::ClampToEdge,
-			address_mode_w: wgpu::AddressMode::ClampToEdge,
-			mag_filter: wgpu::FilterMode::Linear,
-			min_filter: wgpu::FilterMode::Nearest,
-			mipmap_filter: wgpu::FilterMode::Nearest,
-			..Default::default()
-		});
-
-		// create G-buffer combiner uniform buffer bind groups
-		let composite_bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-			entries: &[
-				wgpu::BindGroupEntry {
-					binding: 0,
-					resource: wgpu::BindingResource::TextureView(&diffuse_view),
-				},
-				wgpu::BindGroupEntry {
-					binding: 1,
-					resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
-				},
-				wgpu::BindGroupEntry {
-					binding: 2,
-					resource: wgpu::BindingResource::TextureView(&normal_view),
-				},
-				wgpu::BindGroupEntry {
-					binding: 3,
-					resource: wgpu::BindingResource::Sampler(&normal_sampler),
-				},
-				wgpu::BindGroupEntry {
-					binding: 4,
-					resource: wgpu::BindingResource::TextureView(&specular_view),
-				},
-				wgpu::BindGroupEntry {
-					binding: 5,
-					resource: wgpu::BindingResource::Sampler(&specular_sampler),
-				},
-			],
-			label: None,
-			layout: combination_program.get_bind_group_layouts()[0],
-		});
-
 		RenderTextures {
-			composite_bind_group,
 			depth_view,
 			diffuse_format,
 			diffuse_view,
@@ -606,7 +493,7 @@ impl<'a> IndirectPass<'a> {
 		encoder.set_pipeline(pipeline);
 
 		// bind uniforms
-		encoder.set_bind_group(0, &self.render_textures.composite_bind_group, &[]);
+		encoder.set_bind_group(0, &self.bind_groups.as_ref().unwrap().composite_bind_group, &[]);
 
 		encoder.draw(0..3, 0..1);
 
@@ -739,10 +626,11 @@ impl Pass for IndirectPass<'_> {
 	}
 
 	fn compute_states<'a>(&'a self) -> Vec<ComputeState<'a>> {
-		vec![ComputeState {
-			label: "occlusion-pass".to_string(),
-			program: &self.programs.occlusion_program,
-		}]
+		// vec![ComputeState {
+		// 	label: "occlusion-pass".to_string(),
+		// 	program: &self.programs.depth_pyramid_program,
+		// }]
+		Vec::new()
 	}
 
 	/// Encode all draw commands.
@@ -773,6 +661,7 @@ impl Pass for IndirectPass<'_> {
 			&self.memory,
 			&mut self.allocated_memory,
 			&mut self.programs,
+			&self.bind_groups.as_ref().unwrap(),
 			&self.render_textures,
 			self.indices_page_written,
 			self.vertices_page_written,
@@ -782,19 +671,27 @@ impl Pass for IndirectPass<'_> {
 		);
 
 		// run occlusion compute shader
-		{
-			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-				label: Some("occlusion-pass"),
-			});
+		// {
+		// 	let memory = self.memory.read().unwrap();
+		// 	let page = memory.get_page(self.allocated_memory.compute_page).unwrap();
 
-			compute_pass.set_pipeline(compute_pipelines[0]);
-			compute_pass.dispatch_workgroups(5, 0, 0);
-		}
+		// 	let numbers: [u32; 4] = [1, 4, 3, 295];
+		// 	page.write_slice(&self.allocated_memory.compute_node, bytemuck::cast_slice(&numbers));
+
+		// 	let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+		// 		label: Some("occlusion-pass"),
+		// 	});
+
+		// 	compute_pass.set_pipeline(compute_pipelines[0]);
+		// 	compute_pass.set_bind_group(0, &self.programs.compute_bind_group, &[]);
+		// 	compute_pass.dispatch_workgroups(4 as u32, 1, 1);
+		// }
 
 		IndirectPass::g_buffer_pass(
 			&self.memory,
 			&mut self.allocated_memory,
 			&mut self.programs,
+			&self.bind_groups.as_ref().unwrap(),
 			&self.render_textures,
 			self.indices_page_written,
 			self.vertices_page_written,
@@ -833,9 +730,148 @@ impl Pass for IndirectPass<'_> {
 	fn resize(&mut self, config: &wgpu::SurfaceConfiguration) {
 		self.compositor_render_bundle = None; // invalidate the render bundle
 
-		self.render_textures = IndirectPass::create_render_textures(
-			&self.context, config, self.programs.composite_program.clone()
-		);
+		self.render_textures = IndirectPass::create_render_textures(&self.context, config);
+
+		// self.create_depth_pyramid();
+	}
+
+	/// Recreate bind groups.
+	fn create_bind_groups(
+		&mut self,
+		render_pipelines: &Vec<&wgpu::RenderPipeline>,
+		compute_pipelines: &Vec<&wgpu::ComputePipeline>
+	) {
+		let memory = self.memory.read().unwrap();
+
+		let uniform_bind_group = self.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: memory.get_page(self.allocated_memory.uniforms_page).unwrap().get_buffer(),
+						offset: self.allocated_memory.global_uniform_node.offset,
+						size: NonZeroU64::new(self.allocated_memory.global_uniform_node.size),
+					}),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: memory.get_page(self.allocated_memory.object_storage_page).unwrap().get_buffer(),
+						offset: self.allocated_memory.object_storage_node.offset,
+						size: NonZeroU64::new(self.allocated_memory.object_storage_node.size),
+					}),
+				},
+				wgpu::BindGroupEntry {
+					binding: 2,
+					resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+						buffer: memory.get_page(self.allocated_memory.bone_storage_page).unwrap().get_buffer(),
+						offset: self.allocated_memory.bone_storage_node.offset,
+						size: NonZeroU64::new(self.allocated_memory.bone_storage_node.size),
+					}),
+				},
+			],
+			label: None,
+			layout: &render_pipelines[0].get_bind_group_layout(0),
+		});
+
+		let sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			label: None,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		let texture_bind_group = self.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::TextureView(memory.get_texture_view()),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Sampler(&sampler),
+				},
+			],
+			label: None,
+			layout: &render_pipelines[0].get_bind_group_layout(1),
+		});
+
+		// create the samplers for the G-buffer
+		let diffuse_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: None,
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		let normal_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: None,
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		let specular_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: None,
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		// create G-buffer combiner uniform buffer bind groups
+		let composite_bind_group = self.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: wgpu::BindingResource::TextureView(&self.render_textures.diffuse_view),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+				},
+				wgpu::BindGroupEntry {
+					binding: 2,
+					resource: wgpu::BindingResource::TextureView(&self.render_textures.normal_view),
+				},
+				wgpu::BindGroupEntry {
+					binding: 3,
+					resource: wgpu::BindingResource::Sampler(&normal_sampler),
+				},
+				wgpu::BindGroupEntry {
+					binding: 4,
+					resource: wgpu::BindingResource::TextureView(&self.render_textures.specular_view),
+				},
+				wgpu::BindGroupEntry {
+					binding: 5,
+					resource: wgpu::BindingResource::Sampler(&specular_sampler),
+				},
+			],
+			label: None,
+			layout: &render_pipelines[1].get_bind_group_layout(0),
+		});
+
+		self.bind_groups = Some(BindGroups {
+			composite_bind_group,
+			// depth_pyramid_bind_group,
+			texture_bind_group,
+			uniform_bind_group,
+		})
 	}
 }
 

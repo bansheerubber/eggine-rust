@@ -1,7 +1,7 @@
 use std::sync::{ Arc, RwLock, };
 
 use crate::memory_subsystem::Memory;
-use crate::testing::indirect_pass::{ AllocatedMemory, Programs, RenderTextures, };
+use crate::testing::indirect_pass::{ AllocatedMemory, BindGroups, Programs, RenderTextures, };
 use crate::testing::{ Batch, IndirectPass, };
 
 impl IndirectPass<'_> {
@@ -14,6 +14,7 @@ impl IndirectPass<'_> {
 		memory: &Arc<RwLock<Memory>>,
 		allocated_memory: &mut AllocatedMemory,
 		programs: &mut Programs,
+		bind_groups: &BindGroups,
 		render_textures: &RenderTextures,
 		indices_page_written: u64,
 		vertices_page_written: u64,
@@ -87,7 +88,7 @@ impl IndirectPass<'_> {
 				);
 
 				// bind uniforms
-				render_pass.set_bind_group(0, &programs.uniform_bind_group, &[]);
+				render_pass.set_bind_group(0, &bind_groups.uniform_bind_group, &[]);
 
 				// draw all the objects
 				render_pass.multi_draw_indexed_indirect(

@@ -11,6 +11,7 @@ fbxcel-dom = "0.0.10"
 glam = { features = ["bytemuck"], version = "0.22.0" }
 gltf = "1.1.0"
 lazy_static = "1.4.0"
+naga = { path = "../../naga" }
 qoi = "0.4.1"
 rand = "0.8.5"
 streams = { path = "../streams" }
