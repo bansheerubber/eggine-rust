@@ -45,13 +45,13 @@ impl<'a> Memory<'a> {
 			format: wgpu::TextureFormat::Rgba8UnormSrgb,
 			label: None,
 			mip_level_count: 1,
-			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
 			sample_count: 1,
 			size: wgpu::Extent3d {
 				depth_or_array_layers: layer_count,
 				height: texture_size,
 				width: texture_size,
 			},
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
 			view_formats: &[],
 		};
 

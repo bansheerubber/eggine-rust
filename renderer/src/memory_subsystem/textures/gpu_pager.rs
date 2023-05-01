@@ -1,11 +1,10 @@
 use carton::Carton;
 use std::collections::HashMap;
-use std::rc::Rc;
-
 use std::collections::hash_map::DefaultHasher;
+use std::rc::Rc;
 use std::hash::{ Hash, Hasher, };
 
-use super::{ Error, Texture, Cell, TextureData, Tree, Pager, };
+use super::{ Cell, Error, Pager, Texture, TextureData, Tree, };
 
 /// Manages a quad-tree that describes the physical location of textures on the GPU. Maintain ownership of textures and
 /// interacts with the memory subsystem to allocate/deallocate them as needed.
