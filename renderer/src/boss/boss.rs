@@ -211,13 +211,6 @@ impl<'a> Boss<'a> {
 			return;
 		}
 
-		// create the pipeline
-		let pipeline_layout = self.context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			bind_group_layouts: &state.program.get_bind_group_layouts(),
-			label: None,
-			push_constant_ranges: &[],
-		});
-
 		// create the render pipeline
 		let render_pipeline = self.context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			depth_stencil: state.depth_stencil.clone(),
@@ -227,7 +220,7 @@ impl<'a> Boss<'a> {
 				targets: &state.render_targets,
 			}),
 			label: Some(state.label.as_str()),
-			layout: Some(&pipeline_layout),
+			layout: None,
 			multisample: wgpu::MultisampleState::default(),
 			multiview: None,
 			primitive: wgpu::PrimitiveState {
@@ -260,18 +253,11 @@ impl<'a> Boss<'a> {
 			return;
 		}
 
-		// create the pipeline
-		let pipeline_layout = self.context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			bind_group_layouts: &state.program.get_bind_group_layouts(),
-			label: None,
-			push_constant_ranges: &[],
-		});
-
 		// create the render pipeline
 		let compute_pipeline = self.context.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 			entry_point: "main",
 			label: Some(state.label.as_str()),
-			layout: Some(&pipeline_layout),
+			layout: None,
 			module: &state.program.shader.module,
 		});
 
