@@ -224,7 +224,7 @@ impl<'a> Boss<'a> {
 				targets: &state.render_targets,
 			}),
 			label: Some(state.label.as_str()),
-			layout: None,
+			layout: state.layout,
 			multisample: wgpu::MultisampleState::default(),
 			multiview: None,
 			primitive: wgpu::PrimitiveState {

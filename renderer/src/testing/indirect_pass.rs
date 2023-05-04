@@ -582,6 +582,7 @@ impl Pass for IndirectPass<'_> {
 					stencil: wgpu::StencilState::default(),
 				}),
 				label: "g-buffer-prepass".to_string(),
+				layout: None,
 				program: &self.programs.g_buffer_program,
 				render_targets: vec![
 					Some(self.render_textures.diffuse_format.into()),
@@ -639,6 +640,7 @@ impl Pass for IndirectPass<'_> {
 			RenderState { // state for the composite stage
 				depth_stencil: None,
 				label: "composite-prepass".to_string(),
+				layout: None,
 				program: &self.programs.composite_program,
 				render_targets: vec![Some(wgpu::ColorTargetState {
 					blend: None,
@@ -656,6 +658,7 @@ impl Pass for IndirectPass<'_> {
 					stencil: wgpu::StencilState::default(),
 				}),
 				label: "depth-prepass".to_string(),
+				layout: None,
 				program: &self.programs.prepass_program,
 				render_targets: Vec::new(),
 				vertex_attributes: &[
