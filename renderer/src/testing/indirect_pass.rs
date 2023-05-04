@@ -13,7 +13,7 @@ use crate::shaders::{ ComputeProgram, Program, };
 use crate::state::{ ComputeState, RenderState, };
 
 use super::GlobalUniform;
-// use super::indirect_pass2::DepthPyramidTexture;
+use super::indirect_pass2::DepthPyramidTexture;
 use super::uniforms::ObjectUniform;
 
 /// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
@@ -35,7 +35,9 @@ pub(crate) struct RenderTextures {
 pub(crate) struct Programs {
 	pub(crate) bone_uniforms: HashMap<u64, Vec<glam::Mat4>>,
 	pub(crate) composite_program: Rc<Program>,
-	// pub(crate) depth_pyramid_program: Rc<ComputeProgram>,
+	pub(crate) depth_pyramid_bind_group_layout: wgpu::BindGroupLayout,
+	pub(crate) depth_pyramid_pipeline_layout: wgpu::PipelineLayout,
+	pub(crate) depth_pyramid_program: Rc<ComputeProgram>,
 	pub(crate) g_buffer_program: Rc<Program>,
 	pub(crate) object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
 	pub(crate) prepass_program: Rc<Program>,
@@ -45,19 +47,19 @@ pub(crate) struct Programs {
 #[derive(Debug)]
 pub(crate) struct BindGroups {
 	pub(crate) composite_bind_group: wgpu::BindGroup,
-	// pub(crate) depth_pyramid_bind_group: Vec<wgpu::BindGroup>,
+	pub(crate) depth_pyramid_bind_groups: Vec<wgpu::BindGroup>,
 	pub(crate) texture_bind_group: wgpu::BindGroup,
 	pub(crate) uniform_bind_group: wgpu::BindGroup,
 }
 
 /// Stores references to the pages allocated by the pass object.
 #[derive(Debug)]
-pub(crate) struct AllocatedMemory {
+pub(crate) struct AllocatedMemory<'a> {
 	pub(crate) bone_storage_page: PageUUID,
 	pub(crate) bone_storage_node: Node,
 	pub(crate) bone_indices: PageUUID,
 	pub(crate) bone_weights: PageUUID,
-	// pub(crate) depth_pyramid: Vec<DepthPyramidTexture<'a>>,
+	pub(crate) depth_pyramid: Vec<DepthPyramidTexture<'a>>,
 	pub(crate) global_uniform_node: Node,
 	pub(crate) indices_page: PageUUID,
 	pub(crate) indirect_command_buffer: PageUUID,
@@ -80,7 +82,7 @@ pub(crate) struct AllocatedMemory {
 #[derive(Debug)]
 pub struct IndirectPass<'a> {
 	/// The pages and nodes allocated on the GPU.
-	pub(crate) allocated_memory: AllocatedMemory,
+	pub(crate) allocated_memory: AllocatedMemory<'a>,
 	/// The batches of shapes used during rendering.
 	pub(crate) batching_parameters: HashMap<shapes::BatchParametersKey, shapes::BatchParameters>,
 	/// Stores the bind groups used for shaders.
@@ -237,7 +239,7 @@ impl<'a> IndirectPass<'a> {
 				bone_storage_node,
 				bone_indices,
 				bone_weights,
-				// depth_pyramid: Vec::new(),
+				depth_pyramid: Vec::new(),
 				global_uniform_node,
 				indices_page,
 				indirect_command_buffer,
@@ -311,26 +313,70 @@ impl<'a> IndirectPass<'a> {
 				shader_table.create_render_program("depth-prepass", fragment_shader, vertex_shader)
 			};
 
-			// create the occlusion compute shader program
-			// let depth_pyramid_program = {
-			// 	// define shader names
-			// 	let compute_shader = "data/depth-pyramid.comp.spv".to_string();
+			// create the depth pyramid compute shader program
+			let depth_pyramid_program = {
+				// define shader names
+				let compute_shader = "data/depth-pyramid.comp.spv".to_string();
 
-			// 	// lock shader table
-			// 	let shader_table = boss.get_shader_table();
-			// 	let mut shader_table = shader_table.write().unwrap();
+				// lock shader table
+				let shader_table = boss.get_shader_table();
+				let mut shader_table = shader_table.write().unwrap();
 
-			// 	// load from carton
-			// 	let compute_shader = shader_table.load_shader_from_carton(&compute_shader, carton).unwrap();
+				// load from carton
+				let compute_shader = shader_table.load_shader_from_carton(&compute_shader, carton).unwrap();
 
-			// 	// create the program
-			// 	shader_table.create_compute_program("occlusion", compute_shader)
-			// };
+				// create the program
+				shader_table.create_compute_program("depth-pyramid", compute_shader)
+			};
+
+			let depth_pyramid_bind_group_layout
+				= context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+					entries: &[
+						wgpu::BindGroupLayoutEntry {
+							binding: 0,
+							count: None,
+							ty: wgpu::BindingType::Texture {
+								multisampled: false,
+								sample_type: wgpu::TextureSampleType::Float { filterable: false, },
+								view_dimension: wgpu::TextureViewDimension::D2,
+							},
+							visibility: wgpu::ShaderStages::COMPUTE,
+						},
+						wgpu::BindGroupLayoutEntry {
+							binding: 1,
+							count: None,
+							visibility: wgpu::ShaderStages::COMPUTE,
+							ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+						},
+						wgpu::BindGroupLayoutEntry {
+							count: None,
+							binding: 2,
+							ty: wgpu::BindingType::StorageTexture {
+								access: wgpu::StorageTextureAccess::WriteOnly,
+								format: wgpu::TextureFormat::R32Float,
+								view_dimension: wgpu::TextureViewDimension::D2,
+							},
+							visibility: wgpu::ShaderStages::COMPUTE,
+						},
+					],
+					label: Some("depth-pyramid-bind-group-layout"),
+				});
+
+			let depth_pyramid_pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+				bind_group_layouts: &[&depth_pyramid_bind_group_layout],
+				label: Some("depth-pyramid-pipeline-layout"),
+				push_constant_ranges: &[wgpu::PushConstantRange {
+					range: 0..16,
+					stages: wgpu::ShaderStages::COMPUTE,
+				}],
+			});
 
 			Programs {
 				bone_uniforms: HashMap::new(),
 				composite_program,
-				// depth_pyramid_program,
+				depth_pyramid_bind_group_layout,
+				depth_pyramid_pipeline_layout,
+				depth_pyramid_program,
 				g_buffer_program,
 				object_uniforms: HashMap::new(),
 				prepass_program,
@@ -353,7 +399,7 @@ impl<'a> IndirectPass<'a> {
 			memory.set_none_texture(none_texture);
 		}
 
-		let mut indirect_pass = Box::new(
+		Box::new(
 			IndirectPass {
 				allocated_memory,
 				batching_parameters: HashMap::new(),
@@ -372,11 +418,7 @@ impl<'a> IndirectPass<'a> {
 				x_angle: 0.0,
 				y_angle: 0.0,
 			}
-		);
-
-		// indirect_pass.create_depth_pyramid();
-
-		indirect_pass
+		)
 	}
 
 	/// Gives `Blueprint` ownership over to this `Pass` object.
@@ -418,16 +460,16 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			75.0 * self.x_angle.cos() * self.y_angle.sin(),
-			75.0 * self.x_angle.sin() * self.y_angle.sin(),
-			75.0 * self.y_angle.cos(),
+			0.0 * self.x_angle.cos() * self.y_angle.sin(),
+			0.0 * self.x_angle.sin() * self.y_angle.sin(),
+			0.0 * self.y_angle.cos(),
 			0.0,
 		);
 
 		self.x_angle = std::f32::consts::PI;
 		self.y_angle = 1.0;
 
-		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 0.1, 10000.0);
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 1.0, 10000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
 			glam::Vec3::new(30.0, 30.0, 0.0),
@@ -695,11 +737,11 @@ impl Pass for IndirectPass<'_> {
 	}
 
 	fn compute_states<'a>(&'a self) -> Vec<ComputeState<'a>> {
-		// vec![ComputeState {
-		// 	label: "occlusion-pass".to_string(),
-		// 	program: &self.programs.depth_pyramid_program,
-		// }]
-		Vec::new()
+		vec![ComputeState {
+			label: "depth-pyramid-pass".to_string(),
+			layout: Some(&self.programs.depth_pyramid_pipeline_layout),
+			program: &self.programs.depth_pyramid_program,
+		}]
 	}
 
 	/// Encode all draw commands.
@@ -740,21 +782,25 @@ impl Pass for IndirectPass<'_> {
 		);
 
 		// run occlusion compute shader
-		// {
-		// 	let memory = self.memory.read().unwrap();
-		// 	let page = memory.get_page(self.allocated_memory.compute_page).unwrap();
+		{
+			let bind_groups = &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups;
 
-		// 	let numbers: [u32; 4] = [1, 4, 3, 295];
-		// 	page.write_slice(&self.allocated_memory.compute_node, bytemuck::cast_slice(&numbers));
+			for i in 0..bind_groups.len() {
+				let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+					label: Some("depth-pyramid-pass"),
+				});
 
-		// 	let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-		// 		label: Some("occlusion-pass"),
-		// 	});
+				let size = glam::Vec2::new(
+					self.allocated_memory.depth_pyramid[i].width as f32,
+					self.allocated_memory.depth_pyramid[i].height as f32
+				);
 
-		// 	compute_pass.set_pipeline(compute_pipelines[0]);
-		// 	compute_pass.set_bind_group(0, &self.programs.compute_bind_group, &[]);
-		// 	compute_pass.dispatch_workgroups(4 as u32, 1, 1);
-		// }
+				compute_pass.set_pipeline(compute_pipelines[0]);
+				compute_pass.set_push_constants(0, bytemuck::cast_slice(&[size]));
+				compute_pass.set_bind_group(0, &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups[i], &[]);
+				compute_pass.dispatch_workgroups((size.x / 16.0).ceil() as u32, (size.y / 16.0).ceil() as u32, 1);
+			}
+		}
 
 		IndirectPass::g_buffer_pass(
 			&self.memory,
@@ -800,8 +846,6 @@ impl Pass for IndirectPass<'_> {
 		self.compositor_render_bundle = None; // invalidate the render bundle
 
 		self.render_textures = IndirectPass::create_render_textures(&self.context, config);
-
-		// self.create_depth_pyramid();
 	}
 
 	/// Recreate bind groups.
@@ -810,6 +854,8 @@ impl Pass for IndirectPass<'_> {
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>
 	) {
+		let depth_pyramid_bind_groups = self.create_depth_pyramid();
+
 		let memory = self.memory.read().unwrap();
 
 		let uniform_bind_group = self.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -903,6 +949,17 @@ impl Pass for IndirectPass<'_> {
 			..Default::default()
 		});
 
+		let depth_test_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
+			label: None,
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Nearest,
+			min_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
 		// create G-buffer combiner uniform buffer bind groups
 		let composite_bind_group = self.context.device.create_bind_group(&wgpu::BindGroupDescriptor {
 			entries: &[
@@ -930,14 +987,24 @@ impl Pass for IndirectPass<'_> {
 					binding: 5,
 					resource: wgpu::BindingResource::Sampler(&specular_sampler),
 				},
+				wgpu::BindGroupEntry { // depth test stuff
+					binding: 6,
+					resource: wgpu::BindingResource::TextureView(&self.allocated_memory.depth_pyramid[1].view),
+				},
+				wgpu::BindGroupEntry {
+					binding: 7,
+					resource: wgpu::BindingResource::Sampler(&depth_test_sampler),
+				},
 			],
 			label: None,
 			layout: &render_pipelines[1].get_bind_group_layout(0),
 		});
 
+		drop(memory);
+
 		self.bind_groups = Some(BindGroups {
 			composite_bind_group,
-			// depth_pyramid_bind_group,
+			depth_pyramid_bind_groups,
 			texture_bind_group,
 			uniform_bind_group,
 		})
