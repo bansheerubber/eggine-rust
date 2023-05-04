@@ -1,10 +1,47 @@
 use std::collections::HashMap;
 use std::sync::{ Arc, RwLock, };
 
-use crate::testing::{ Batch, IndirectPass, };
-use crate::shapes;
+use crate::testing::indirect_pass::IndirectPass;
 use crate::memory_subsystem::{ Memory, textures, };
 use crate::memory_subsystem::textures::Pager;
+use crate::shapes;
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{ Hash, Hasher, };
+
+#[derive(Debug)]
+pub(crate) struct Batch<'a> {
+	pub batch_parameters: Vec<&'a shapes::BatchParameters>,
+	pub bone_index: usize,
+	pub draw_call_count: usize,
+	pub meshes_to_draw: usize,
+	pub texture_pager: textures::VirtualPager,
+}
+
+impl Batch<'_> {
+	pub fn make_key(&self) -> u64 {
+		let mut hasher = DefaultHasher::new();
+		self.hash(&mut hasher);
+		hasher.finish()
+	}
+}
+
+impl Hash for Batch<'_> {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		for parameters in self.batch_parameters.iter() {
+			parameters.hash(state);
+		}
+	}
+}
+
+impl Eq for Batch<'_> {}
+
+impl PartialEq for Batch<'_> {
+	fn eq(&self, other: &Self) -> bool {
+		self.batch_parameters == other.batch_parameters
+	}
+}
+
 
 impl IndirectPass<'_> {
 	// This function has its own file because it otherwise makes the `IndirectPass::encode` function unbearable to read.

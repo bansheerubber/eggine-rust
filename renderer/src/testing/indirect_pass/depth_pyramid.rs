@@ -1,4 +1,4 @@
-use crate::testing::IndirectPass;
+use crate::testing::indirect_pass::IndirectPass;
 
 #[derive(Debug)]
 pub struct DepthPyramidTexture<'a> {

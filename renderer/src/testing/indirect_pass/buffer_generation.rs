@@ -5,9 +5,7 @@ use std::sync::{ Arc, RwLock, };
 use crate::memory_subsystem::textures::Pager;
 use crate::memory_subsystem::{ Memory, textures, };
 use crate::shapes;
-use crate::testing::indirect_pass::{ AllocatedMemory, Programs, };
-use crate::testing::uniforms::ObjectUniform;
-use crate::testing::{ Batch, IndirectPass, };
+use crate::testing::indirect_pass::{ AllocatedMemory, Batch, IndirectPass, ObjectUniform, Programs, };
 
 impl IndirectPass<'_> {
 	// This function has its own file because it otherwise makes the `IndirectPass::encode` function unbearable to read.

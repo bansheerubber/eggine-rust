@@ -3,7 +3,7 @@
 use carton::Carton;
 use rand::Rng;
 use renderer::{ memory_subsystem, shapes, };
-use renderer::testing::IndirectPass;
+use renderer::testing::indirect_pass::IndirectPass;
 use tokio;
 
 use std::time::Instant;
@@ -65,7 +65,7 @@ async fn main() {
 	{
 		let mut egg = shape.borrow_mut();
 
-		let id = egg.play_animation(shapes::animations::Context::new(
+		egg.play_animation(shapes::animations::Context::new(
 			"walk",
 			shapes::animations::Blending {
 				priority: 0,

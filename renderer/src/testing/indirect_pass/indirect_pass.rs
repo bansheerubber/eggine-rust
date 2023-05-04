@@ -8,75 +8,16 @@ use std::sync::{ Arc, RwLock, };
 
 use crate::{ Pass, shapes, };
 use crate::boss::{ Boss, WGPUContext, };
-use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, PageUUID, textures, };
-use crate::shaders::{ ComputeProgram, Program, };
+use crate::memory_subsystem::{ Memory, Node, NodeKind, PageError, textures, };
 use crate::state::{ ComputeState, RenderState, };
-
-use super::GlobalUniform;
-use super::indirect_pass2::DepthPyramidTexture;
-use super::uniforms::ObjectUniform;
-
-/// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
-#[derive(Debug)]
-pub(crate) struct RenderTextures {
-	pub(crate) depth_view: wgpu::TextureView,
-	pub(crate) diffuse_format: wgpu::TextureFormat,
-	pub(crate) diffuse_view: wgpu::TextureView,
-	pub(crate) normal_format: wgpu::TextureFormat,
-	pub(crate) normal_view: wgpu::TextureView,
-	pub(crate) specular_format: wgpu::TextureFormat,
-	pub(crate) specular_view: wgpu::TextureView,
-	pub(crate) window_height: u32,
-	pub(crate) window_width: u32,
-}
-
-/// Stores program related information used by the pass object.
-#[derive(Debug)]
-pub(crate) struct Programs {
-	pub(crate) bone_uniforms: HashMap<u64, Vec<glam::Mat4>>,
-	pub(crate) composite_program: Rc<Program>,
-	pub(crate) depth_pyramid_bind_group_layout: wgpu::BindGroupLayout,
-	pub(crate) depth_pyramid_pipeline_layout: wgpu::PipelineLayout,
-	pub(crate) depth_pyramid_program: Rc<ComputeProgram>,
-	pub(crate) g_buffer_program: Rc<Program>,
-	pub(crate) object_uniforms: HashMap<u64, Vec<ObjectUniform>>,
-	pub(crate) prepass_program: Rc<Program>,
-}
-
-/// Stores bind groups for shaders. Bind groups have a dependency on `RenderState`/`ComputeState` creation.
-#[derive(Debug)]
-pub(crate) struct BindGroups {
-	pub(crate) composite_bind_group: wgpu::BindGroup,
-	pub(crate) depth_pyramid_bind_groups: Vec<wgpu::BindGroup>,
-	pub(crate) texture_bind_group: wgpu::BindGroup,
-	pub(crate) uniform_bind_group: wgpu::BindGroup,
-}
-
-/// Stores references to the pages allocated by the pass object.
-#[derive(Debug)]
-pub(crate) struct AllocatedMemory<'a> {
-	pub(crate) bone_storage_page: PageUUID,
-	pub(crate) bone_storage_node: Node,
-	pub(crate) bone_indices: PageUUID,
-	pub(crate) bone_weights: PageUUID,
-	pub(crate) depth_pyramid: Vec<DepthPyramidTexture<'a>>,
-	pub(crate) global_uniform_node: Node,
-	pub(crate) indices_page: PageUUID,
-	pub(crate) indirect_command_buffer: PageUUID,
-	pub(crate) indirect_command_buffer_map: HashMap<u64, Vec<u8>>,
-	pub(crate) indirect_command_buffer_node: Node,
-	pub(crate) max_objects_per_batch: u64,
-	pub(crate) normals_page: PageUUID,
-	pub(crate) object_storage_page: PageUUID,
-	pub(crate) object_storage_node: Node,
-	pub(crate) positions_page: PageUUID,
-	#[allow(dead_code)]
-	pub(crate) test_node: Node,
-	#[allow(dead_code)]
-	pub(crate) test_page: PageUUID,
-	pub(crate) uniforms_page: PageUUID,
-	pub(crate) uvs_page: PageUUID,
-}
+use crate::testing::indirect_pass::{
+	AllocatedMemory,
+	BindGroups,
+	GlobalUniform,
+	ObjectUniform,
+	Programs,
+	RenderTextures,
+};
 
 /// Renders `Shape`s using deferred shading w/ indirect draw calls.
 #[derive(Debug)]
