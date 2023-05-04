@@ -13,9 +13,6 @@ layout(set = 0, binding = 3) uniform sampler normalSampler;
 layout(set = 0, binding = 4) uniform texture2D specularTexture;
 layout(set = 0, binding = 5) uniform sampler specularSampler;
 
-layout(set = 0, binding = 6) uniform texture2D depthTexture;
-layout(set = 0, binding = 7) uniform sampler depthSampler;
-
 void main()
 {
 	// sample G-buffer
@@ -24,6 +21,5 @@ void main()
 	vec4 normal = texture(sampler2D(normalTexture, normalSampler), vec2(inUV.x, 1.0 - inUV.y));
 
 	// composite results from G-buffer
-	color = vec4(vec3(texture(sampler2D(depthTexture, depthSampler), vec2(inUV.x, 1.0 - inUV.y)).r), 1.0);
-	// color = diffuseColor + specularColor;
+	color = diffuseColor + specularColor;
 }
