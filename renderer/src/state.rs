@@ -42,6 +42,7 @@ pub struct RenderStateKey {
 
 pub struct ComputeState<'a> {
 	pub label: String,
+	pub layout: Option<&'a wgpu::PipelineLayout>,
 	/// Program to be used in the pipeline.
 	pub program: &'a ComputeProgram,
 }

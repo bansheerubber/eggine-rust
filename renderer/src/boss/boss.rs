@@ -261,7 +261,7 @@ impl<'a> Boss<'a> {
 		let compute_pipeline = self.context.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 			entry_point: "main",
 			label: Some(state.label.as_str()),
-			layout: None,
+			layout: state.layout,
 			module: &state.program.shader.module,
 		});
 
