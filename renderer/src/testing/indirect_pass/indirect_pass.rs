@@ -2,7 +2,7 @@ use carton::Carton;
 use glam::Vec4Swizzles;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::num::NonZeroU64;
+use std::num::{ NonZeroU64, NonZeroU32, };
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
@@ -166,7 +166,7 @@ impl<'a> IndirectPass<'a> {
 			// test buffer for reasons
 			let test_page_uuid = memory.new_page(
 				48_000_000,
-				wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+				wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
 				"test-buffer",
 				false
 			);
@@ -278,7 +278,7 @@ impl<'a> IndirectPass<'a> {
 							count: None,
 							ty: wgpu::BindingType::Texture {
 								multisampled: false,
-								sample_type: wgpu::TextureSampleType::Float { filterable: false, },
+								sample_type: wgpu::TextureSampleType::Float { filterable: true, },
 								view_dimension: wgpu::TextureViewDimension::D2,
 							},
 							visibility: wgpu::ShaderStages::COMPUTE,
@@ -287,7 +287,7 @@ impl<'a> IndirectPass<'a> {
 							binding: 1,
 							count: None,
 							visibility: wgpu::ShaderStages::COMPUTE,
-							ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+							ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
 						},
 						wgpu::BindGroupLayoutEntry {
 							count: None,
@@ -410,7 +410,7 @@ impl<'a> IndirectPass<'a> {
 		self.x_angle = std::f32::consts::PI;
 		self.y_angle = 1.0;
 
-		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 1.0, 10000.0);
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 1.0, 100.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
 			glam::Vec3::new(30.0, 30.0, 0.0),
@@ -444,7 +444,6 @@ impl<'a> IndirectPass<'a> {
 				width: config.width,
 			},
 			usage: wgpu::TextureUsages::TEXTURE_BINDING
-				| wgpu::TextureUsages::COPY_DST
 				| wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: &[],
 		});
@@ -465,7 +464,6 @@ impl<'a> IndirectPass<'a> {
 				width: config.width,
 			},
 			usage: wgpu::TextureUsages::TEXTURE_BINDING
-				| wgpu::TextureUsages::COPY_DST
 				| wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: &[],
 		});
@@ -486,7 +484,6 @@ impl<'a> IndirectPass<'a> {
 				width: config.width,
 			},
 			usage: wgpu::TextureUsages::TEXTURE_BINDING
-				| wgpu::TextureUsages::COPY_DST
 				| wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: &[],
 		});
@@ -507,7 +504,6 @@ impl<'a> IndirectPass<'a> {
 				width: config.width,
 			},
 			usage: wgpu::TextureUsages::TEXTURE_BINDING
-				| wgpu::TextureUsages::COPY_DST
 				| wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: &[],
 		});
@@ -515,6 +511,7 @@ impl<'a> IndirectPass<'a> {
 		let specular_view = specular_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		RenderTextures {
+			depth_texture,
 			depth_view,
 			diffuse_format,
 			diffuse_view,
@@ -724,21 +721,22 @@ impl Pass for IndirectPass<'_> {
 
 		// run occlusion compute shader
 		{
+			let depth_pyramid = self.allocated_memory.depth_pyramid.borrow();
+
 			let bind_groups = &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups;
 
+			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+				label: Some("depth-pyramid-pass"),
+			});
+
+			compute_pass.set_pipeline(compute_pipelines[0]);
+
 			for i in 0..bind_groups.len() {
-				let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-					label: Some("depth-pyramid-pass"),
-				});
-
-				let depth_pyramid = self.allocated_memory.depth_pyramid.borrow();
-
 				let size = glam::Vec2::new(
 					depth_pyramid[i].width as f32,
 					depth_pyramid[i].height as f32
 				);
 
-				compute_pass.set_pipeline(compute_pipelines[0]);
 				compute_pass.set_push_constants(0, bytemuck::cast_slice(&[size]));
 				compute_pass.set_bind_group(0, &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups[i], &[]);
 				compute_pass.dispatch_workgroups((size.x / 16.0).ceil() as u32, (size.y / 16.0).ceil() as u32, 1);

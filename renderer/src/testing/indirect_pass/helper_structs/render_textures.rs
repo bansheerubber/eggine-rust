@@ -1,6 +1,7 @@
 /// Stores the render targets used by the pass object, recreated whenever the swapchain is out of date.
 #[derive(Debug)]
 pub(crate) struct RenderTextures {
+	pub(crate) depth_texture: wgpu::Texture,
 	pub(crate) depth_view: wgpu::TextureView,
 	pub(crate) diffuse_format: wgpu::TextureFormat,
 	pub(crate) diffuse_view: wgpu::TextureView,

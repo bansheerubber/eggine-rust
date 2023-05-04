@@ -23,10 +23,10 @@ impl<'a> IndirectPass<'a> {
 			address_mode_v: wgpu::AddressMode::ClampToEdge,
 			address_mode_w: wgpu::AddressMode::ClampToEdge,
 			label: Some("depth-pyramid-sampler"),
-			mag_filter: wgpu::FilterMode::Nearest,
-			min_filter: wgpu::FilterMode::Nearest,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Linear,
 			mipmap_filter: wgpu::FilterMode::Nearest,
-			// reduction_mode: Some(wgpu::ReductionMode::Min),
+			reduction_mode: Some(wgpu::ReductionMode::Min),
 			..Default::default()
 		});
 
