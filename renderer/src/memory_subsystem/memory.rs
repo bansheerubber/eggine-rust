@@ -73,8 +73,14 @@ impl<'a> Memory<'a> {
 	}
 
 	/// Creates a mew page, which allocates a `wgpu` buffer with the specified size.
-	pub fn new_page(&mut self, size: u64, usage: wgpu::BufferUsages) -> PageUUID {
-		let mut page = Page::new(size, usage, self.context.clone());
+	pub fn new_page(
+		&mut self,
+		size: u64,
+		usage: wgpu::BufferUsages,
+		name: &str,
+		mapped_at_creation: bool
+	) -> PageUUID {
+		let mut page = Page::new(size, usage, name, mapped_at_creation, self.context.clone());
 		page.set_uuid(self.next_page_index);
 		self.pages.insert(self.next_page_index, page);
 		self.next_page_index += 1;

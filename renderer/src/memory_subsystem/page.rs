@@ -29,11 +29,17 @@ pub struct Page {
 
 impl Page {
 	/// Creates a page and allocates a `wgpu` buffer with the specified size.
-	pub(crate) fn new(size: u64, usage: wgpu::BufferUsages, context: Rc<WGPUContext>) -> Self {
+	pub(crate) fn new(
+		size: u64,
+		usage: wgpu::BufferUsages,
+		name: &str,
+		mapped_at_creation: bool,
+		context: Rc<WGPUContext>
+	) -> Self {
 		Page {
 			buffer: context.device.create_buffer(&wgpu::BufferDescriptor {
-				label: None,
-				mapped_at_creation: false, // TODO get this working, requires some extra stuff according to the docs
+				label: Some(name),
+				mapped_at_creation, // TODO get this working, requires some extra stuff according to the docs
 				size,
 				usage,
 			}),

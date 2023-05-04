@@ -68,6 +68,10 @@ pub(crate) struct AllocatedMemory {
 	pub(crate) object_storage_page: PageUUID,
 	pub(crate) object_storage_node: Node,
 	pub(crate) positions_page: PageUUID,
+	#[allow(dead_code)]
+	pub(crate) test_node: Node,
+	#[allow(dead_code)]
+	pub(crate) test_page: PageUUID,
 	pub(crate) uniforms_page: PageUUID,
 	pub(crate) uvs_page: PageUUID,
 }
@@ -119,7 +123,10 @@ impl<'a> IndirectPass<'a> {
 		let allocated_memory = {
 			// create indirect command buffer page
 			let indirect_command_buffer = memory.new_page(
-				8_000_000, wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST
+				8_000_000,
+				wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
+				"indirect-command-buffer",
+				false
 			);
 
 			// create node that fills entire indirect command buffer page
@@ -129,7 +136,12 @@ impl<'a> IndirectPass<'a> {
 				.unwrap();
 
 			// create the uniforms page
-			let uniforms_page_uuid = memory.new_page(5_000, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+			let uniforms_page_uuid = memory.new_page(
+				5_000,
+				wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+				"uniforms-buffer",
+				false
+			);
 			let uniform_page = memory.get_page_mut(uniforms_page_uuid).unwrap();
 			let global_uniform_node = uniform_page.allocate_node(
 				std::mem::size_of::<GlobalUniform>() as u64, 4, NodeKind::Buffer
@@ -138,7 +150,10 @@ impl<'a> IndirectPass<'a> {
 			// create the storage buffer for object uniforms
 			let object_storage_size = 5_000_000;
 			let object_storage_page_uuid = memory.new_page(
-				object_storage_size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+				object_storage_size,
+				wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+				"shape-uniform-buffer-object",
+				false
 			);
 
 			let object_page = memory.get_page_mut(object_storage_page_uuid).unwrap();
@@ -151,7 +166,10 @@ impl<'a> IndirectPass<'a> {
 			// create the storage buffer for object bone matrices
 			let bone_storage_size = 60_000_000;
 			let bone_storage_page_uuid = memory.new_page(
-				bone_storage_size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST
+				bone_storage_size,
+				wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+				"bone-uniform-buffer-object",
+				false
 			);
 
 			let bone_page = memory.get_page_mut(bone_storage_page_uuid).unwrap();
@@ -160,13 +178,59 @@ impl<'a> IndirectPass<'a> {
 			).unwrap();
 
 			// create vertex attribute pages
-			let positions_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
-			let normals_page = memory.new_page(36_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
-			let uvs_page = memory.new_page(24_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
-			let indices_page = memory.new_page(24_000_000, wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST);
+			let positions_page = memory.new_page(
+				36_000_000,
+				wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				"position-attributes",
+				false
+			);
 
-			let bone_indices = memory.new_page(48_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
-			let bone_weights = memory.new_page(48_000_000, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
+			let normals_page = memory.new_page(
+				36_000_000,
+				wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				"normal-attributes",
+				false
+			);
+
+			let uvs_page = memory.new_page(
+				24_000_000,
+				wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				"uv-attributes",
+				false
+			);
+
+			let bone_indices = memory.new_page(
+				48_000_000,
+				wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				"bone-indices-attributes",
+				false
+			);
+
+			let bone_weights = memory.new_page(
+				48_000_000,
+				wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+				"bone-weights-attributes",
+				false
+			);
+
+			let indices_page = memory.new_page(
+				24_000_000,
+				wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+				"indices-buffer",
+				false
+			);
+
+			// test buffer for reasons
+			let test_page_uuid = memory.new_page(
+				48_000_000,
+				wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+				"test-buffer",
+				false
+			);
+			let test_page = memory.get_page_mut(test_page_uuid).unwrap();
+			let test_node = test_page.allocate_node(
+				std::mem::size_of::<GlobalUniform>() as u64, 4, NodeKind::Buffer
+			).unwrap();
 
 			AllocatedMemory {
 				bone_storage_page: bone_storage_page_uuid,
@@ -184,6 +248,8 @@ impl<'a> IndirectPass<'a> {
 				object_storage_page: object_storage_page_uuid,
 				object_storage_node,
 				positions_page,
+				test_node,
+				test_page: test_page_uuid,
 				uniforms_page: uniforms_page_uuid,
 				uvs_page,
 			}
