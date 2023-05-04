@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::testing::indirect_pass::IndirectPass;
 
 #[derive(Debug)]
@@ -9,9 +12,10 @@ pub struct DepthPyramidTexture<'a> {
 	pub width: u32,
 }
 
-impl IndirectPass<'_> {
+impl<'a> IndirectPass<'a> {
 	pub fn create_depth_pyramid(&mut self) -> Vec<wgpu::BindGroup> {
-		self.allocated_memory.depth_pyramid = Vec::new();
+		let mut depth_pyramid = self.allocated_memory.depth_pyramid.borrow_mut();
+		depth_pyramid.clear();
 		let mut bind_groups = Vec::new();
 
 		let depth_pyramid_sampler = self.context.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -22,7 +26,7 @@ impl IndirectPass<'_> {
 			mag_filter: wgpu::FilterMode::Nearest,
 			min_filter: wgpu::FilterMode::Nearest,
 			mipmap_filter: wgpu::FilterMode::Nearest,
-			reduction_mode: Some(wgpu::ReductionMode::Min),
+			// reduction_mode: Some(wgpu::ReductionMode::Min),
 			..Default::default()
 		});
 
@@ -54,8 +58,8 @@ impl IndirectPass<'_> {
 			let texture_view = if use_depth_buffer {
 				&self.render_textures.depth_view
 			} else {
-				let index = self.allocated_memory.depth_pyramid.len() - 1;
-				&self.allocated_memory.depth_pyramid[index].view
+				let index = depth_pyramid.len() - 1;
+				&depth_pyramid[index].view
 			};
 
 			use_depth_buffer = false;
@@ -82,7 +86,7 @@ impl IndirectPass<'_> {
 
 			bind_groups.push(depth_pyramid_bind_group);
 
-			self.allocated_memory.depth_pyramid.push(DepthPyramidTexture {
+			depth_pyramid.push(DepthPyramidTexture {
 				descriptor,
 				height: current_size.1,
 				texture,
@@ -98,5 +102,9 @@ impl IndirectPass<'_> {
 		}
 
 		return bind_groups;
+	}
+
+	pub fn get_depth_pyramid(&self) -> Rc<RefCell<Vec<DepthPyramidTexture<'a>>>> {
+		self.allocated_memory.depth_pyramid.clone()
 	}
 }

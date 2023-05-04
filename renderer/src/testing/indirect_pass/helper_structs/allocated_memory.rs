@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::memory_subsystem::{ Node, PageUUID, };
 use crate::testing::indirect_pass::DepthPyramidTexture;
@@ -10,7 +12,7 @@ pub(crate) struct AllocatedMemory<'a> {
 	pub(crate) bone_storage_node: Node,
 	pub(crate) bone_indices: PageUUID,
 	pub(crate) bone_weights: PageUUID,
-	pub(crate) depth_pyramid: Vec<DepthPyramidTexture<'a>>,
+	pub(crate) depth_pyramid: Rc<RefCell<Vec<DepthPyramidTexture<'a>>>>,
 	pub(crate) global_uniform_node: Node,
 	pub(crate) indices_page: PageUUID,
 	pub(crate) indirect_command_buffer: PageUUID,

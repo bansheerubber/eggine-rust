@@ -180,7 +180,7 @@ impl<'a> IndirectPass<'a> {
 				bone_storage_node,
 				bone_indices,
 				bone_weights,
-				depth_pyramid: Vec::new(),
+				depth_pyramid: Rc::new(RefCell::new(Vec::new())),
 				global_uniform_node,
 				indices_page,
 				indirect_command_buffer,
@@ -731,9 +731,11 @@ impl Pass for IndirectPass<'_> {
 					label: Some("depth-pyramid-pass"),
 				});
 
+				let depth_pyramid = self.allocated_memory.depth_pyramid.borrow();
+
 				let size = glam::Vec2::new(
-					self.allocated_memory.depth_pyramid[i].width as f32,
-					self.allocated_memory.depth_pyramid[i].height as f32
+					depth_pyramid[i].width as f32,
+					depth_pyramid[i].height as f32
 				);
 
 				compute_pass.set_pipeline(compute_pipelines[0]);

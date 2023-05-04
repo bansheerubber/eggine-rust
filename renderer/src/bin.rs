@@ -2,6 +2,7 @@
 
 use carton::Carton;
 use rand::Rng;
+use renderer::testing::depth_visualizer::DepthVisualizer;
 use renderer::{ memory_subsystem, shapes, };
 use renderer::testing::indirect_pass::IndirectPass;
 use tokio;
@@ -32,6 +33,9 @@ async fn main() {
 
 	// create test indirect pass
 	let mut test_pass = IndirectPass::new(&mut boss, &mut carton);
+
+	// create test depth visualizer
+	let mut depth_visualizer = DepthVisualizer::new(&mut boss, &mut carton);
 
 	// load the first test shape
 	// let now = Instant::now();
@@ -154,7 +158,10 @@ async fn main() {
 	}
 
 	// set the boss's passes
-	boss.set_passes(vec![test_pass]);
+	let depth_pyramid = test_pass.get_depth_pyramid();
+	depth_visualizer.set_depth_pyramid(Some(depth_pyramid));
+
+	boss.set_passes(vec![test_pass, depth_visualizer]);
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {
