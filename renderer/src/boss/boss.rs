@@ -48,14 +48,18 @@ impl<'a> Boss<'a> {
 			.await
 			.expect("Failed to find an appropriate adapter");
 
+		let mut limits = wgpu::Limits::default()
+			.using_resolution(adapter.limits());
+
+		limits.max_push_constant_size = 256;
+
 		// get the device and queue
 		let (device, queue) = adapter
 			.request_device(
 				&wgpu::DeviceDescriptor {
 					features: adapter.features(),
 					label: None,
-					limits: wgpu::Limits::default()
-						.using_resolution(adapter.limits()),
+					limits,
 				},
 				None
 			)
