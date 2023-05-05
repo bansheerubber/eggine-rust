@@ -30,10 +30,21 @@ impl<'a> IndirectPass<'a> {
 			..Default::default()
 		});
 
-		let mut current_size = (self.render_textures.window_width >> 1, self.render_textures.window_height >> 1);
+		let mut current_size = (self.render_textures.window_width, self.render_textures.window_height);
 		let mut use_depth_buffer = true;
 
-		loop {
+		while current_size.0 != 1 || current_size.1 != 1 {
+			current_size = (u32::max(current_size.0 >> 1, 1), u32::max(current_size.1 >> 1, 1));
+
+			// make the size of the texture an even number by rounding up to multiple of 2
+			if current_size.0 > 1 && (current_size.0 & 1) == 1 {
+				current_size.0 += 1;
+			}
+
+			if current_size.1 > 1 && (current_size.1 & 1) == 1 {
+				current_size.1 += 1;
+			}
+
 			// create depth pyramid texture
 			let descriptor = wgpu::TextureDescriptor {
 				dimension: wgpu::TextureDimension::D2,
@@ -93,12 +104,6 @@ impl<'a> IndirectPass<'a> {
 				view,
 				width: current_size.0,
 			});
-
-			if current_size.0 == 1 && current_size.1 == 1 {
-				break;
-			}
-
-			current_size = (u32::max(current_size.0 >> 1, 1), u32::max(current_size.1 >> 1, 1));
 		}
 
 		return bind_groups;
