@@ -128,7 +128,7 @@ impl Pass for DepthVisualizer<'_> {
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>,
 		view: &wgpu::TextureView
 	) {
-		if self.depth_pyramid.is_none() {
+		if self.depth_pyramid.is_none() || self.depth_pyramid.as_ref().unwrap().borrow().len() == 0 {
 			self.bind_group = None;
 			return;
 		}
@@ -185,7 +185,7 @@ impl Pass for DepthVisualizer<'_> {
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>
 	) {
-		if self.depth_pyramid.is_none() {
+		if self.depth_pyramid.is_none() || self.depth_pyramid.as_ref().unwrap().borrow().len() == 0 {
 			self.bind_group = None;
 			return;
 		}
