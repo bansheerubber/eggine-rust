@@ -1,11 +1,9 @@
 use carton::Carton;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{ Arc, RwLock, };
 
 use crate::Pass;
 use crate::boss::{ Boss, WGPUContext, };
-use crate::memory_subsystem::Memory;
 use crate::shaders::Program;
 use crate::state::{ ComputeState, RenderState, };
 use crate::testing::indirect_pass::DepthPyramidTexture;
@@ -21,12 +19,11 @@ pub struct DepthVisualizer<'a> {
 	depth_pyramid: Option<Rc<RefCell<Vec<DepthPyramidTexture<'a>>>>>,
 	/// The texture in thet depth pyramid we're currently visualizing.
 	depth_pyramid_index: usize,
+	/// The custom `PipelineLayout` we need for push constants.
+	pipeline_layout: wgpu::PipelineLayout,
 	/// Reference to the memory subsystem, used to allocate/write data.
 	/// Program used during rendering.
 	program: Rc<Program>,
-	/// Since the render operations do not change frame-to-frame, pre-record the operations to a render bundle for
-	/// improved performance.
-	render_bundle: Option<wgpu::RenderBundle>,
 	/// Used to increment `depth_pyramid_index`
 	timer: f64,
 }
@@ -53,41 +50,49 @@ impl<'a> DepthVisualizer<'a> {
 			shader_table.create_render_program("depth-visualizer-shader", fragment_shader, vertex_shader)
 		};
 
+		let bind_group_layout
+			= context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+				entries: &[
+					wgpu::BindGroupLayoutEntry {
+						binding: 0,
+						count: None,
+						ty: wgpu::BindingType::Texture {
+							multisampled: false,
+							sample_type: wgpu::TextureSampleType::Float { filterable: false, },
+							view_dimension: wgpu::TextureViewDimension::D2,
+						},
+						visibility: wgpu::ShaderStages::FRAGMENT,
+					},
+					wgpu::BindGroupLayoutEntry {
+						binding: 1,
+						count: None,
+						visibility: wgpu::ShaderStages::FRAGMENT,
+						ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+					},
+				],
+				label: Some("depth-visualizer-bind-group-layout"),
+			});
+
+		let pipeline_layout = context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+			bind_group_layouts: &[&bind_group_layout],
+			label: Some("depth-visualizer-pipeline-layout"),
+			push_constant_ranges: &[wgpu::PushConstantRange {
+				range: 0..16,
+				stages: wgpu::ShaderStages::FRAGMENT,
+			}],
+		});
+
 		Box::new(
 			DepthVisualizer {
 				bind_group: None,
 				context,
 				depth_pyramid: None,
 				depth_pyramid_index: 0,
+				pipeline_layout,
 				program,
-				render_bundle: None,
 				timer: 0.0,
 			}
 		)
-	}
-
-	/// Creates a render bundle with commands that are shared between multiple render passes.
-	fn create_bundle(&mut self, pipeline: &wgpu::RenderPipeline) {
-		let mut encoder = self.context.device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
-			color_formats: &[
-				Some(wgpu::TextureFormat::Bgra8UnormSrgb)
-			],
-			depth_stencil: None,
-			label: None,
-			multiview: None,
-			sample_count: 1,
-		});
-
-		encoder.set_pipeline(pipeline);
-
-		// bind uniforms
-		encoder.set_bind_group(0, &self.bind_group.as_ref().unwrap(), &[]);
-
-		encoder.draw(0..3, 0..1);
-
-		self.render_bundle = Some(encoder.finish(&wgpu::RenderBundleDescriptor {
-			label: None,
-		}));
 	}
 
 	pub fn set_depth_pyramid(&mut self, depth_pyramid: Option<Rc<RefCell<Vec<DepthPyramidTexture<'a>>>>>) {
@@ -102,8 +107,8 @@ impl Pass for DepthVisualizer<'_> {
 		vec![
 			RenderState { // state for the composite stage
 				depth_stencil: None,
-				label: "composite-prepass".to_string(),
-				layout: None,
+				label: "depth-visualizer".to_string(),
+				layout: Some(&self.pipeline_layout),
 				program: &self.program,
 				render_targets: vec![Some(wgpu::ColorTargetState {
 					blend: None,
@@ -146,15 +151,18 @@ impl Pass for DepthVisualizer<'_> {
 					}),
 				],
 				depth_stencil_attachment: None,
-				label: Some("composite-pass"),
+				label: Some("depth-visualizer"),
 			});
 
-			// create the render bundle if necessary
-			if self.render_bundle.is_none() {
-				self.create_bundle(render_pipelines[0]);
-			}
+			render_pass.set_pipeline(&render_pipelines[0]);
 
-			render_pass.execute_bundles([self.render_bundle.as_ref().unwrap()]);
+			let clipping = glam::Vec2::new(1.0, 1000.0);
+			render_pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, 0, bytemuck::cast_slice(&[clipping]));
+
+			// bind uniforms
+			render_pass.set_bind_group(0, &self.bind_group.as_ref().unwrap(), &[]);
+
+			render_pass.draw(0..3, 0..1);
 		}
 
 		self.timer += deltatime;
@@ -168,22 +176,21 @@ impl Pass for DepthVisualizer<'_> {
 			self.timer = 0.0;
 
 			self.create_bind_groups(render_pipelines, compute_pipelines);
-			self.render_bundle = None;
 
 			println!("Depth pyramid step {}", self.depth_pyramid_index);
 		}
 	}
 
 	/// Handle a window resize.
-	fn resize(&mut self, config: &wgpu::SurfaceConfiguration) {
-		self.render_bundle = None; // invalidate the render bundle
+	fn resize(&mut self, _config: &wgpu::SurfaceConfiguration) {
+
 	}
 
 	/// Recreate bind groups.
 	fn create_bind_groups(
 		&mut self,
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
-		compute_pipelines: &Vec<&wgpu::ComputePipeline>
+		_compute_pipelines: &Vec<&wgpu::ComputePipeline>
 	) {
 		if self.depth_pyramid.is_none() || self.depth_pyramid.as_ref().unwrap().borrow().len() == 0 {
 			self.bind_group = None;

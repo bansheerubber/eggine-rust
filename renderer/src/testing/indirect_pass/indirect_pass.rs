@@ -2,7 +2,7 @@ use carton::Carton;
 use glam::Vec4Swizzles;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::num::{ NonZeroU64, NonZeroU32, };
+use std::num::NonZeroU64;
 use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
@@ -401,16 +401,16 @@ impl<'a> IndirectPass<'a> {
 		let aspect_ratio = self.render_textures.window_width as f32 / self.render_textures.window_height as f32;
 
 		let position = glam::Vec4::new(
-			0.0 * self.x_angle.cos() * self.y_angle.sin(),
-			0.0 * self.x_angle.sin() * self.y_angle.sin(),
-			0.0 * self.y_angle.cos(),
+			75.0 * self.x_angle.cos() * self.y_angle.sin(),
+			75.0 * self.x_angle.sin() * self.y_angle.sin(),
+			75.0 * self.y_angle.cos(),
 			0.0,
 		);
 
 		self.x_angle = std::f32::consts::PI;
 		self.y_angle = 1.0;
 
-		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 1.0, 100.0);
+		let projection = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4 / 2.0, aspect_ratio, 1.0, 1000.0);
 		let view = glam::Mat4::look_at_rh(
 			position.xyz(),
 			glam::Vec3::new(30.0, 30.0, 0.0),
@@ -511,7 +511,7 @@ impl<'a> IndirectPass<'a> {
 		let specular_view = specular_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		RenderTextures {
-			depth_texture,
+			_depth_texture: depth_texture,
 			depth_view,
 			diffuse_format,
 			diffuse_view,
@@ -793,7 +793,7 @@ impl Pass for IndirectPass<'_> {
 	fn create_bind_groups(
 		&mut self,
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
-		compute_pipelines: &Vec<&wgpu::ComputePipeline>
+		_compute_pipelines: &Vec<&wgpu::ComputePipeline>
 	) {
 		let depth_pyramid_bind_groups = self.create_depth_pyramid();
 
