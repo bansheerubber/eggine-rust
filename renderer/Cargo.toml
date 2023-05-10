@@ -10,6 +10,7 @@ carton = { path = "../carton" }
 fbxcel-dom = "0.0.10"
 glam = { features = ["bytemuck"], version = "0.22.0" }
 gltf = "1.1.0"
+jemallocator = { features = ["profiling"], version = "0.3.2" }
 lazy_static = "1.4.0"
 naga = { path = "../../naga" }
 qoi = "0.4.1"
@@ -19,6 +20,9 @@ texpresso = "2.0.1"
 tokio = { features = ["full"], version = "1.22.0" }
 wgpu = { features = ["spirv"], path = "../../wgpu/wgpu" }
 winit = "0.28.1"
+
+[profile.dev]
+debug = true
 
 [lib]
 name = "renderer"
