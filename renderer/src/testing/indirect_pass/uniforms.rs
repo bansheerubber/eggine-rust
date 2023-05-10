@@ -16,5 +16,6 @@ pub(crate) struct ObjectUniform {
 	pub(crate) texture_offset: [f32; 4],
 	pub(crate) roughness: f32,
 	pub(crate) bone_offset: u32,
-	pub(crate) _padding: [f32; 2]
+	pub(crate) mesh_primitive_table_entry: u32,
+	pub(crate) _padding: [f32; 1]
 }

@@ -141,7 +141,8 @@ impl IndirectPass<'_> {
 							).to_array(),
 							roughness: primitive.material.roughness,
 							bone_offset,
-							_padding: [0.0, 0.0],
+							mesh_primitive_table_entry: primitive.mesh_primitive_table_id,
+							_padding: [0.0],
 						};
 
 						batch.draw_call_count += 1;
