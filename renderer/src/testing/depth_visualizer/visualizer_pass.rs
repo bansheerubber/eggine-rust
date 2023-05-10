@@ -19,6 +19,8 @@ pub struct DepthVisualizer<'a> {
 	depth_pyramid: Option<Rc<RefCell<Vec<DepthPyramidTexture<'a>>>>>,
 	/// The texture in thet depth pyramid we're currently visualizing.
 	depth_pyramid_index: usize,
+	/// Whether the pass can render.
+	enabled: bool,
 	/// The custom `PipelineLayout` we need for push constants.
 	pipeline_layout: wgpu::PipelineLayout,
 	/// Reference to the memory subsystem, used to allocate/write data.
@@ -88,6 +90,7 @@ impl<'a> DepthVisualizer<'a> {
 				context,
 				depth_pyramid: None,
 				depth_pyramid_index: 0,
+				enabled: true,
 				pipeline_layout,
 				program,
 				timer: 0.0,
@@ -232,5 +235,17 @@ impl Pass for DepthVisualizer<'_> {
 		});
 
 		self.bind_group = Some(bind_group);
+	}
+
+	fn enable(&mut self) {
+		self.enabled = true;
+	}
+
+	fn disable(&mut self) {
+		self.enabled = false;
+	}
+
+	fn is_enabled(&self) -> bool {
+		self.enabled
 	}
 }

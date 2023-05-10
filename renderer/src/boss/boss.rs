@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
-use std::sync::{ Arc, RwLock, };
+use std::sync::{ Arc, Mutex, RwLock, };
 use std::time::Instant;
 
 use crate::Pass;
@@ -21,6 +21,7 @@ pub struct Boss<'a> {
 	/// Helper object that manages memory. TODO should we implement asynchronous memory on a per-page basis?
 	memory: Arc<RwLock<Memory<'a>>>,
 	passes: Vec<Box<dyn Pass>>,
+	passes_lock: Mutex<()>,
 	shader_table: Arc<RwLock<ShaderTable>>,
 	state_to_compute_pipeline: HashMap<ComputeStateKey, wgpu::ComputePipeline>,
 	state_to_render_pipeline: HashMap<RenderStateKey, wgpu::RenderPipeline>,
@@ -104,6 +105,7 @@ impl<'a> Boss<'a> {
 			debug: DebugContext::default(),
 			last_rendered_frame: Instant::now(),
 			passes: Vec::new(),
+			passes_lock: Mutex::new(()),
 			state_to_compute_pipeline: HashMap::new(),
 			state_to_render_pipeline: HashMap::new(),
 			surface_config,
@@ -130,15 +132,15 @@ impl<'a> Boss<'a> {
 		// steal passes for a second
 		let mut passes = std::mem::take(&mut self.passes);
 		{
-			for pass in passes.iter() {
+			for pass in passes.iter().filter(|x| x.is_enabled()) {
 				let pass_states = pass.render_states();
 				for state in pass_states.iter() {
-					self.create_render_pipeline(state);
+					Boss::create_render_pipeline(&self.context.device, state, &mut self.state_to_render_pipeline);
 				}
 
 				let pass_states = pass.compute_states();
 				for state in pass_states.iter() {
-					self.create_compute_pipeline(state);
+					Boss::create_compute_pipeline(&self.context.device, state, &mut self.state_to_compute_pipeline);
 				}
 			}
 
@@ -156,7 +158,7 @@ impl<'a> Boss<'a> {
 			}
 
 			// encode passes
-			for pass in passes.iter_mut() {
+			for pass in passes.iter_mut().filter(|x| x.is_enabled()) {
 				let states = pass.render_states();
 				let render_pass_pipelines = states.iter()
 					.map(|x| {
@@ -202,14 +204,18 @@ impl<'a> Boss<'a> {
 	}
 
 	/// Creates a `wgpu` render pipeline based on the current render state.
-	fn create_render_pipeline(&mut self, state: &RenderState) {
+	fn create_render_pipeline(
+		device: &wgpu::Device,
+		state: &RenderState,
+		cache: &mut HashMap<RenderStateKey, wgpu::RenderPipeline>
+	) {
 		// check cache before creating new pipeline
-		if self.state_to_render_pipeline.contains_key(&state.key()) {
+		if cache.contains_key(&state.key()) {
 			return;
 		}
 
 		// create the render pipeline
-		let render_pipeline = self.context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			depth_stencil: state.depth_stencil.clone(),
 			fragment: Some(wgpu::FragmentState {
 				entry_point: "main",
@@ -236,7 +242,7 @@ impl<'a> Boss<'a> {
 			},
 		});
 
-		self.state_to_render_pipeline.insert(state.key(), render_pipeline); // cache the pipeline
+		cache.insert(state.key(), render_pipeline); // cache the pipeline
 	}
 
 	fn get_render_pipeline(&self, state: &RenderState) -> Option<&wgpu::RenderPipeline> {
@@ -244,21 +250,25 @@ impl<'a> Boss<'a> {
 	}
 
 	/// Creates a `wgpu` compute pipeline based on the current render state.
-	fn create_compute_pipeline(&mut self, state: &ComputeState) {
+	fn create_compute_pipeline(
+		device: &wgpu::Device,
+		state: &ComputeState,
+		cache: &mut HashMap<ComputeStateKey, wgpu::ComputePipeline>
+	) {
 		// check cache before creating new pipeline
-		if self.state_to_compute_pipeline.contains_key(&state.key()) {
+		if cache.contains_key(&state.key()) {
 			return;
 		}
 
 		// create the render pipeline
-		let compute_pipeline = self.context.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+		let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
 			entry_point: "main",
 			label: Some(state.label.as_str()),
 			layout: state.layout,
 			module: &state.program.shader.module,
 		});
 
-		self.state_to_compute_pipeline.insert(state.key(), compute_pipeline); // cache the pipeline
+		cache.insert(state.key(), compute_pipeline); // cache the pipeline
 	}
 
 	fn get_compute_pipeline(&self, state: &ComputeState) -> Option<&wgpu::ComputePipeline> {
@@ -267,6 +277,8 @@ impl<'a> Boss<'a> {
 
 	/// Iterates through all passes and creates their bind groups as necessary.
 	fn create_pass_bind_groups(&mut self) {
+		let _unused = self.passes_lock.lock().unwrap();
+
 		// steal passes for a second
 		let mut passes = std::mem::take(&mut self.passes);
 		{
@@ -274,12 +286,12 @@ impl<'a> Boss<'a> {
 			for pass in passes.iter() {
 				let pass_states = pass.render_states();
 				for state in pass_states.iter() {
-					self.create_render_pipeline(state);
+					Boss::create_render_pipeline(&self.context.device, state, &mut self.state_to_render_pipeline);
 				}
 
 				let pass_states = pass.compute_states();
 				for state in pass_states.iter() {
-					self.create_compute_pipeline(state);
+					Boss::create_compute_pipeline(&self.context.device, state, &mut self.state_to_compute_pipeline);
 				}
 			}
 
@@ -307,8 +319,33 @@ impl<'a> Boss<'a> {
 
 	/// Sets the ordering of the `Pass`s that are handled each frame.
 	pub fn set_passes(&mut self, passes: Vec<Box<dyn Pass>>) {
-		self.passes = passes;
+		{
+			let _unused = self.passes_lock.lock().unwrap();
+			self.passes = passes;
+		}
+
 		self.create_pass_bind_groups();
+	}
+
+	/// Releases the passes that were set.
+	pub fn release_passes(&mut self) -> Vec<Box<dyn Pass>>{
+		let _unused = self.passes_lock.lock().unwrap();
+
+		let passes = std::mem::take(&mut self.passes);
+		self.passes = Vec::new();
+		return passes;
+	}
+
+	/// Retrieve a pass by index.
+	pub fn get_pass(&self, index: usize) -> Option<&Box<dyn Pass>> {
+		let _unused = self.passes_lock.lock().unwrap();
+		self.passes.get(index)
+	}
+
+	/// Retrieve a pass by index.
+	pub fn get_pass_mut(&mut self, index: usize) -> Option<&mut Box<dyn Pass>> {
+		let _unused = self.passes_lock.lock().unwrap();
+		self.passes.get_mut(index)
 	}
 
 	/// Gets the `WGPUContext` owned by the boss.

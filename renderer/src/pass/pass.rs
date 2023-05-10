@@ -30,6 +30,15 @@ pub trait Pass {
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>
 	);
+
+	/// Enables the pass.
+	fn enable(&mut self);
+
+	/// Disables the pass.
+	fn disable(&mut self);
+
+	/// Status of the pass.
+	fn is_enabled(&self) -> bool;
 }
 
 impl std::fmt::Debug for dyn Pass + 'static {

@@ -35,6 +35,8 @@ pub struct IndirectPass<'a> {
 	pub(crate) compositor_render_bundle: Option<wgpu::RenderBundle>,
 	/// Stores `wgpu` created objects required for basic rendering operations.
 	pub(crate) context: Rc<WGPUContext>,
+	/// Whether the pass can render.
+	pub(crate) enabled: bool,
 	/// Used for the `vertex_offset` for meshes in an indirect indexed draw call.
 	pub(crate) highest_vertex_offset: i32,
 	/// The amount of bytes written to the indices page.
@@ -365,6 +367,7 @@ impl<'a> IndirectPass<'a> {
 				blueprints: Vec::new(),
 				compositor_render_bundle: None,
 				context,
+				enabled: true,
 				highest_vertex_offset: 0,
 				indices_page_written: 0,
 				indices_written: 0,
@@ -963,6 +966,18 @@ impl Pass for IndirectPass<'_> {
 			texture_bind_group,
 			uniform_bind_group,
 		})
+	}
+
+	fn enable(&mut self) {
+		self.enabled = true;
+	}
+
+	fn disable(&mut self) {
+		self.enabled = false;
+	}
+
+	fn is_enabled(&self) -> bool {
+		self.enabled
 	}
 }
 

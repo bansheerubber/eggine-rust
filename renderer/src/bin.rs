@@ -3,7 +3,7 @@
 use carton::Carton;
 use rand::Rng;
 use renderer::testing::depth_visualizer::DepthVisualizer;
-use renderer::{ memory_subsystem, shapes, };
+use renderer::{ memory_subsystem, shapes, Pass, };
 use renderer::testing::indirect_pass::IndirectPass;
 use std::time::Instant;
 use tokio;
@@ -159,15 +159,13 @@ async fn main() {
 	}
 
 	// create test depth visualizer
-	// let mut depth_visualizer = DepthVisualizer::new(&mut boss, &mut carton);
+	let mut depth_visualizer = DepthVisualizer::new(&mut boss, &mut carton);
+	depth_visualizer.disable();
 
-	// let depth_pyramid = test_pass.get_depth_pyramid();
-	// depth_visualizer.set_depth_pyramid(Some(depth_pyramid));
+	let depth_pyramid = test_pass.get_depth_pyramid();
+	depth_visualizer.set_depth_pyramid(Some(depth_pyramid));
 
-	// boss.set_passes(vec![test_pass, depth_visualizer]);
-
-	// set the boss's passes
-	boss.set_passes(vec![test_pass]);
+	boss.set_passes(vec![test_pass, depth_visualizer]);
 
 	// event loop must be created on the main thread
 	event_loop.run(move |event, _, control_flow| {
@@ -177,6 +175,29 @@ async fn main() {
 			},
 			winit::event::Event::RedrawRequested(_) => {
 				boss.tick();
+			},
+			winit::event::Event::WindowEvent {
+				event: winit::event::WindowEvent::KeyboardInput {
+					input: winit::event::KeyboardInput {
+						state: winit::event::ElementState::Pressed,
+						virtual_keycode,
+						..
+					},
+					..
+				},
+				..
+			} => {
+				match virtual_keycode {
+					Some(winit::event::VirtualKeyCode::P) => { // toggle depth pyramid debug view
+						let pass = boss.get_pass_mut(1).unwrap();
+						if pass.is_enabled() {
+							pass.disable();
+						} else {
+							pass.enable();
+						}
+					},
+					_ => {},
+				}
 			},
 			winit::event::Event::WindowEvent {
 				event:
