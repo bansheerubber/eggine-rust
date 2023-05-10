@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::memory_subsystem::{ Node, NodeKind, PageError, textures, };
 
 use super::DataKind;
+use super::mesh_primitive::MeshPrimitiveTableEntry;
 
 /// Controls how a `Blueprint` allocates memory and helps with calculating `first_index` and `vertex_offset`
 /// properties for `Mesh`s
@@ -56,4 +57,7 @@ pub trait State {
 	/// Gets the vertex attributes that this `State` needs to be allocated. `DataKind::Index` does not count as a vertex
 	/// attribute that can be allocated.
 	fn required_attributes(&self) -> Vec<DataKind>;
+
+	/// Adds an entry into the mesh primitive table.
+	fn add_mesh_primitive(&mut self, entry: MeshPrimitiveTableEntry) -> u32;
 }

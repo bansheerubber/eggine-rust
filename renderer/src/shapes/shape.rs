@@ -12,6 +12,7 @@ lazy_static! {
 	static ref NEXT_SHAPE_GUID: Mutex<u64> = Mutex::new(0);
 }
 
+/// A blueprint that can be instantiated within the scene and take on its own state (position, animation, etc).
 #[derive(Debug)]
 pub struct Shape {
 	/// The animations playing on the shape.

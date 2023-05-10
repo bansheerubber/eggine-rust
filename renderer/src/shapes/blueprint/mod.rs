@@ -17,6 +17,7 @@ pub use material::Material;
 pub use mesh::Mesh;
 pub use mesh_primitive::MeshPrimitive;
 pub use mesh_primitive::MeshPrimitiveKind;
+pub use mesh_primitive::MeshPrimitiveTableEntry;
 pub use node::Node;
 pub use node::NodeData;
 pub use state::State;

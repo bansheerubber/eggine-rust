@@ -120,6 +120,20 @@ impl<'a> IndirectPass<'a> {
 				bone_storage_size, 4, NodeKind::Buffer
 			).unwrap();
 
+			// create the storage buffer for the mesh primitive table
+			let mesh_primitive_table_size = 1_000_000;
+			let mesh_primitive_table_page_uuid = memory.new_page(
+				mesh_primitive_table_size,
+				wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+				"bone-uniform-buffer-object",
+				false
+			);
+
+			let mesh_primitive_table_page = memory.get_page_mut(mesh_primitive_table_page_uuid).unwrap();
+			let mesh_primitive_table_node = mesh_primitive_table_page.allocate_node(
+				mesh_primitive_table_size, 4, NodeKind::Buffer
+			).unwrap();
+
 			// create vertex attribute pages
 			let positions_page = memory.new_page(
 				36_000_000,
@@ -187,6 +201,9 @@ impl<'a> IndirectPass<'a> {
 				indirect_command_buffer_map: HashMap::new(),
 				indirect_command_buffer_node,
 				max_objects_per_batch,
+				mesh_primitive_table_page: mesh_primitive_table_page_uuid,
+				mesh_primitive_table_node,
+				mesh_primitive_table_size: 0,
 				normals_page,
 				object_storage_page: object_storage_page_uuid,
 				object_storage_node,
@@ -1009,5 +1026,17 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 			shapes::blueprint::DataKind::Position,
 			shapes::blueprint::DataKind::UV,
 		]
+	}
+
+	fn add_mesh_primitive(&mut self, entry: shapes::blueprint::MeshPrimitiveTableEntry) -> u32 {
+		let index = self.allocated_memory.mesh_primitive_table_size;
+		self.allocated_memory.mesh_primitive_table_size += 1;
+
+		let memory = self.memory.read().unwrap();
+		let page = memory.get_page(self.allocated_memory.mesh_primitive_table_page).unwrap();
+
+		page.write_slice(&self.allocated_memory.mesh_primitive_table_node, bytemuck::cast_slice(&[entry]));
+
+		return index;
 	}
 }

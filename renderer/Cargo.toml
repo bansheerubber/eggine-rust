@@ -21,9 +21,6 @@ tokio = { features = ["full"], version = "1.22.0" }
 wgpu = { features = ["spirv"], path = "../../wgpu/wgpu" }
 winit = "0.28.1"
 
-[profile.dev]
-debug = true
-
 [lib]
 name = "renderer"
 path = "src/lib.rs"

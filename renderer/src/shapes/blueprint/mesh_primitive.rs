@@ -1,5 +1,6 @@
-use crate::memory_subsystem::Node;
+use bytemuck::{ Pod, Zeroable, };
 
+use crate::memory_subsystem::Node;
 use super::Material;
 
 #[derive(Debug)]
@@ -19,6 +20,8 @@ pub struct MeshPrimitive {
 	pub kind: MeshPrimitiveKind,
 	/// The material used to render the primitve.
 	pub material: Material,
+	/// Points to the entry in the mesh primitive table GPU buffer.
+	pub mesh_primitive_table_id: u32,
 	/// Points to the primitives's normal vec3 data. Normals are f32s.
 	pub normals: Option<Node>,
 	/// Points to the primitives's vertex vec3 data. Vertices are f32s.
@@ -29,4 +32,13 @@ pub struct MeshPrimitive {
 	pub vertex_count: u32,
 	/// Used for indirect rendering.
 	pub vertex_offset: i32,
+}
+
+/// Struct that represents mesh primitive metadata stored on a GPU buffer.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct MeshPrimitiveTableEntry {
+	pub radius: f32,
+	pub vertex_count: u32,
+	pub vertex_offset: u32,
 }

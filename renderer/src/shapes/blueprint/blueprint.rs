@@ -15,6 +15,7 @@ use super::{
 	Mesh,
 	MeshPrimitive,
 	MeshPrimitiveKind,
+	MeshPrimitiveTableEntry,
 	Node,
 	NodeData,
 	State,
@@ -413,20 +414,30 @@ impl Blueprint {
 
 			blueprint.textures.insert(texture.clone());
 
+			let first_index = state.calc_first_index(indices_count as u32);
+			let vertex_offset = state.calc_vertex_offset(ir.highest_index);
+
+			let mesh_primitive_table_id = state.add_mesh_primitive(MeshPrimitiveTableEntry {
+				radius: 0.0, // TODO calculate this
+				vertex_count: indices_count as u32,
+				vertex_offset: vertex_offset as u32,
+			});
+
 			// construct the mesh primitive
 			primitives.push(MeshPrimitive {
-				first_index: state.calc_first_index(indices_count as u32),
+				first_index,
 				indices: Some(index_node),
 				kind: MeshPrimitiveKind::Triangle,
 				material: Material {
 					roughness: material.pbr_metallic_roughness().roughness_factor(),
 					texture,
     		},
+				mesh_primitive_table_id,
 				normals: kind_to_node.remove(&DataKind::Normal),
 				positions: kind_to_node.remove(&DataKind::Position),
 				uvs: kind_to_node.remove(&DataKind::UV),
 				vertex_count: indices_count as u32,
-				vertex_offset: state.calc_vertex_offset(ir.highest_index),
+				vertex_offset,
 			});
 		}
 
