@@ -41,4 +41,5 @@ pub struct MeshPrimitiveTableEntry {
 	pub radius: f32,
 	pub vertex_count: u32,
 	pub vertex_offset: u32,
+	pub _padding: [f32; 1]
 }

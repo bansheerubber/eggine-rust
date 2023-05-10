@@ -1060,13 +1060,19 @@ impl shapes::blueprint::State for IndirectPass<'_> {
 	}
 
 	fn add_mesh_primitive(&mut self, entry: shapes::blueprint::MeshPrimitiveTableEntry) -> u32 {
+		static ENTRY_SIZE: usize = std::mem::size_of::<shapes::blueprint::MeshPrimitiveTableEntry>();
+
 		let index = self.allocated_memory.mesh_primitive_table_size;
 		self.allocated_memory.mesh_primitive_table_size += 1;
 
 		let memory = self.memory.read().unwrap();
 		let page = memory.get_page(self.allocated_memory.mesh_primitive_table_page).unwrap();
 
-		page.write_slice(&self.allocated_memory.mesh_primitive_table_node, bytemuck::cast_slice(&[entry]));
+		page.write_slice_with_offset(
+			&self.allocated_memory.mesh_primitive_table_node,
+			(ENTRY_SIZE * index as usize) as u64,
+			bytemuck::cast_slice(&[entry])
+		);
 
 		return index;
 	}

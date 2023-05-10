@@ -171,8 +171,18 @@ impl Page {
 	}
 
 	/// Writes a node into the page's buffer. Does not write the data immediately.
+	pub fn write_buffer_with_offset(&self, node: &Node, offset: u64, data: &[u8]) {
+		self.context.queue.write_buffer(&self.buffer, node.offset + offset, data);
+	}
+
+	/// Writes a node into the page's buffer. Does not write the data immediately.
 	pub fn write_slice(&self, node: &Node, data: &[u8]) {
 		self.context.queue.write_buffer(&self.buffer, node.offset, data);
+	}
+
+	/// Writes a node into the page's buffer. Does not write the data immediately.
+	pub fn write_slice_with_offset(&self, node: &Node, offset: u64, data: &[u8]) {
+		self.context.queue.write_buffer(&self.buffer, node.offset + offset, data);
 	}
 
 	/// Combines adjacent unused nodes into single nodes.

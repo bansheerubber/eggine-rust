@@ -421,6 +421,7 @@ impl Blueprint {
 				radius: 0.0, // TODO calculate this
 				vertex_count: indices_count as u32,
 				vertex_offset: vertex_offset as u32,
+				_padding: [0.0],
 			});
 
 			// construct the mesh primitive
