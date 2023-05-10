@@ -1,5 +1,7 @@
+use std::rc::Rc;
 use std::sync::{ Arc, RwLock, };
 
+use crate::boss::WGPUContext;
 use crate::memory_subsystem::Memory;
 use crate::testing::indirect_pass::{ AllocatedMemory, Batch, BindGroups, IndirectPass, Programs, RenderTextures, };
 
@@ -7,9 +9,8 @@ impl IndirectPass<'_> {
 	// This function has its own file because it otherwise makes the `IndirectPass::encode` function unbearable to read.
 
 	/// This performs the depth prepass.
-	///
-	/// TODO rewrite this so that it only takes one batch instead of the entire batches vector, so batches work properly
 	pub(crate) fn depth_prepass(
+		context: Rc<WGPUContext>,
 		memory: &Arc<RwLock<Memory>>,
 		allocated_memory: &mut AllocatedMemory,
 		programs: &mut Programs,
@@ -18,38 +19,44 @@ impl IndirectPass<'_> {
 		indices_page_written: u64,
 		vertices_page_written: u64,
 		batches: &Vec<Batch>,
-		encoder: &mut wgpu::CommandEncoder,
 		pipelines: &Vec<&wgpu::RenderPipeline>,
-	) {
+		mut last_rendered_batch: Option<u64>,
+	) -> Option<u64> {
 		let memory = memory.read().unwrap();
 
 		let mut depth_buffer_load_op = wgpu::LoadOp::Clear(1.0);
 
 		for batch in batches.iter() {
-			let bone_uniforms = programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
-			let object_uniforms = programs.object_uniforms.get_mut(&batch.make_key()).unwrap();
-			let buffer = allocated_memory.indirect_command_buffer_map.get_mut(&batch.make_key()).unwrap();
+			let mut encoder = context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+				label: Some("depth-prepass-encoder"),
+			});
 
-			// ensure immediate write to the buffer
-			memory.get_page(allocated_memory.indirect_command_buffer)
-				.unwrap()
-				.write_buffer(&allocated_memory.indirect_command_buffer_node, &buffer);
+			if last_rendered_batch.is_none() || batch.make_key() != last_rendered_batch.unwrap() {
+				let bone_uniforms = programs.bone_uniforms.get_mut(&batch.make_key()).unwrap();
+				let object_uniforms = programs.object_uniforms.get_mut(&batch.make_key()).unwrap();
+				let buffer = allocated_memory.indirect_command_buffer_map.get_mut(&batch.make_key()).unwrap();
 
-			// write object uniforms to storage buffer
-			memory.get_page(allocated_memory.object_storage_page)
-				.unwrap()
-				.write_slice(
-					&allocated_memory.object_storage_node,
-					bytemuck::cast_slice(&object_uniforms[0..batch.draw_call_count])
-				);
+				// ensure immediate write to the buffer
+				memory.get_page(allocated_memory.indirect_command_buffer)
+					.unwrap()
+					.write_buffer(&allocated_memory.indirect_command_buffer_node, &buffer);
 
-			// write bone matrices to storage buffer
-			memory.get_page(allocated_memory.bone_storage_page)
-				.unwrap()
-				.write_slice(
-					&allocated_memory.bone_storage_node,
-					bytemuck::cast_slice(&bone_uniforms[0..batch.bone_index])
-				);
+				// write object uniforms to storage buffer
+				memory.get_page(allocated_memory.object_storage_page)
+					.unwrap()
+					.write_slice(
+						&allocated_memory.object_storage_node,
+						bytemuck::cast_slice(&object_uniforms[0..batch.draw_call_count])
+					);
+
+				// write bone matrices to storage buffer
+				memory.get_page(allocated_memory.bone_storage_page)
+					.unwrap()
+					.write_slice(
+						&allocated_memory.bone_storage_node,
+						bytemuck::cast_slice(&bone_uniforms[0..batch.bone_index])
+					);
+			}
 
 			// do the render pass
 			{
@@ -97,6 +104,12 @@ impl IndirectPass<'_> {
 				// set clear ops
 				depth_buffer_load_op = wgpu::LoadOp::Load;
 			}
+
+			context.queue.submit(Some(encoder.finish()));
+
+			last_rendered_batch = Some(batch.make_key());
 		}
+
+		return last_rendered_batch;
 	}
 }

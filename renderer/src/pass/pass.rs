@@ -16,7 +16,6 @@ pub trait Pass {
 	fn encode(
 		&mut self,
 		deltatime: f64,
-		encoder: &mut wgpu::CommandEncoder,
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>,
 		view: &wgpu::TextureView

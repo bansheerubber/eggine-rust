@@ -165,12 +165,12 @@ impl Page {
 		return self.buffer.slice(node.offset..node.offset + node.size);
 	}
 
-	/// Writes a node into the page's buffer.
+	/// Writes a node into the page's buffer. Does not write the data immediately.
 	pub fn write_buffer(&self, node: &Node, data: &Vec<u8>) {
 		self.context.queue.write_buffer(&self.buffer, node.offset, data);
 	}
 
-	/// Writes a node into the page's buffer.
+	/// Writes a node into the page's buffer. Does not write the data immediately.
 	pub fn write_slice(&self, node: &Node, data: &[u8]) {
 		self.context.queue.write_buffer(&self.buffer, node.offset, data);
 	}

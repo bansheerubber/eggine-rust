@@ -155,11 +155,6 @@ impl<'a> Boss<'a> {
 				memory.recall();
 			}
 
-			// initialize command buffer
-			let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-				label: Some("draw call encoder"),
-			});
-
 			// encode passes
 			for pass in passes.iter_mut() {
 				let states = pass.render_states();
@@ -176,10 +171,8 @@ impl<'a> Boss<'a> {
 					})
 					.collect::<Vec<&wgpu::ComputePipeline>>();
 
-				pass.encode(deltatime, &mut encoder, &render_pass_pipelines, &compute_pass_pipelines, &view);
+				pass.encode(deltatime, &render_pass_pipelines, &compute_pass_pipelines, &view);
 			}
-
-			self.context.queue.submit(Some(encoder.finish()));
 		}
 		self.passes = passes; // give ownership of passes back to boss
 

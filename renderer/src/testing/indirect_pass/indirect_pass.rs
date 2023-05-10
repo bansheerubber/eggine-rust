@@ -703,7 +703,6 @@ impl Pass for IndirectPass<'_> {
 	fn encode(
 		&mut self,
 		deltatime: f64,
-		encoder: &mut wgpu::CommandEncoder,
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>,
 		view: &wgpu::TextureView
@@ -714,7 +713,6 @@ impl Pass for IndirectPass<'_> {
 		// break up batches depending on how much we're able to fill a virtual texture quad
 		let mut batches = IndirectPass::generate_batches(&self.memory, &self.batching_parameters);
 
-		// TODO as soon as multiple batches need processing, this will break. buffers need to be re-gened per pass
 		IndirectPass::buffer_generation(
 			&self.memory,
 			&mut self.allocated_memory,
@@ -723,7 +721,10 @@ impl Pass for IndirectPass<'_> {
 			deltatime
 		);
 
-		IndirectPass::depth_prepass(
+		let mut last_rendered_batch = None;
+
+		last_rendered_batch = IndirectPass::depth_prepass(
+			self.context.clone(),
 			&self.memory,
 			&mut self.allocated_memory,
 			&mut self.programs,
@@ -732,35 +733,44 @@ impl Pass for IndirectPass<'_> {
 			self.indices_page_written,
 			self.vertices_page_written,
 			&batches,
-			encoder,
-			render_pipelines
+			render_pipelines,
+			last_rendered_batch
 		);
 
 		// run occlusion compute shader
 		{
+			let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+				label: Some("depth-pyramid-pass-encoder"),
+			});
+
 			let depth_pyramid = self.allocated_memory.depth_pyramid.borrow();
 
 			let bind_groups = &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups;
 
-			let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-				label: Some("depth-pyramid-pass"),
-			});
+			{
+				let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+					label: Some("depth-pyramid-pass"),
+				});
 
-			compute_pass.set_pipeline(compute_pipelines[0]);
+				compute_pass.set_pipeline(compute_pipelines[0]);
 
-			for i in 0..bind_groups.len() {
-				let size = glam::Vec2::new(
-					depth_pyramid[i].width as f32,
-					depth_pyramid[i].height as f32
-				);
+				for i in 0..bind_groups.len() {
+					let size = glam::Vec2::new(
+						depth_pyramid[i].width as f32,
+						depth_pyramid[i].height as f32
+					);
 
-				compute_pass.set_push_constants(0, bytemuck::cast_slice(&[size]));
-				compute_pass.set_bind_group(0, &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups[i], &[]);
-				compute_pass.dispatch_workgroups((size.x / 16.0).ceil() as u32, (size.y / 16.0).ceil() as u32, 1);
+					compute_pass.set_push_constants(0, bytemuck::cast_slice(&[size]));
+					compute_pass.set_bind_group(0, &self.bind_groups.as_ref().unwrap().depth_pyramid_bind_groups[i], &[]);
+					compute_pass.dispatch_workgroups((size.x / 16.0).ceil() as u32, (size.y / 16.0).ceil() as u32, 1);
+				}
 			}
+
+			self.context.queue.submit(Some(encoder.finish()));
 		}
 
 		IndirectPass::g_buffer_pass(
+			self.context.clone(),
 			&self.memory,
 			&mut self.allocated_memory,
 			&mut self.programs,
@@ -769,11 +779,15 @@ impl Pass for IndirectPass<'_> {
 			self.indices_page_written,
 			self.vertices_page_written,
 			&batches,
-			encoder,
-			render_pipelines
+			render_pipelines,
+			last_rendered_batch
 		);
 
 		// combine the textures in the G-buffer. doesn't have its own file since this is only like 20 lines long
+		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+			label: Some("composite-pass-encoder"),
+		});
+
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 				color_attachments: &[
@@ -797,6 +811,8 @@ impl Pass for IndirectPass<'_> {
 
 			render_pass.execute_bundles([self.compositor_render_bundle.as_ref().unwrap()]);
 		}
+
+		self.context.queue.submit(Some(encoder.finish()));
 	}
 
 	/// Handle a window resize.

@@ -128,7 +128,6 @@ impl Pass for DepthVisualizer<'_> {
 	fn encode(
 		&mut self,
 		deltatime: f64,
-		encoder: &mut wgpu::CommandEncoder,
 		render_pipelines: &Vec<&wgpu::RenderPipeline>,
 		compute_pipelines: &Vec<&wgpu::ComputePipeline>,
 		view: &wgpu::TextureView
@@ -137,6 +136,10 @@ impl Pass for DepthVisualizer<'_> {
 			self.bind_group = None;
 			return;
 		}
+
+		let mut encoder = self.context.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+			label: Some("depth-visualizer-encoder"),
+		});
 
 		{
 			let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -151,7 +154,7 @@ impl Pass for DepthVisualizer<'_> {
 					}),
 				],
 				depth_stencil_attachment: None,
-				label: Some("depth-visualizer"),
+				label: Some("depth-visualizer-pass"),
 			});
 
 			render_pass.set_pipeline(&render_pipelines[0]);
@@ -164,6 +167,8 @@ impl Pass for DepthVisualizer<'_> {
 
 			render_pass.draw(0..3, 0..1);
 		}
+
+		self.context.queue.submit(Some(encoder.finish()));
 
 		self.timer += deltatime;
 		if self.timer > 1.0 { // increment `depth_pyramid_index` every second
