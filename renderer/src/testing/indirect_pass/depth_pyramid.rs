@@ -15,6 +15,12 @@ pub struct DepthPyramidTexture<'a> {
 impl<'a> IndirectPass<'a> {
 	pub fn create_depth_pyramid(&mut self) -> Vec<wgpu::BindGroup> {
 		let mut depth_pyramid = self.allocated_memory.depth_pyramid.borrow_mut();
+
+		// destroy old textures
+		for layer in depth_pyramid.iter() {
+			layer.texture.destroy();
+		}
+
 		depth_pyramid.clear();
 		let mut bind_groups = Vec::new();
 
