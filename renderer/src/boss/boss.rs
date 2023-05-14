@@ -141,6 +141,7 @@ impl<'a> Boss<'a> {
 		// steal passes for a second
 		let mut passes = std::mem::take(&mut self.passes);
 		{
+			let mut render_texture_usage = 0;
 			for pass in passes.iter().filter(|x| x.is_enabled()) {
 				let pass_states = pass.render_states();
 				for state in pass_states.iter() {
@@ -151,6 +152,8 @@ impl<'a> Boss<'a> {
 				for state in pass_states.iter() {
 					Boss::create_compute_pipeline(&self.context.device, state, &mut self.state_to_compute_pipeline);
 				}
+
+				render_texture_usage += pass.get_render_texture_usage();
 			}
 
 			// write data into buffers
@@ -161,6 +164,7 @@ impl<'a> Boss<'a> {
 				});
 
 				let mut memory = self.memory.write().unwrap();
+				memory.set_render_texture_usage(render_texture_usage);
 				memory.complete_write_buffers(&mut memory_encoder);
 				self.context.queue.submit(Some(memory_encoder.finish()));
 				memory.recall();

@@ -196,6 +196,11 @@ async fn main() {
 							pass.enable();
 						}
 					},
+					Some(winit::event::VirtualKeyCode::M) => { // print memory
+						let memory = boss.get_memory();
+						let memory = memory.read().unwrap();
+						println!("{}", memory);
+					},
 					_ => {},
 				}
 			},

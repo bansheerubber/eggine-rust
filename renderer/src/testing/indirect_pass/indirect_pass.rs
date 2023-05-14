@@ -531,13 +531,16 @@ impl<'a> IndirectPass<'a> {
 		let specular_view = specular_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		RenderTextures {
-			_depth_texture: depth_texture,
+			depth_texture,
 			depth_view,
 			diffuse_format,
+			diffuse_texture,
 			diffuse_view,
 			normal_format,
+			normal_texture,
 			normal_view,
 			specular_format,
+			specular_texture,
 			specular_view,
 			window_height: config.height,
 			window_width: config.width,
@@ -824,6 +827,18 @@ impl Pass for IndirectPass<'_> {
 
 		self.render_textures.destroy();
 		self.render_textures = IndirectPass::create_render_textures(&self.context, config);
+	}
+
+	/// Gets the memory usage of the pass' render textures.
+	fn get_render_texture_usage(&self) -> u64 {
+		let pixels = self.render_textures.window_height * self.render_textures.window_width;
+
+		let mut total = pixels * 4; // diffuse texture
+		total += pixels * 4; // specular texture
+		total += pixels * 4; // normal texture
+		total += pixels * 4; // depth texture
+
+		total as u64
 	}
 
 	/// Recreate bind groups.

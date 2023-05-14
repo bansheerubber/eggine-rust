@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::num::{ NonZeroU32, NonZeroU64,  };
 use std::rc::Rc;
+
+use byte_unit::Byte;
 
 use crate::boss::WGPUContext;
 
@@ -21,8 +24,12 @@ pub struct Memory<'a> {
 	pages: HashMap<PageUUID, Page>,
 	/// Data that the memory manager will write to buffers the next renderer tick.
 	queued_writes: Vec<(Vec<u8>, PageUUID, Node)>,
+	/// Memory usage of render textures, used for diagnostics.
+	render_texture_usage: u64,
 	/// The staging belt used for uploading data to the GPU.
 	staging_belt: Option<wgpu::util::StagingBelt>,
+	/// The size of the staging belt.
+	staging_belt_size: u64,
 	/// The texture array stored on the GPU.
 	texture_array: wgpu::Texture,
 	/// The descriptor for the texture.
@@ -57,6 +64,8 @@ impl<'a> Memory<'a> {
 
 		let texture = context.device.create_texture(&texture_descriptor);
 
+		let staging_belt_size = 16_000_000;
+
 		Memory {
 			texture_array_view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
 
@@ -65,7 +74,9 @@ impl<'a> Memory<'a> {
 			none_texture: None,
 			pages: HashMap::new(),
 			queued_writes: Vec::new(),
-			staging_belt: Some(wgpu::util::StagingBelt::new(16_000_000)),
+			render_texture_usage: 0,
+			staging_belt: Some(wgpu::util::StagingBelt::new(staging_belt_size)),
+			staging_belt_size,
 			texture_array: texture,
 			texture_array_descriptor: texture_descriptor,
 			texture_pager: textures::GPUPager::new(layer_count as usize, texture_size as u16),
@@ -200,6 +211,11 @@ impl<'a> Memory<'a> {
 		&mut self.texture_pager
 	}
 
+	/// Tells us how much the render textures in the passes are using.
+	pub fn set_render_texture_usage(&mut self, usage: u64) {
+		self.render_texture_usage = usage;
+	}
+
 	/// Invoked by the renderer at the start of every tick, and writes all queued data to buffers.
 	pub(crate) fn complete_write_buffers(&mut self, encoder: &mut wgpu::CommandEncoder) {
 		// steal the staging belt
@@ -229,5 +245,64 @@ impl<'a> Memory<'a> {
 	/// Invoked by the renderer after the `complete_write_buffers` commands has been submitted into the queue.
 	pub(crate) fn recall(&mut self) {
 		self.staging_belt.as_mut().unwrap().recall();
+	}
+}
+
+impl std::fmt::Display for Memory<'_> {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut total_used = {
+			formatter.write_str("page readout:")?;
+			let mut total_size = 0;
+			for page in self.pages.values() {
+				formatter.write_char('\n')?;
+				formatter.write_char('\t')?;
+				page.fmt(formatter);
+
+				total_size += page.get_size();
+			}
+
+			let bytes = Byte::from_bytes(total_size.into());
+			formatter.write_fmt(format_args!("\ntotal usage: {}", bytes.get_appropriate_unit(false).to_string()))?;
+
+			total_size
+		};
+
+		total_used += {
+			formatter.write_str("\n-----")?;
+
+			let texture_size = self.texture_array.size();
+			let pixels = texture_size.width * texture_size.height * texture_size.depth_or_array_layers;
+
+			let bytes = Byte::from_bytes((pixels * 4).into());
+			formatter.write_fmt(format_args!("\ntexture array usage: {}", bytes.get_appropriate_unit(false).to_string()))?;
+
+			(pixels * 4) as u64
+		};
+
+		total_used += {
+			formatter.write_str("\n-----")?;
+
+			let bytes = Byte::from_bytes(self.render_texture_usage.into());
+			formatter.write_fmt(format_args!("\nrender texture usage: {}", bytes.get_appropriate_unit(false).to_string()))?;
+
+			self.render_texture_usage
+		};
+
+		total_used += {
+			formatter.write_str("\n-----")?;
+
+			let bytes = Byte::from_bytes((self.staging_belt_size).into());
+			formatter.write_fmt(format_args!("\nstaging belt usage: {}", bytes.get_appropriate_unit(false).to_string()))?;
+
+			self.staging_belt_size
+		};
+
+		formatter.write_str("\n-----")?;
+
+
+		let bytes = Byte::from_bytes((total_used).into());
+		formatter.write_fmt(format_args!("\ntotal GPU usage: {}", bytes.get_appropriate_unit(false).to_string()))?;
+
+		Ok(())
 	}
 }

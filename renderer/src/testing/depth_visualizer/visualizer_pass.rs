@@ -194,6 +194,11 @@ impl Pass for DepthVisualizer<'_> {
 
 	}
 
+	/// Gets the memory usage of the pass' render textures.
+	fn get_render_texture_usage(&self) -> u64 {
+		0
+	}
+
 	/// Recreate bind groups.
 	fn create_bind_groups(
 		&mut self,

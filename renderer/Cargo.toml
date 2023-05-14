@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.69"
+byte-unit = "4.0.19"
 bytemuck = { features = ["derive"], version = "1.13.0" }
 carton = { path = "../carton" }
 fbxcel-dom = "0.0.10"

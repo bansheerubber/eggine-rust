@@ -1,3 +1,4 @@
+use byte_unit::Byte;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
@@ -20,6 +21,8 @@ pub struct Page {
 	context: Rc<WGPUContext>,
 	/// UUID for the `Memory` that this page belongs to.
 	index: PageUUID,
+	/// Name of the page.
+	name: String,
 	/// UUID for the next allocated node.
 	next_node_index: u64,
 	nodes: VecDeque<Node>,
@@ -45,6 +48,7 @@ impl Page {
 			}),
 			context,
 			index: 0,
+			name: name.to_string(),
 			next_node_index: 1,
 			nodes: vec![Node { // initialize with empty node with thet size of the entire page
 				align: 1,
@@ -185,6 +189,11 @@ impl Page {
 		self.context.queue.write_buffer(&self.buffer, node.offset + offset, data);
 	}
 
+	/// Get the size of the page.
+	pub fn get_size(&self) -> u64 {
+		self.size
+	}
+
 	/// Combines adjacent unused nodes into single nodes.
 	fn defragment(&mut self, index: usize) {
 		// defragment unused nodes
@@ -264,5 +273,12 @@ impl Page {
 			println!("{:#?}", self);
 			panic!("Page expected size '{}' does not match node purported size '{}'", self.size, total_size);
 		}
+	}
+}
+
+impl std::fmt::Display for Page {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let bytes = Byte::from_bytes(self.size.into());
+		formatter.write_fmt(format_args!("Page '{}' ({})", self.name, bytes.get_appropriate_unit(false).to_string()))
 	}
 }

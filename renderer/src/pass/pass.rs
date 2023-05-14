@@ -24,6 +24,9 @@ pub trait Pass {
 	/// Callback for when the `Boss` is resized.
 	fn resize(&mut self, config: &wgpu::SurfaceConfiguration);
 
+	/// Gets the memory usage of the pass' render textures.
+	fn get_render_texture_usage(&self) -> u64;
+
 	/// Callback for when the `Boss` thinks bind groups need to be re-created.
 	fn create_bind_groups(
 		&mut self,
