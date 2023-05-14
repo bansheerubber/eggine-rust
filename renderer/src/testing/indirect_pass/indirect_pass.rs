@@ -838,6 +838,11 @@ impl Pass for IndirectPass<'_> {
 		total += pixels * 4; // normal texture
 		total += pixels * 4; // depth texture
 
+		let depth_pyramid = self.allocated_memory.depth_pyramid.borrow();
+		for layer in depth_pyramid.iter() {
+			total += layer.width * layer.height * 4;
+		}
+
 		total as u64
 	}
 
