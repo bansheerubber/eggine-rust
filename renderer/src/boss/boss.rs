@@ -52,7 +52,16 @@ impl<'a> Boss<'a> {
 		let mut limits = wgpu::Limits::default()
 			.using_resolution(adapter.limits());
 
-		limits.max_push_constant_size = 256;
+		let expected_push_constant_size = 256;
+		if adapter.limits().max_push_constant_size != expected_push_constant_size {
+			println!(
+				"Did not get expected push constant size of {}, got {} instead",
+				expected_push_constant_size,
+				adapter.limits().max_push_constant_size
+			);
+		}
+
+		limits.max_push_constant_size = adapter.limits().max_push_constant_size;
 
 		// get the device and queue
 		let (device, queue) = adapter
