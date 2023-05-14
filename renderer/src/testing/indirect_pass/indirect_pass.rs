@@ -822,6 +822,7 @@ impl Pass for IndirectPass<'_> {
 	fn resize(&mut self, config: &wgpu::SurfaceConfiguration) {
 		self.compositor_render_bundle = None; // invalidate the render bundle
 
+		self.render_textures.destroy();
 		self.render_textures = IndirectPass::create_render_textures(&self.context, config);
 	}
 
